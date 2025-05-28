@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+ENV/
+
+# Django
+*.log
+*.pot
+*.pyc
+db.sqlite3
+media/
+staticfiles/
+
+# VSCode
+.vscode/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Pip
+pip-log.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Migrations (optional, if you don't want to version control them)
+# **/migrations/*.py
+# **/migrations/*.pyc
+
+# mypy
+.mypy_cache/
+
+# pytest + coverage
+.cache/
+coverage.xml
+
+# IDEs
+.idea/
+*.iml
+
+# Git
+.git/
+
+# Build artifacts
+dist/
+build/
+*.whl
+*.tar.gz
+
+# Ignore egg-info folder
+*.egg-info/

@@ -1,4 +1,4 @@
-from registry import register_hook
+from .registry import register_hook
 
 
 def hook(event, model=None, condition=None, priority=0):

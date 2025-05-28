@@ -11,6 +11,7 @@ class HookCondition:
     def __invert__(self):
         return NotCondition(self)
 
+
 class WhenFieldHasChanged(HookCondition):
     def __init__(self, field, has_changed=True):
         self.field = field
@@ -19,7 +20,10 @@ class WhenFieldHasChanged(HookCondition):
     def check(self, instance, original_instance=None):
         if not original_instance:
             return False
-        return (getattr(instance, self.field) != getattr(original_instance, self.field)) == self.has_changed
+        return (
+            getattr(instance, self.field) != getattr(original_instance, self.field)
+        ) == self.has_changed
+
 
 class AndCondition(HookCondition):
     def __init__(self, cond1, cond2):
@@ -27,7 +31,10 @@ class AndCondition(HookCondition):
         self.cond2 = cond2
 
     def check(self, instance, original_instance=None):
-        return self.cond1.check(instance, original_instance) and self.cond2.check(instance, original_instance)
+        return self.cond1.check(instance, original_instance) and self.cond2.check(
+            instance, original_instance
+        )
+
 
 class OrCondition(HookCondition):
     def __init__(self, cond1, cond2):
@@ -35,7 +42,10 @@ class OrCondition(HookCondition):
         self.cond2 = cond2
 
     def check(self, instance, original_instance=None):
-        return self.cond1.check(instance, original_instance) or self.cond2.check(instance, original_instance)
+        return self.cond1.check(instance, original_instance) or self.cond2.check(
+            instance, original_instance
+        )
+
 
 class NotCondition(HookCondition):
     def __init__(self, cond):
