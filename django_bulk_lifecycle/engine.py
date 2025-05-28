@@ -1,4 +1,4 @@
-from .registry import get_hooks
+from django_bulk_lifecycle.registry import get_hooks
 
 
 def run(model_cls, event, new_instances, original_instances=None, ctx=None):

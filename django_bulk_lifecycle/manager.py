@@ -1,17 +1,17 @@
+from django.db import models
 from django.db import transaction
-from django_lifecycle import AFTER_DELETE
-from django_lifecycle import BEFORE_DELETE
-from django_lifecycle import BEFORE_UPDATE
-from queryable_properties.managers import QueryablePropertiesManager
+from django_bulk_lifecycle import AFTER_DELETE
+from django_bulk_lifecycle import BEFORE_DELETE
+from django_bulk_lifecycle import BEFORE_UPDATE
 
-from . import engine
-from .constants import AFTER_INSERT
-from .constants import AFTER_UPDATE
-from .constants import BEFORE_INSERT
-from .context import TriggerContext
+from django_bulk_lifecycle import engine
+from django_bulk_lifecycle.constants import AFTER_INSERT
+from django_bulk_lifecycle.constants import AFTER_UPDATE
+from django_bulk_lifecycle.constants import BEFORE_INSERT
+from django_bulk_lifecycle.context import TriggerContext
 
 
-class BulkLifecycleManager(QueryablePropertiesManager):
+class BulkLifecycleManager(models.Manager):
     CHUNK_SIZE = 200
 
     @transaction.atomic
