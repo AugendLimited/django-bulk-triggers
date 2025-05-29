@@ -2,6 +2,9 @@ class HookCondition:
     def check(self, instance, original_instance=None):
         raise NotImplementedError
 
+    def __call__(self, instance, original_instance=None):
+        return self.check(instance, original_instance)
+
     def __and__(self, other):
         return AndCondition(self, other)
 
