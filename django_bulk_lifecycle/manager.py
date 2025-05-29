@@ -10,10 +10,14 @@ from django_bulk_lifecycle.constants import (
     BEFORE_UPDATE,
 )
 from django_bulk_lifecycle.context import TriggerContext
+from django_bulk_lifecycle.queryset import LifecycleQuerySet
 
 
 class BulkLifecycleManager(models.Manager):
     CHUNK_SIZE = 200
+
+    def get_queryset(self):
+        return LifecycleQuerySet(self.model, using=self._db)
 
     @transaction.atomic
     def bulk_update(self, objs, fields, batch_size=None, bypass_hooks=False):

@@ -1,4 +1,4 @@
-from django_bulk_lifecycle.registry import register_hook
+from django_bulk_lifecycle.registry import get_hooks, register_hook
 
 
 class TriggerHandlerMeta(type):
@@ -11,4 +11,21 @@ class TriggerHandlerMeta(type):
 
 
 class TriggerHandler(metaclass=TriggerHandlerMeta):
-    pass
+    @classmethod
+    def handle(
+        cls,
+        event: str,
+        model: type,
+        *,
+        new_records: list = None,
+        old_records: list = None,
+        **kwargs
+    ) -> None:
+        """
+        Dispatch all registered hooks for (model, event), in priority order,
+        passing along new_records/old_records and any extra kwargs.
+        """
+        hooks = get_hooks(model, event)  
+        for func, condition, priority in hooks:
+            if condition is None or condition(new_records=new_records, old_records=old_records):
+                func(new_records=new_records, old_records=old_records, **kwargs)

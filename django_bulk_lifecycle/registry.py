@@ -1,14 +1,14 @@
-_registry = {}
+from collections.abc import Callable
 
 
-def register_hook(model_cls, event, func, condition=None, priority=0):
-    _registry.setdefault(model_cls, {}).setdefault(event, []).append(
-        (priority, func, condition)
-    )
-    _registry[model_cls][event].sort(key=lambda x: x[0])  # sort by priority
+_hooks: dict[tuple[type, str], list[tuple[callable, Callable, int]]] = {}
 
 
-def get_hooks(model_cls, event):
-    return [
-        (func, cond) for _, func, cond in _registry.get(model_cls, {}).get(event, [])
-    ]
+def register_hook(model, event, func, condition, priority):
+    key = (model, event)
+    _hooks.setdefault(key, []).append((func, condition, priority))
+    _hooks[key].sort(key=lambda x: x[2])
+
+
+def get_hooks(model, event):
+    return _hooks.get((model, event), [])
