@@ -12,6 +12,23 @@ class HookCondition:
         return NotCondition(self)
 
 
+class WhenFieldValueIs(HookCondition):
+    def __init__(self, field, expected_value, only_on_change=False):
+        self.field = field
+        self.expected_value = expected_value
+        self.only_on_change = only_on_change
+
+    def check(self, instance, original_instance=None):
+        current = getattr(instance, self.field)
+        if self.only_on_change:
+            if original_instance is None:
+                return False
+            previous = getattr(original_instance, self.field)
+            return previous != self.expected_value and current == self.expected_value
+        else:
+            return current == self.expected_value
+
+
 class WhenFieldHasChanged(HookCondition):
     def __init__(self, field, has_changed=True):
         self.field = field
