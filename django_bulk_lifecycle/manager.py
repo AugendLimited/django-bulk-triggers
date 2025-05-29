@@ -3,10 +3,10 @@ from django.db import models, transaction
 from django_bulk_lifecycle import engine
 from django_bulk_lifecycle.constants import (
     AFTER_DELETE,
-    AFTER_INSERT,
+    AFTER_CREATE,
     AFTER_UPDATE,
     BEFORE_DELETE,
-    BEFORE_INSERT,
+    BEFORE_CREATE,
     BEFORE_UPDATE,
 )
 from django_bulk_lifecycle.context import TriggerContext
@@ -60,7 +60,7 @@ class BulkLifecycleManager(models.Manager):
 
         if not bypass_hooks:
             ctx = TriggerContext(model_cls)
-            engine.run(model_cls, BEFORE_INSERT, objs, ctx=ctx)
+            engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
@@ -71,7 +71,7 @@ class BulkLifecycleManager(models.Manager):
             )
 
         if not bypass_hooks:
-            engine.run(model_cls, AFTER_INSERT, result, ctx=ctx)
+            engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
 
         return result
 

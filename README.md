@@ -46,7 +46,7 @@ class AccountTriggerHandler(TriggerHandler):
 
 ## 🛠 Supported Lifecycle Events
 
-- `BEFORE_INSERT`, `AFTER_INSERT`
+- `BEFORE_CREATE`, `AFTER_CREATE`
 - `BEFORE_UPDATE`, `AFTER_UPDATE`
 - `BEFORE_DELETE`, `AFTER_DELETE`
 
@@ -54,7 +54,7 @@ class AccountTriggerHandler(TriggerHandler):
 
 Django’s `bulk_` methods bypass signals and `save()`. This package fills that gap with:
 
-- Triggers that behave consistently across inserts/updates/deletes
+- Triggers that behave consistently across creates/updates/deletes
 - Scalable performance via chunking (default 200)
 - Support for `@hook` decorators and centralized trigger classes
 
@@ -64,7 +64,7 @@ Django’s `bulk_` methods bypass signals and `save()`. This package fills that 
 # Calls AFTER_UPDATE hooks automatically
 Account.objects.bulk_update(accounts, ['balance'])
 
-# Triggers BEFORE_INSERT and AFTER_INSERT
+# Triggers BEFORE_CREATE and AFTER_CREATE
 Account.objects.bulk_create(accounts)
 ```
 

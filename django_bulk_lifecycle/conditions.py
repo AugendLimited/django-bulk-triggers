@@ -42,6 +42,8 @@ class WhenFieldValueIs(HookCondition):
 
     def check(self, instance, original_instance=None):
         current = getattr(instance, self.field)
+        print(f"[DEBUG] {self.field} current={current!r}, "
+              f"original={(getattr(original_instance, self.field) if original_instance else None)!r}")
         if self.only_on_change:
             if original_instance is None:
                 return False
