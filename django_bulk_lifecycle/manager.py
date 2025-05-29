@@ -1,13 +1,14 @@
-from django.db import models
-from django.db import transaction
-from django_bulk_lifecycle import AFTER_DELETE
-from django_bulk_lifecycle import BEFORE_DELETE
-from django_bulk_lifecycle import BEFORE_UPDATE
+from django.db import models, transaction
 
 from django_bulk_lifecycle import engine
-from django_bulk_lifecycle.constants import AFTER_INSERT
-from django_bulk_lifecycle.constants import AFTER_UPDATE
-from django_bulk_lifecycle.constants import BEFORE_INSERT
+from django_bulk_lifecycle.constants import (
+    AFTER_DELETE,
+    AFTER_INSERT,
+    AFTER_UPDATE,
+    BEFORE_DELETE,
+    BEFORE_INSERT,
+    BEFORE_UPDATE,
+)
 from django_bulk_lifecycle.context import TriggerContext
 
 
@@ -22,7 +23,9 @@ class BulkLifecycleManager(models.Manager):
         model_cls = self.model
 
         if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(f"bulk_update expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}")
+            raise TypeError(
+                f"bulk_update expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
+            )
 
         if not bypass_hooks:
             originals = list(model_cls.objects.filter(pk__in=[obj.pk for obj in objs]))
@@ -39,11 +42,15 @@ class BulkLifecycleManager(models.Manager):
         return objs
 
     @transaction.atomic
-    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, bypass_hooks=False):
+    def bulk_create(
+        self, objs, batch_size=None, ignore_conflicts=False, bypass_hooks=False
+    ):
         model_cls = self.model
 
         if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}")
+            raise TypeError(
+                f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
+            )
 
         result = []
 
@@ -53,7 +60,11 @@ class BulkLifecycleManager(models.Manager):
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
-            result.extend(super().bulk_create(chunk, batch_size=batch_size, ignore_conflicts=ignore_conflicts))
+            result.extend(
+                super().bulk_create(
+                    chunk, batch_size=batch_size, ignore_conflicts=ignore_conflicts
+                )
+            )
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_INSERT, result, ctx=ctx)
@@ -68,7 +79,9 @@ class BulkLifecycleManager(models.Manager):
         model_cls = self.model
 
         if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(f"bulk_delete expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}")
+            raise TypeError(
+                f"bulk_delete expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
+            )
 
         ctx = TriggerContext(model_cls)
 
@@ -105,7 +118,10 @@ class BulkLifecycleManager(models.Manager):
     @transaction.atomic
     def save(self, obj):
         if obj.pk:
-            self.bulk_update([obj], fields=[field.name for field in obj._meta.fields if field.name != "id"])
+            self.bulk_update(
+                [obj],
+                fields=[field.name for field in obj._meta.fields if field.name != "id"],
+            )
         else:
             self.bulk_create([obj])
         return obj
