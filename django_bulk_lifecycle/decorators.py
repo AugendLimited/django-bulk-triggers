@@ -1,9 +1,12 @@
-from django_bulk_lifecycle.registry import register_hook
+def hook(event, *, model, condition=None, priority=0):
+    """
+    Only annotate the method with its hook metadata.
+    The TriggerHandler metaclass (or manual ready() registration)
+    will pick this up later.
+    """
 
-
-def hook(event, model=None, condition=None, priority=0):
-    def decorator(func):
-        register_hook(model, event, func, condition, priority)
-        return func
+    def decorator(fn):
+        fn.lifecycle_hook = (model, event, condition, priority)
+        return fn
 
     return decorator

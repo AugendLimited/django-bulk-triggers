@@ -1,13 +1,14 @@
 from collections.abc import Callable
 
+_hooks: dict[tuple[type, str], list[tuple[type, str, Callable, int]]] = {}
 
-_hooks: dict[tuple[type, str], list[tuple[callable, Callable, int]]] = {}
 
-
-def register_hook(model, event, func, condition, priority):
+def register_hook(model, event, handler_cls, method_name, condition, priority):
     key = (model, event)
-    _hooks.setdefault(key, []).append((func, condition, priority))
-    _hooks[key].sort(key=lambda x: x[2])
+    hooks = _hooks.setdefault(key, [])
+    hooks.append((handler_cls, method_name, condition, priority))
+    # keep sorted by priority
+    hooks.sort(key=lambda x: x[3])
 
 
 def get_hooks(model, event):

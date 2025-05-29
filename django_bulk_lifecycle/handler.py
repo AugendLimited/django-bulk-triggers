@@ -2,12 +2,22 @@ from django_bulk_lifecycle.registry import get_hooks, register_hook
 
 
 class TriggerHandlerMeta(type):
-    def __new__(cls, name, bases, dct):
-        for attr in dct.values():
-            if hasattr(attr, "lifecycle_hook"):
-                model_cls, event, condition, priority = attr.lifecycle_hook
-                register_hook(model_cls, event, attr, condition, priority)
-        return super().__new__(cls, name, bases, dct)
+    def __new__(mcs, name, bases, namespace):
+        cls = super().__new__(mcs, name, bases, namespace)
+
+        for method_name, method in namespace.items():
+            if hasattr(method, "lifecycle_hook"):
+                model_cls, event, condition, priority = method.lifecycle_hook
+
+                register_hook(
+                    model=model_cls,
+                    event=event,
+                    handler_cls=cls,
+                    method_name=method_name,
+                    condition=condition,
+                    priority=priority,
+                )
+        return cls
 
 
 class TriggerHandler(metaclass=TriggerHandlerMeta):
@@ -22,12 +32,17 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
         **kwargs,
     ) -> None:
         """
-        Dispatch all registered hooks for (model, event), in priority order,
-        passing along new_records/old_records and any extra kwargs.
+        Dispatch all registered hooks for (model, event),
+        instantiating each handler via its DI-wired __init__.
         """
-        hooks = get_hooks(model, event)
-        for func, condition, priority in hooks:
-            if condition is None or condition(
+        for handler_cls, method_name, condition, priority in get_hooks(model, event):
+            if condition is not None and not condition(
                 new_records=new_records, old_records=old_records
             ):
-                func(new_records=new_records, old_records=old_records, **kwargs)
+                continue
+
+            handler: TriggerHandler = handler_cls()
+
+            bound = getattr(handler, method_name)
+
+            bound(new_records=new_records, old_records=old_records, **kwargs)
