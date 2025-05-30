@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 class HookCondition:
     def check(self, instance, original_instance=None):
         raise NotImplementedError
@@ -23,8 +27,10 @@ class WhenFieldValueIsNot(HookCondition):
 
     def check(self, instance, original_instance=None):
         current = getattr(instance, self.field)
-        print(f"[DEBUG] {self.field} current={current!r}, "
-              f"original={(getattr(original_instance, self.field) if original_instance else None)!r}")
+        logger.info("%s current=%r, original=%r",
+             self.field,
+             current,
+             getattr(original_instance, self.field, None))
         if self.only_on_change:
             if original_instance is None:
                 return False
@@ -44,8 +50,10 @@ class WhenFieldValueIs(HookCondition):
 
     def check(self, instance, original_instance=None):
         current = getattr(instance, self.field)
-        print(f"[DEBUG] {self.field} current={current!r}, "
-              f"original={(getattr(original_instance, self.field) if original_instance else None)!r}")
+        logger.info("%s current=%r, original=%r",
+             self.field,
+             current,
+             getattr(original_instance, self.field, None))
         if self.only_on_change:
             if original_instance is None:
                 return False
