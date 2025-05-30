@@ -1,9 +1,12 @@
 from collections.abc import Callable
+from typing import Union
+
+from django_bulk_lifecycle.priority import Priority
 
 _hooks: dict[tuple[type, str], list[tuple[type, str, Callable, int]]] = {}
 
 
-def register_hook(model, event, handler_cls, method_name, condition, priority):
+def register_hook(model, event, handler_cls, method_name, condition, priority: Union[int, Priority]):
     key = (model, event)
     hooks = _hooks.setdefault(key, [])
     hooks.append((handler_cls, method_name, condition, priority))

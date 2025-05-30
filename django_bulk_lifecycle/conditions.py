@@ -2,6 +2,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class HookCondition:
     def check(self, instance, original_instance=None):
         raise NotImplementedError
@@ -27,17 +28,15 @@ class WhenFieldValueIsNot(HookCondition):
 
     def check(self, instance, original_instance=None):
         current = getattr(instance, self.field)
-        logger.info("%s current=%r, original=%r",
-             self.field,
-             current,
-             getattr(original_instance, self.field, None))
+        logger.debug("%s current=%r, original=%r",
+                     self.field,
+                     current,
+                     getattr(original_instance, self.field, None))
         if self.only_on_change:
             if original_instance is None:
                 return False
             previous = getattr(original_instance, self.field)
-            return (
-                previous == self.unexpected_value and current != self.unexpected_value
-            )
+            return previous == self.unexpected_value and current != self.unexpected_value
         else:
             return current != self.unexpected_value
 
@@ -50,10 +49,10 @@ class WhenFieldValueIs(HookCondition):
 
     def check(self, instance, original_instance=None):
         current = getattr(instance, self.field)
-        logger.info("%s current=%r, original=%r",
-             self.field,
-             current,
-             getattr(original_instance, self.field, None))
+        logger.debug("%s current=%r, original=%r",
+                     self.field,
+                     current,
+                     getattr(original_instance, self.field, None))
         if self.only_on_change:
             if original_instance is None:
                 return False
@@ -71,9 +70,28 @@ class WhenFieldHasChanged(HookCondition):
     def check(self, instance, original_instance=None):
         if not original_instance:
             return False
-        return (
-            getattr(instance, self.field) != getattr(original_instance, self.field)
-        ) == self.has_changed
+        return (getattr(instance, self.field) != getattr(original_instance, self.field)) == self.has_changed
+
+
+class WhenFieldValueWas(HookCondition):
+    def __init__(self, field, expected_value, only_on_change=False):
+        """
+        Check if a field's original value was `expected_value`.
+        If only_on_change is True, only return True when the field has changed away from that value.
+        """
+        self.field = field
+        self.expected_value = expected_value
+        self.only_on_change = only_on_change
+
+    def check(self, instance, original_instance=None):
+        if original_instance is None:
+            return False
+        previous = getattr(original_instance, self.field)
+        if self.only_on_change:
+            current = getattr(instance, self.field)
+            return previous == self.expected_value and current != self.expected_value
+        else:
+            return previous == self.expected_value
 
 
 class AndCondition(HookCondition):
@@ -82,9 +100,7 @@ class AndCondition(HookCondition):
         self.cond2 = cond2
 
     def check(self, instance, original_instance=None):
-        return self.cond1.check(instance, original_instance) and self.cond2.check(
-            instance, original_instance
-        )
+        return self.cond1.check(instance, original_instance) and self.cond2.check(instance, original_instance)
 
 
 class OrCondition(HookCondition):
@@ -93,9 +109,7 @@ class OrCondition(HookCondition):
         self.cond2 = cond2
 
     def check(self, instance, original_instance=None):
-        return self.cond1.check(instance, original_instance) or self.cond2.check(
-            instance, original_instance
-        )
+        return self.cond1.check(instance, original_instance) or self.cond2.check(instance, original_instance)
 
 
 class NotCondition(HookCondition):
