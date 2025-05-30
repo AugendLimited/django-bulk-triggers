@@ -94,6 +94,23 @@ class WhenFieldValueWas(HookCondition):
             return previous == self.expected_value
 
 
+class WhenFieldValueChangesTo(HookCondition):
+    def __init__(self, field, expected_value):
+        """
+        Check if a field's value has changed to `expected_value`.
+        Only returns True when original value != expected_value and current value == expected_value.
+        """
+        self.field = field
+        self.expected_value = expected_value
+
+    def check(self, instance, original_instance=None):
+        if original_instance is None:
+            return False
+        previous = getattr(original_instance, self.field)
+        current = getattr(instance, self.field)
+        return previous != self.expected_value and current == self.expected_value
+
+
 class AndCondition(HookCondition):
     def __init__(self, cond1, cond2):
         self.cond1 = cond1
