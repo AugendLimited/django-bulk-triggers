@@ -12,36 +12,37 @@ class TriggerHandlerMeta(type):
     def __new__(mcs, name, bases, namespace):
         cls = super().__new__(mcs, name, bases, namespace)
         for method_name, method in namespace.items():
-            if hasattr(method, "lifecycle_hook"):
-                model_cls, event, condition, priority = method.lifecycle_hook
-                key = (model_cls, event, cls, method_name)
-                if key in TriggerHandlerMeta._registered:
-                    logger.debug(
-                        "Skipping duplicate registration for %s.%s on %s.%s",
-                        cls.__name__,
-                        method_name,
-                        model_cls.__name__,
-                        event,
-                    )
-                else:
-                    register_hook(
-                        model=model_cls,
-                        event=event,
-                        handler_cls=cls,
-                        method_name=method_name,
-                        condition=condition,
-                        priority=priority,
-                    )
-                    TriggerHandlerMeta._registered.add(key)
-                    logger.debug(
-                        "Registered hook %s.%s → %s.%s (cond=%r, prio=%s)",
-                        model_cls.__name__,
-                        event,
-                        cls.__name__,
-                        method_name,
-                        condition,
-                        priority,
-                    )
+            if hasattr(method, "lifecycle_hooks"):
+                for model_cls, event, condition, priority in method.lifecycle_hooks:
+                    key = (model_cls, event, cls, method_name)
+                    if key in TriggerHandlerMeta._registered:
+                        logger.debug(
+                            "Skipping duplicate registration for %s.%s on %s.%s",
+                            cls.__name__,
+                            method_name,
+                            model_cls.__name__,
+                            event,
+                        )
+                    else:
+                        register_hook(
+                            model=model_cls,
+                            event=event,
+                            handler_cls=cls,
+                            method_name=method_name,
+                            condition=condition,
+                            priority=priority,
+                        )
+                        TriggerHandlerMeta._registered.add(key)
+                        logger.debug(
+                            "Registered hook %s.%s → %s.%s (cond=%r, prio=%s)",
+                            model_cls.__name__,
+                            event,
+                            cls.__name__,
+                            method_name,
+                            condition,
+                            priority,
+                        )
+
         return cls
 
 
