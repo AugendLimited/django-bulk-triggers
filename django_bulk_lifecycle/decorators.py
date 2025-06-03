@@ -1,6 +1,10 @@
-def hook(event, *, model, condition=None, priority=0):
+from django_bulk_lifecycle.enums import DEFAULT_PRIORITY
+
+
+def hook(event, *, model, condition=None, priority=DEFAULT_PRIORITY):
     """
     Decorator to annotate a method with multiple lifecycle hook registrations.
+    If no priority is provided, uses Priority.NORMAL (50).
     """
 
     def decorator(fn):
