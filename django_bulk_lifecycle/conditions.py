@@ -3,6 +3,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def resolve_dotted_attr(instance, dotted_path):
+    """
+    Recursively resolve a dotted attribute path, e.g., "type.category".
+    """
+    for attr in dotted_path.split("."):
+        if instance is None:
+            return None
+        instance = getattr(instance, attr, None)
+    return instance
+
+
 class HookCondition:
     def check(self, instance, original_instance=None):
         raise NotImplementedError
@@ -27,17 +38,17 @@ class WhenFieldValueIsNot(HookCondition):
         self.only_on_change = only_on_change
 
     def check(self, instance, original_instance=None):
-        current = getattr(instance, self.field)
+        current = resolve_dotted_attr(instance, self.field)
         logger.debug(
             "%s current=%r, original=%r",
             self.field,
             current,
-            getattr(original_instance, self.field, None),
+            resolve_dotted_attr(original_instance, self.field) if original_instance else None,
         )
         if self.only_on_change:
             if original_instance is None:
                 return False
-            previous = getattr(original_instance, self.field)
+            previous = resolve_dotted_attr(original_instance, self.field)
             return previous == self.value and current != self.value
         else:
             return current != self.value
@@ -50,17 +61,17 @@ class WhenFieldValueIs(HookCondition):
         self.only_on_change = only_on_change
 
     def check(self, instance, original_instance=None):
-        current = getattr(instance, self.field)
+        current = resolve_dotted_attr(instance, self.field)
         logger.debug(
             "%s current=%r, original=%r",
             self.field,
             current,
-            getattr(original_instance, self.field, None),
+            resolve_dotted_attr(original_instance, self.field) if original_instance else None,
         )
         if self.only_on_change:
             if original_instance is None:
                 return False
-            previous = getattr(original_instance, self.field)
+            previous = resolve_dotted_attr(original_instance, self.field)
             return previous != self.value and current == self.value
         else:
             return current == self.value
@@ -74,9 +85,9 @@ class WhenFieldHasChanged(HookCondition):
     def check(self, instance, original_instance=None):
         if not original_instance:
             return False
-        return (
-            getattr(instance, self.field) != getattr(original_instance, self.field)
-        ) == self.has_changed
+        current = resolve_dotted_attr(instance, self.field)
+        previous = resolve_dotted_attr(original_instance, self.field)
+        return (current != previous) == self.has_changed
 
 
 class WhenFieldValueWas(HookCondition):
@@ -92,9 +103,9 @@ class WhenFieldValueWas(HookCondition):
     def check(self, instance, original_instance=None):
         if original_instance is None:
             return False
-        previous = getattr(original_instance, self.field)
+        previous = resolve_dotted_attr(original_instance, self.field)
         if self.only_on_change:
-            current = getattr(instance, self.field)
+            current = resolve_dotted_attr(instance, self.field)
             return previous == self.value and current != self.value
         else:
             return previous == self.value
@@ -112,8 +123,8 @@ class WhenFieldValueChangesTo(HookCondition):
     def check(self, instance, original_instance=None):
         if original_instance is None:
             return False
-        previous = getattr(original_instance, self.field)
-        current = getattr(instance, self.field)
+        previous = resolve_dotted_attr(original_instance, self.field)
+        current = resolve_dotted_attr(instance, self.field)
         return previous != self.value and current == self.value
 
 
