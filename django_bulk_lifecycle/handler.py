@@ -1,7 +1,6 @@
 from django_bulk_lifecycle.conditions import HookCondition
 from django_bulk_lifecycle.registry import get_hooks, register_hook
 import logging
-from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +41,6 @@ class TriggerHandlerMeta(type):
                             condition,
                             priority,
                         )
-
         return cls
 
 
@@ -60,8 +58,8 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
         # Prepare hook list and log names
         hooks = get_hooks(model, event)
 
-        # Sort hooks by priority (descending: higher number = higher priority)
-        hooks = sorted(hooks, key=lambda x: x[3], reverse=True)
+        # Sort hooks by priority (ascending: lower number = higher priority)
+        hooks = sorted(hooks, key=lambda x: x[3])
 
         hook_names = [f"{h.__name__}.{m}" for h, m, _, _ in hooks]
         logger.debug(

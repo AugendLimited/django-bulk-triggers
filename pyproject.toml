@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "django-bulk-lifecycle"
-version = "0.1.35"
+version = "0.1.36"
 description = "Salesforce-style lifecycle hooks for Django bulk operations"
 authors = ["Konrad Beck <konrad.beck@merchantcapital.co.za>"]
 readme = "README.md"
