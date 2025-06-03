@@ -26,7 +26,9 @@ def select_related(*related_fields):
         def wrapper(*args, **kwargs):
             # Support instance method handlers (skip 'self')
             if len(args) == 0:
-                raise TypeError("@select_related requires at least one positional argument")
+                raise TypeError(
+                    "@select_related requires at least one positional argument"
+                )
 
             # Assume the first argument is the instances list
             instances = args[0]
@@ -52,4 +54,3 @@ def select_related(*related_fields):
         return wrapper
 
     return decorator
-
