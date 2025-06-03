@@ -18,29 +18,38 @@ def hook(event, *, model, condition=None, priority=DEFAULT_PRIORITY):
 
 def select_related(*related_fields):
     """
-    Decorator to preload related fields in bulk via select_related.
-    Prevents N+1 queries in lifecycle hooks or bulk handlers by ensuring
-    related objects are loaded efficiently.
+    Decorator for lifecycle hook functions. Replaces a list of instances
+    with the same instances bulk-loaded using select_related().
     """
 
     def decorator(handler_func):
-        def wrapper(instances, *args, **kwargs):
-            if not instances:
-                return handler_func(instances, *args, **kwargs)
+        def wrapper(*args, **kwargs):
+            # Support instance method handlers (skip 'self')
+            if len(args) == 0:
+                raise TypeError("@select_related requires at least one positional argument")
 
-            if hasattr(instances, "select_related"):
-                # It's a queryset: use select_related directly
-                instances = instances.select_related(*related_fields)
-            else:
-                # It's a list of instances: reload in bulk using select_related
-                model = instances[0].__class__
-                ids = [obj.pk for obj in instances]
-                instances = list(
-                    model.objects.select_related(*related_fields).filter(pk__in=ids)
+            # Assume the first argument is the instances list
+            instances = args[0]
+
+            if not isinstance(instances, list):
+                raise TypeError(
+                    f"@select_related expects a list of model instances as the first argument, got {type(instances)}"
                 )
 
-            return handler_func(instances, *args, **kwargs)
+            if not instances:
+                return handler_func(*args, **kwargs)
+
+            model = instances[0].__class__
+            ids = [obj.pk for obj in instances]
+            preloaded = list(
+                model.objects.select_related(*related_fields).filter(pk__in=ids)
+            )
+
+            # Rebuild args tuple with preloaded instances
+            new_args = (preloaded,) + args[1:]
+            return handler_func(*new_args, **kwargs)
 
         return wrapper
 
     return decorator
+
