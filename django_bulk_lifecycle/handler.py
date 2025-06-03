@@ -120,9 +120,9 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
                             )
                             if field_name:
                                 actual_val = getattr(new, field_name, None)
-                                expected = getattr(
-                                    condition, "expected_value", None
-                                ) or getattr(condition, "value", None)
+                                expected = getattr(condition, "value", None) or getattr(
+                                    condition, "value", None
+                                )
                                 logger.debug(
                                     "   [field-lookup] %s.%s → field=%r actual=%r expected=%r",
                                     handler_cls.__name__,

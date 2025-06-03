@@ -21,45 +21,49 @@ class HookCondition:
 
 
 class WhenFieldValueIsNot(HookCondition):
-    def __init__(self, field, unexpected_value, only_on_change=False):
+    def __init__(self, field, value, only_on_change=False):
         self.field = field
-        self.unexpected_value = unexpected_value
+        self.value = value
         self.only_on_change = only_on_change
 
     def check(self, instance, original_instance=None):
         current = getattr(instance, self.field)
-        logger.debug("%s current=%r, original=%r",
-                     self.field,
-                     current,
-                     getattr(original_instance, self.field, None))
+        logger.debug(
+            "%s current=%r, original=%r",
+            self.field,
+            current,
+            getattr(original_instance, self.field, None),
+        )
         if self.only_on_change:
             if original_instance is None:
                 return False
             previous = getattr(original_instance, self.field)
-            return previous == self.unexpected_value and current != self.unexpected_value
+            return previous == self.value and current != self.value
         else:
-            return current != self.unexpected_value
+            return current != self.value
 
 
 class WhenFieldValueIs(HookCondition):
-    def __init__(self, field, expected_value, only_on_change=False):
+    def __init__(self, field, value, only_on_change=False):
         self.field = field
-        self.expected_value = expected_value
+        self.value = value
         self.only_on_change = only_on_change
 
     def check(self, instance, original_instance=None):
         current = getattr(instance, self.field)
-        logger.debug("%s current=%r, original=%r",
-                     self.field,
-                     current,
-                     getattr(original_instance, self.field, None))
+        logger.debug(
+            "%s current=%r, original=%r",
+            self.field,
+            current,
+            getattr(original_instance, self.field, None),
+        )
         if self.only_on_change:
             if original_instance is None:
                 return False
             previous = getattr(original_instance, self.field)
-            return previous != self.expected_value and current == self.expected_value
+            return previous != self.value and current == self.value
         else:
-            return current == self.expected_value
+            return current == self.value
 
 
 class WhenFieldHasChanged(HookCondition):
@@ -70,17 +74,19 @@ class WhenFieldHasChanged(HookCondition):
     def check(self, instance, original_instance=None):
         if not original_instance:
             return False
-        return (getattr(instance, self.field) != getattr(original_instance, self.field)) == self.has_changed
+        return (
+            getattr(instance, self.field) != getattr(original_instance, self.field)
+        ) == self.has_changed
 
 
 class WhenFieldValueWas(HookCondition):
-    def __init__(self, field, expected_value, only_on_change=False):
+    def __init__(self, field, value, only_on_change=False):
         """
-        Check if a field's original value was `expected_value`.
+        Check if a field's original value was `value`.
         If only_on_change is True, only return True when the field has changed away from that value.
         """
         self.field = field
-        self.expected_value = expected_value
+        self.value = value
         self.only_on_change = only_on_change
 
     def check(self, instance, original_instance=None):
@@ -89,26 +95,26 @@ class WhenFieldValueWas(HookCondition):
         previous = getattr(original_instance, self.field)
         if self.only_on_change:
             current = getattr(instance, self.field)
-            return previous == self.expected_value and current != self.expected_value
+            return previous == self.value and current != self.value
         else:
-            return previous == self.expected_value
+            return previous == self.value
 
 
 class WhenFieldValueChangesTo(HookCondition):
-    def __init__(self, field, expected_value):
+    def __init__(self, field, value):
         """
-        Check if a field's value has changed to `expected_value`.
-        Only returns True when original value != expected_value and current value == expected_value.
+        Check if a field's value has changed to `value`.
+        Only returns True when original value != value and current value == value.
         """
         self.field = field
-        self.expected_value = expected_value
+        self.value = value
 
     def check(self, instance, original_instance=None):
         if original_instance is None:
             return False
         previous = getattr(original_instance, self.field)
         current = getattr(instance, self.field)
-        return previous != self.expected_value and current == self.expected_value
+        return previous != self.value and current == self.value
 
 
 class AndCondition(HookCondition):
@@ -117,7 +123,9 @@ class AndCondition(HookCondition):
         self.cond2 = cond2
 
     def check(self, instance, original_instance=None):
-        return self.cond1.check(instance, original_instance) and self.cond2.check(instance, original_instance)
+        return self.cond1.check(instance, original_instance) and self.cond2.check(
+            instance, original_instance
+        )
 
 
 class OrCondition(HookCondition):
@@ -126,7 +134,9 @@ class OrCondition(HookCondition):
         self.cond2 = cond2
 
     def check(self, instance, original_instance=None):
-        return self.cond1.check(instance, original_instance) or self.cond2.check(instance, original_instance)
+        return self.cond1.check(instance, original_instance) or self.cond2.check(
+            instance, original_instance
+        )
 
 
 class NotCondition(HookCondition):
