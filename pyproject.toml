@@ -1,15 +1,15 @@
 [tool.poetry]
-name = "django-bulk-lifecycle"
-version = "0.1.49"
-description = "Salesforce-style lifecycle hooks for Django bulk operations"
+name = "django-bulk-hooks"
+version = "0.1.50"
+description = "Lifecycle-style hooks for Django bulk operations like bulk_create and bulk_update."
 authors = ["Konrad Beck <konrad.beck@merchantcapital.co.za>"]
 readme = "README.md"
 license = "MIT"
-homepage = "https://github.com/AugendLimited/django-bulk-lifecycle"
-repository = "https://github.com/AugendLimited/django-bulk-lifecycle"
-keywords = ["django", "bulk", "lifecycle", "hooks"]
+homepage = "https://github.com/AugendLimited/django-bulk-hooks"
+repository = "https://github.com/AugendLimited/django-bulk-hooks"
+keywords = ["django", "bulk", "hooks"]
 packages = [
-    { include = "django_bulk_lifecycle" }
+    { include = "django_bulk_hooks" }
 ]
 
 [tool.poetry.dependencies]

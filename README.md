@@ -1,9 +1,9 @@
 
-# django-bulk-lifecycle
+# django-bulk-hooks
 
-⚡ Salesforce-style lifecycle hooks for Django bulk operations.
+⚡ Salesforce-style hooks hooks for Django bulk operations.
 
-`django-bulk-lifecycle` brings a declarative, trigger-like experience to Django's `bulk_create`, `bulk_update`, and `bulk_delete` — including support for `BEFORE_` and `AFTER_` hooks, conditions, batching, and transactional safety.
+`django-bulk-hooks` brings a declarative, trigger-like experience to Django's `bulk_create`, `bulk_update`, and `bulk_delete` — including support for `BEFORE_` and `AFTER_` hooks, conditions, batching, and transactional safety.
 
 ## ✨ Features
 
@@ -17,14 +17,14 @@
 ## 🚀 Quickstart
 
 ```bash
-pip install django-bulk-lifecycle
+pip install django-bulk-hooks
 ```
 
 ### Define Your Model
 
 ```python
 from django.db import models
-from django_bulk_lifecycle.manager import BulkLifecycleManager
+from django_bulk_hooks.manager import BulkLifecycleManager
 
 class Account(models.Model):
     balance = models.DecimalField(max_digits=10, decimal_places=2)
@@ -34,8 +34,8 @@ class Account(models.Model):
 ### Create a Trigger Handler
 
 ```python
-from django_bulk_lifecycle import hook, AFTER_UPDATE, TriggerHandler
-from django_bulk_lifecycle.conditions import WhenFieldHasChanged
+from django_bulk_hooks import hook, AFTER_UPDATE, TriggerHandler
+from django_bulk_hooks.conditions import WhenFieldHasChanged
 from .models import Account
 
 class AccountTriggerHandler(TriggerHandler):

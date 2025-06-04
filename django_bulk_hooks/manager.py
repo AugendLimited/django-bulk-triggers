@@ -1,16 +1,15 @@
 from django.db import models, transaction
-
-from django_bulk_lifecycle import engine
-from django_bulk_lifecycle.constants import (
-    AFTER_DELETE,
+from django_bulk_hooks import engine
+from django_bulk_hooks.constants import (
     AFTER_CREATE,
+    AFTER_DELETE,
     AFTER_UPDATE,
-    BEFORE_DELETE,
     BEFORE_CREATE,
+    BEFORE_DELETE,
     BEFORE_UPDATE,
 )
-from django_bulk_lifecycle.context import TriggerContext
-from django_bulk_lifecycle.queryset import LifecycleQuerySet
+from django_bulk_hooks.context import TriggerContext
+from django_bulk_hooks.queryset import LifecycleQuerySet
 
 
 class BulkLifecycleManager(models.Manager):

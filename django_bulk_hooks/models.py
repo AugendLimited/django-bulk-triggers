@@ -1,5 +1,5 @@
-from django_bulk_lifecycle.manager import BulkLifecycleManager
 from django.db import models, transaction
+from django_bulk_hooks.manager import BulkLifecycleManager
 
 
 class LifecycleModelMixin(models.Model):

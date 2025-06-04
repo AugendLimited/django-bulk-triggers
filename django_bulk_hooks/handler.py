@@ -1,9 +1,8 @@
 import logging
 
 from django.db import transaction
-
-from django_bulk_lifecycle.conditions import HookCondition
-from django_bulk_lifecycle.registry import get_hooks, register_hook
+from django_bulk_hooks.conditions import HookCondition
+from django_bulk_hooks.registry import get_hooks, register_hook
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +13,8 @@ class TriggerHandlerMeta(type):
     def __new__(mcs, name, bases, namespace):
         cls = super().__new__(mcs, name, bases, namespace)
         for method_name, method in namespace.items():
-            if hasattr(method, "lifecycle_hooks"):
-                for model_cls, event, condition, priority in method.lifecycle_hooks:
+            if hasattr(method, "hooks_hooks"):
+                for model_cls, event, condition, priority in method.hooks_hooks:
                     key = (model_cls, event, cls, method_name)
                     if key in TriggerHandlerMeta._registered:
                         logger.debug(
@@ -85,7 +84,7 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
                 )
 
             logger.debug(
-                "ℹ️  bulk_lifecycle.handle() start: model=%s event=%s new_count=%d old_count=%d",
+                "ℹ️  bulk_hooks.handle() start: model=%s event=%s new_count=%d old_count=%d",
                 model.__name__,
                 event,
                 len(new_records_local),
@@ -192,7 +191,7 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
                     )
 
             logger.debug(
-                "✔️  bulk_lifecycle.handle() complete for %s.%s",
+                "✔️  bulk_hooks.handle() complete for %s.%s",
                 model.__name__,
                 event,
             )
