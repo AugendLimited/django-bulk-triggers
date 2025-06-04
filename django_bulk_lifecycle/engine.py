@@ -15,7 +15,9 @@ def run(model_cls, event, new_instances, original_instances=None, ctx=None):
         len(original_instances or []),
     )
 
-    for func, condition in hooks:
+    for handler_cls, method_name, condition, priority in hooks:
+        func = getattr(handler_cls(), method_name)
+
         logger.debug(
             "Executing hook %s for %s.%s", func.__name__, model_cls.__name__, event
         )
