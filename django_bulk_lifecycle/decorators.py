@@ -20,7 +20,7 @@ def hook(event, *, model, condition=None, priority=DEFAULT_PRIORITY):
     return decorator
 
 
-def preload_related(*related_fields):
+def select_related(*related_fields):
     """
     Decorator that preloads related fields in-place on `new_records`, before the hook logic runs.
 
