@@ -1,3 +1,7 @@
+import inspect
+from functools import wraps
+from django.core.exceptions import FieldDoesNotExist
+
 from django_bulk_lifecycle.enums import DEFAULT_PRIORITY
 
 
@@ -16,40 +20,73 @@ def hook(event, *, model, condition=None, priority=DEFAULT_PRIORITY):
     return decorator
 
 
-def select_related(*related_fields):
+def preload_related(*related_fields):
     """
-    Decorator for lifecycle hook functions. Replaces a list of instances
-    with the same instances bulk-loaded using select_related().
+    Decorator that preloads related fields in-place on `new_records`, before the hook logic runs.
+
+    - Works with instance methods (resolves `self`)
+    - Avoids replacing model instances
+    - Populates Django's relation cache to avoid extra queries
     """
 
-    def decorator(handler_func):
+    def decorator(func):
+        sig = inspect.signature(func)
+
+        @wraps(func)
         def wrapper(*args, **kwargs):
-            # Support instance method handlers (skip 'self')
-            if len(args) == 0:
+            bound = sig.bind_partial(*args, **kwargs)
+            bound.apply_defaults()
+
+            if "new_records" not in bound.arguments:
                 raise TypeError(
-                    "@select_related requires at least one positional argument"
+                    "@preload_related requires a 'new_records' argument in the decorated function"
                 )
 
-            # Assume the first argument is the instances list
-            instances = args[0]
+            new_records = bound.arguments["new_records"]
 
-            if not isinstance(instances, list):
+            if not isinstance(new_records, list):
                 raise TypeError(
-                    f"@select_related expects a list of model instances as the first argument, got {type(instances)}"
+                    f"@preload_related expects a list of model instances, got {type(new_records)}"
                 )
 
-            if not instances:
-                return handler_func(*args, **kwargs)
+            if not new_records:
+                return func(*args, **kwargs)
 
-            model = instances[0].__class__
-            ids = [obj.pk for obj in instances]
-            preloaded = list(
-                model.objects.select_related(*related_fields).filter(pk__in=ids)
-            )
+            # In-place preload
+            model_cls = new_records[0].__class__
+            ids = [obj.pk for obj in new_records if obj.pk is not None]
+            if not ids:
+                return func(*args, **kwargs)
 
-            # Rebuild args tuple with preloaded instances
-            new_args = (preloaded,) + args[1:]
-            return handler_func(*new_args, **kwargs)
+            fetched = model_cls.objects.select_related(*related_fields).in_bulk(ids)
+
+            for obj in new_records:
+                preloaded = fetched.get(obj.pk)
+                if not preloaded:
+                    continue
+                for field in related_fields:
+                    if "." in field:
+                        raise ValueError(
+                            f"@preload_related does not support nested fields like '{field}'"
+                        )
+
+                    try:
+                        f = model_cls._meta.get_field(field)
+                        if not (
+                            f.is_relation and not f.many_to_many and not f.one_to_many
+                        ):
+                            continue
+                    except FieldDoesNotExist:
+                        continue
+
+                    try:
+                        rel_obj = getattr(preloaded, field)
+                        setattr(obj, field, rel_obj)
+                        obj._state.fields_cache[field] = rel_obj
+                    except AttributeError:
+                        pass
+
+            return func(*bound.args, **bound.kwargs)
 
         return wrapper
 
