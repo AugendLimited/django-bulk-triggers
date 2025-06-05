@@ -15,13 +15,29 @@ class LifecycleQuerySet(models.QuerySet):
         if not instances:
             return 0
 
+        model_cls = self.model
+        pks = [obj.pk for obj in instances]
+
+        # Load originals for hook comparison
+        originals = list(model_cls.objects.filter(pk__in=pks))
+        originals_by_pk = {obj.pk: obj for obj in originals}
+
+        # Apply field updates to instances
         for obj in instances:
             for field, value in kwargs.items():
                 setattr(obj, field, value)
 
-        self.model.objects.bulk_update(
-            instances,
-            fields=list(kwargs.keys()),
-        )
+        # Run BEFORE_UPDATE hooks
+        from django_bulk_hooks.context import TriggerContext
+        from django_bulk_hooks import engine
+        ctx = TriggerContext(model_cls)
+        engine.run(model_cls, "before_update", instances, originals, ctx=ctx)
 
-        return len(instances)
+        # Use Django's built-in update logic directly
+        update_count = super().update(**kwargs)
+
+        # Run AFTER_UPDATE hooks
+        engine.run(model_cls, "after_update", instances, originals, ctx=ctx)
+
+        return update_count
+
