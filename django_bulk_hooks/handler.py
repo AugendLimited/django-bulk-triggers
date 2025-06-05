@@ -7,13 +7,55 @@ from django_bulk_hooks.registry import get_hooks, register_hook
 
 logger = logging.getLogger(__name__)
 
-# Thread-local hook queue context
+# Thread-local hook context and trigger state
+class TriggerVars(threading.local):
+    def __init__(self):
+        self.new = None
+        self.old = None
+        self.event = None
+        self.model = None
+        self.depth = 0
+
+trigger = TriggerVars()
+
+# Hook queue per thread
 _hook_context = threading.local()
 
 def get_hook_queue():
     if not hasattr(_hook_context, "queue"):
         _hook_context.queue = deque()
     return _hook_context.queue
+
+class TriggerContextState:
+    @property
+    def is_before(self):
+        return trigger.event.startswith("before_") if trigger.event else False
+
+    @property
+    def is_after(self):
+        return trigger.event.startswith("after_") if trigger.event else False
+
+    @property
+    def is_create(self):
+        return "create" in trigger.event if trigger.event else False
+
+    @property
+    def is_update(self):
+        return "update" in trigger.event if trigger.event else False
+
+    @property
+    def new(self):
+        return trigger.new
+
+    @property
+    def old(self):
+        return trigger.old
+
+    @property
+    def model(self):
+        return trigger.model
+
+Trigger = TriggerContextState()
 
 class TriggerHandlerMeta(type):
     _registered = set()
@@ -67,6 +109,12 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
         old_records,
         **kwargs,
     ):
+        trigger.depth += 1
+        trigger.new = new_records
+        trigger.old = old_records
+        trigger.event = event
+        trigger.model = model
+
         hooks = sorted(get_hooks(model, event), key=lambda x: x[3])
         logger.debug("Processing %d hooks for %s.%s", len(hooks), model.__name__, event)
 
@@ -96,7 +144,14 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
                     logger.exception("Error in hook %s.%s", handler_cls.__name__, method_name)
 
         conn = transaction.get_connection()
-        if conn.in_atomic_block and event.startswith("after_"):
-            transaction.on_commit(_execute)
-        else:
-            _execute()
+        try:
+            if conn.in_atomic_block and event.startswith("after_"):
+                transaction.on_commit(_execute)
+            else:
+                _execute()
+        finally:
+            trigger.new = None
+            trigger.old = None
+            trigger.event = None
+            trigger.model = None
+            trigger.depth -= 1
