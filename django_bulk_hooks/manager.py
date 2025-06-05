@@ -37,7 +37,10 @@ class BulkLifecycleManager(models.Manager):
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
-            super().bulk_update(chunk, fields, batch_size=batch_size)
+            # Call the base implementation to avoid re-triggering this method
+            super(models.Manager, self).bulk_update(
+                chunk, fields, batch_size=batch_size
+            )
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
@@ -64,7 +67,7 @@ class BulkLifecycleManager(models.Manager):
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
             result.extend(
-                super().bulk_create(
+                super(models.Manager, self).bulk_create(
                     chunk, batch_size=batch_size, ignore_conflicts=ignore_conflicts
                 )
             )

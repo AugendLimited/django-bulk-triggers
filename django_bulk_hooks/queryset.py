@@ -19,9 +19,7 @@ class LifecycleQuerySet(models.QuerySet):
             for field, value in kwargs.items():
                 setattr(obj, field, value)
 
-        self.model.objects.bulk_update(
-            instances,
-            fields=list(kwargs.keys()),
-        )
-
+        # Bypass manager to avoid recursive call to hooks
+        from django.db.models import Model
+        Model.objects.bulk_update(instances, fields=list(kwargs.keys()))
         return len(instances)
