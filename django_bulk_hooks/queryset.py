@@ -28,16 +28,17 @@ class LifecycleQuerySet(models.QuerySet):
                 setattr(obj, field, value)
 
         # Run BEFORE_UPDATE hooks
-        from django_bulk_hooks.context import TriggerContext
         from django_bulk_hooks import engine
+        from django_bulk_hooks.context import TriggerContext
+
         ctx = TriggerContext(model_cls)
         engine.run(model_cls, "before_update", instances, originals, ctx=ctx)
 
         # Use Django's built-in update logic directly
-        update_count = super().update(**kwargs)
+        queryset = self.model._base_manager.filter(pk__in=pks)
+        update_count = queryset.update(**kwargs)
 
         # Run AFTER_UPDATE hooks
         engine.run(model_cls, "after_update", instances, originals, ctx=ctx)
 
         return update_count
-
