@@ -1,5 +1,4 @@
 from django.db import models, transaction
-from django.db.models.manager import BaseManager
 
 
 class LifecycleQuerySet(models.QuerySet):
@@ -20,8 +19,7 @@ class LifecycleQuerySet(models.QuerySet):
             for field, value in kwargs.items():
                 setattr(obj, field, value)
 
-        BaseManager.bulk_update(
-            self.model._base_manager,
+        self.model.objects.bulk_update(
             instances,
             fields=list(kwargs.keys()),
         )
