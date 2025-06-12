@@ -52,19 +52,29 @@ def select_related(*related_fields):
             if not new_records:
                 return func(*args, **kwargs)
 
-            # In-place preload
+            # Determine which instances actually need preloading
             model_cls = new_records[0].__class__
-            ids = [obj.pk for obj in new_records if obj.pk is not None]
-            if not ids:
-                return func(*args, **kwargs)
+            ids_to_fetch = []
+            for obj in new_records:
+                if obj.pk is None:
+                    continue
+                # if any related field is not already cached on the instance,
+                # mark it for fetching
+                if any(field not in obj._state.fields_cache for field in related_fields):
+                    ids_to_fetch.append(obj.pk)
 
-            fetched = model_cls.objects.select_related(*related_fields).in_bulk(ids)
+            fetched = {}
+            if ids_to_fetch:
+                fetched = model_cls.objects.select_related(*related_fields).in_bulk(ids_to_fetch)
 
             for obj in new_records:
                 preloaded = fetched.get(obj.pk)
                 if not preloaded:
                     continue
                 for field in related_fields:
+                    if field in obj._state.fields_cache:
+                        # don't override values that were explicitly set or already loaded
+                        continue
                     if "." in field:
                         raise ValueError(
                             f"@preload_related does not support nested fields like '{field}'"
