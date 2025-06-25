@@ -10,6 +10,9 @@ from django_bulk_hooks.constants import (
 )
 from django_bulk_hooks.context import TriggerContext
 from django_bulk_hooks.queryset import LifecycleQuerySet
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BulkLifecycleManager(models.Manager):
@@ -34,6 +37,18 @@ class BulkLifecycleManager(models.Manager):
             originals = list(model_cls.objects.filter(pk__in=[obj.pk for obj in objs]))
             ctx = TriggerContext(model_cls)
             engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+            
+            # Automatically detect fields that were modified during BEFORE_UPDATE hooks
+            modified_fields = self._detect_modified_fields(objs, originals)
+            if modified_fields:
+                # Convert to set for efficient union operation
+                fields_set = set(fields)
+                fields_set.update(modified_fields)
+                fields = list(fields_set)
+                logger.info(
+                    "Automatically including modified fields in bulk_update: %s",
+                    modified_fields
+                )
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
@@ -46,6 +61,49 @@ class BulkLifecycleManager(models.Manager):
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
 
         return objs
+
+    def _detect_modified_fields(self, new_instances, original_instances):
+        """
+        Detect fields that were modified during BEFORE_UPDATE hooks by comparing
+        new instances with their original values.
+        """
+        if not original_instances:
+            return set()
+        
+        # Create a mapping of pk to original instance for efficient lookup
+        original_map = {obj.pk: obj for obj in original_instances if obj.pk is not None}
+        
+        modified_fields = set()
+        
+        for new_instance in new_instances:
+            if new_instance.pk is None:
+                continue
+                
+            original = original_map.get(new_instance.pk)
+            if not original:
+                continue
+            
+            # Compare all fields to detect changes
+            for field in new_instance._meta.fields:
+                if field.name == 'id':
+                    continue
+                    
+                new_value = getattr(new_instance, field.name)
+                original_value = getattr(original, field.name)
+                
+                # Handle different field types appropriately
+                if field.is_relation:
+                    # For foreign keys, compare the pk values
+                    new_pk = new_value.pk if new_value else None
+                    original_pk = original_value.pk if original_value else None
+                    if new_pk != original_pk:
+                        modified_fields.add(field.name)
+                else:
+                    # For regular fields, use direct comparison
+                    if new_value != original_value:
+                        modified_fields.add(field.name)
+        
+        return modified_fields
 
     @transaction.atomic
     def bulk_create(
