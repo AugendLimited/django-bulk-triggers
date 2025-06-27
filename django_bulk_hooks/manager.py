@@ -22,7 +22,7 @@ class BulkLifecycleManager(models.Manager):
         return LifecycleQuerySet(self.model, using=self._db)
 
     @transaction.atomic
-    def bulk_update(self, objs, fields, batch_size=None, bypass_hooks=False):
+    def bulk_update(self, objs, fields, bypass_hooks=False, **kwargs):
         if not objs:
             return []
 
@@ -53,9 +53,7 @@ class BulkLifecycleManager(models.Manager):
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
             # Call the base implementation to avoid re-triggering this method
-            super(models.Manager, self).bulk_update(
-                chunk, fields, batch_size=batch_size
-            )
+            super(models.Manager, self).bulk_update(chunk, fields, **kwargs)
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
@@ -106,9 +104,7 @@ class BulkLifecycleManager(models.Manager):
         return modified_fields
 
     @transaction.atomic
-    def bulk_create(
-        self, objs, batch_size=None, ignore_conflicts=False, bypass_hooks=False
-    ):
+    def bulk_create(self, objs, bypass_hooks=False, **kwargs):
         model_cls = self.model
 
         if any(not isinstance(obj, model_cls) for obj in objs):
@@ -125,9 +121,7 @@ class BulkLifecycleManager(models.Manager):
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
             result.extend(
-                super(models.Manager, self).bulk_create(
-                    chunk, batch_size=batch_size, ignore_conflicts=ignore_conflicts
-                )
+                super(models.Manager, self).bulk_create(chunk, **kwargs)
             )
 
         if not bypass_hooks:
