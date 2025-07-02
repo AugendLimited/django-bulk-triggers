@@ -3,7 +3,6 @@ from functools import wraps
 
 from django.core.exceptions import FieldDoesNotExist
 from django_bulk_hooks.enums import DEFAULT_PRIORITY
-from django_bulk_hooks.constants import BEFORE_UPDATE
 from django_bulk_hooks.registry import register_hook
 
 
