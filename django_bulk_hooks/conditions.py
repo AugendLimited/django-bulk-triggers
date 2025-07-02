@@ -31,7 +31,7 @@ class HookCondition:
         return NotCondition(self)
 
 
-class WhenFieldValueIsNot(HookCondition):
+class IsNotEqual(HookCondition):
     def __init__(self, field, value, only_on_change=False):
         self.field = field
         self.value = value
@@ -54,7 +54,7 @@ class WhenFieldValueIsNot(HookCondition):
             return current != self.value
 
 
-class WhenFieldValueIs(HookCondition):
+class IsEqual(HookCondition):
     def __init__(self, field, value, only_on_change=False):
         self.field = field
         self.value = value
@@ -77,7 +77,7 @@ class WhenFieldValueIs(HookCondition):
             return current == self.value
 
 
-class WhenFieldHasChanged(HookCondition):
+class HasChanged(HookCondition):
     def __init__(self, field, has_changed=True):
         self.field = field
         self.has_changed = has_changed
@@ -90,7 +90,7 @@ class WhenFieldHasChanged(HookCondition):
         return (current != previous) == self.has_changed
 
 
-class WhenFieldValueWas(HookCondition):
+class WasEqual(HookCondition):
     def __init__(self, field, value, only_on_change=False):
         """
         Check if a field's original value was `value`.
@@ -111,7 +111,7 @@ class WhenFieldValueWas(HookCondition):
             return previous == self.value
 
 
-class WhenFieldValueChangesTo(HookCondition):
+class ChangesTo(HookCondition):
     def __init__(self, field, value):
         """
         Check if a field's value has changed to `value`.
@@ -126,6 +126,46 @@ class WhenFieldValueChangesTo(HookCondition):
         previous = resolve_dotted_attr(original_instance, self.field)
         current = resolve_dotted_attr(instance, self.field)
         return previous != self.value and current == self.value
+
+
+class IsGreaterThan(HookCondition):
+    def __init__(self, field, value):
+        self.field = field
+        self.value = value
+
+    def check(self, instance, original_instance=None):
+        current = resolve_dotted_attr(instance, self.field)
+        return current is not None and current > self.value
+
+
+class IsGreaterThanOrEqual(HookCondition):
+    def __init__(self, field, value):
+        self.field = field
+        self.value = value
+
+    def check(self, instance, original_instance=None):
+        current = resolve_dotted_attr(instance, self.field)
+        return current is not None and current >= self.value
+
+
+class IsLessThan(HookCondition):
+    def __init__(self, field, value):
+        self.field = field
+        self.value = value
+
+    def check(self, instance, original_instance=None):
+        current = resolve_dotted_attr(instance, self.field)
+        return current is not None and current < self.value
+
+
+class IsLessThanOrEqual(HookCondition):
+    def __init__(self, field, value):
+        self.field = field
+        self.value = value
+
+    def check(self, instance, original_instance=None):
+        current = resolve_dotted_attr(instance, self.field)
+        return current is not None and current <= self.value
 
 
 class AndCondition(HookCondition):
