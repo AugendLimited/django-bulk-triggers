@@ -37,7 +37,7 @@ class BulkLifecycleManager(models.Manager):
             originals = list(model_cls.objects.filter(pk__in=[obj.pk for obj in objs]))
             ctx = TriggerContext(model_cls)
             engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
-            
+
             # Automatically detect fields that were modified during BEFORE_UPDATE hooks
             modified_fields = self._detect_modified_fields(objs, originals)
             if modified_fields:
@@ -47,7 +47,7 @@ class BulkLifecycleManager(models.Manager):
                 fields = list(fields_set)
                 logger.info(
                     "Automatically including modified fields in bulk_update: %s",
-                    modified_fields
+                    modified_fields,
                 )
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
@@ -67,28 +67,28 @@ class BulkLifecycleManager(models.Manager):
         """
         if not original_instances:
             return set()
-        
+
         # Create a mapping of pk to original instance for efficient lookup
         original_map = {obj.pk: obj for obj in original_instances if obj.pk is not None}
-        
+
         modified_fields = set()
-        
+
         for new_instance in new_instances:
             if new_instance.pk is None:
                 continue
-                
+
             original = original_map.get(new_instance.pk)
             if not original:
                 continue
-            
+
             # Compare all fields to detect changes
             for field in new_instance._meta.fields:
-                if field.name == 'id':
+                if field.name == "id":
                     continue
-                    
+
                 new_value = getattr(new_instance, field.name)
                 original_value = getattr(original, field.name)
-                
+
                 # Handle different field types appropriately
                 if field.is_relation:
                     # For foreign keys, compare the pk values
@@ -100,7 +100,7 @@ class BulkLifecycleManager(models.Manager):
                     # For regular fields, use direct comparison
                     if new_value != original_value:
                         modified_fields.add(field.name)
-        
+
         return modified_fields
 
     @transaction.atomic
@@ -120,9 +120,7 @@ class BulkLifecycleManager(models.Manager):
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
-            result.extend(
-                super(models.Manager, self).bulk_create(chunk, **kwargs)
-            )
+            result.extend(super(models.Manager, self).bulk_create(chunk, **kwargs))
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
@@ -144,12 +142,14 @@ class BulkLifecycleManager(models.Manager):
         ctx = TriggerContext(model_cls)
 
         if not bypass_hooks:
+            logger.debug("Executing BEFORE_DELETE hooks for %s", model_cls.__name__)
             engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
 
         pks = [obj.pk for obj in objs if obj.pk is not None]
         model_cls.objects.filter(pk__in=pks).delete()
 
         if not bypass_hooks:
+            logger.debug("Executing AFTER_DELETE hooks for %s", model_cls.__name__)
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
 
         return objs
