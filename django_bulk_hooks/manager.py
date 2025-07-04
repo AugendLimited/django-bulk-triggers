@@ -170,7 +170,7 @@ class BulkLifecycleManager(models.Manager):
         objs = list(self.all())
         if not objs:
             return 0
-        self.model.objects.bulk_delete(objs)
+        self.bulk_delete(objs)
         return len(objs)
 
     @transaction.atomic
