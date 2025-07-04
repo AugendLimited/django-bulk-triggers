@@ -9,7 +9,7 @@ def run(model_cls, event, new_instances, original_instances=None, ctx=None):
     hooks = get_hooks(model_cls, event)
 
     logger.debug(
-        "bulk_hooks.run: model=%s, event=%s, #new=%d, #original=%d",
+        "Executing engine.run: model=%s, event=%s, #new_instances=%d, #original_instances=%d",
         model_cls.__name__,
         event,
         len(new_instances),
