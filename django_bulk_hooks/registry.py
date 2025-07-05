@@ -1,9 +1,8 @@
+import logging
 from collections.abc import Callable
 from typing import Union
 
 from django_bulk_hooks.priority import Priority
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,7 @@ def register_hook(
     hooks.append((handler_cls, method_name, condition, priority))
     # keep sorted by priority
     hooks.sort(key=lambda x: x[3])
-    logger.debug(
+    logger.info(
         "Registering hook: model=%s, event=%s, handler_cls=%s, method_name=%s, condition=%s, priority=%s",
         model.__name__,
         event,
@@ -30,10 +29,17 @@ def register_hook(
 
 
 def get_hooks(model, event):
-    logger.debug(
+    hooks = _hooks.get((model, event), [])
+    logger.info(
         "Retrieving hooks: model=%s, event=%s, hooks_found=%d",
         model.__name__,
         event,
-        len(_hooks.get((model, event), [])),
+        len(hooks),
     )
-    return _hooks.get((model, event), [])
+    return hooks
+
+
+def list_all_hooks():
+    """Debug function to list all registered hooks"""
+    logger.debug("All registered hooks: %s", _hooks)
+    return _hooks

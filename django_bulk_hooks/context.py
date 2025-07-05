@@ -10,7 +10,7 @@ def get_hook_queue():
     return _hook_context.queue
 
 
-class TriggerContext:
+class HookContext:
     def __init__(self, model_cls, metadata=None):
         self.model_cls = model_cls
         self.metadata = metadata or {}

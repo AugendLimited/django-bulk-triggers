@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "django-bulk-hooks"
-version = "0.1.66"
-description = "Lifecycle-style hooks for Django bulk operations like bulk_create and bulk_update."
+version = "0.1.67"
+description = "Hook-style hooks for Django bulk operations like bulk_create and bulk_update."
 authors = ["Konrad Beck <konrad.beck@merchantcapital.co.za>"]
 readme = "README.md"
 license = "MIT"

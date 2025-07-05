@@ -1,9 +1,10 @@
 from django.db import models, transaction
-from django_bulk_hooks.manager import BulkLifecycleManager
+
+from django_bulk_hooks.manager import BulkHookManager
 
 
-class LifecycleModelMixin(models.Model):
-    objects = BulkLifecycleManager()
+class HookModelMixin(models.Model):
+    objects = BulkHookManager()
 
     class Meta:
         abstract = True

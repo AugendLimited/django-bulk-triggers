@@ -8,19 +8,24 @@ logger = logging.getLogger(__name__)
 def run(model_cls, event, new_instances, original_instances=None, ctx=None):
     hooks = get_hooks(model_cls, event)
 
-    logger.debug(
-        "Executing engine.run: model=%s, event=%s, #new_instances=%d, #original_instances=%d",
+    logger.info(
+        "Executing engine.run: model=%s, event=%s, #new_instances=%d, #original_instances=%d, #hooks=%d",
         model_cls.__name__,
         event,
         len(new_instances),
         len(original_instances or []),
+        len(hooks),
     )
+
+    if not hooks:
+        logger.info("No hooks found for model=%s, event=%s", model_cls.__name__, event)
+        return
 
     for handler_cls, method_name, condition, priority in hooks:
         handler_instance = handler_cls()
         func = getattr(handler_instance, method_name)
 
-        logger.debug(
+        logger.info(
             "Executing hook %s for %s.%s with priority=%s",
             func.__name__,
             model_cls.__name__,

@@ -1,4 +1,7 @@
+import logging
+
 from django.db import models, transaction
+
 from django_bulk_hooks import engine
 from django_bulk_hooks.constants import (
     AFTER_CREATE,
@@ -8,18 +11,17 @@ from django_bulk_hooks.constants import (
     BEFORE_DELETE,
     BEFORE_UPDATE,
 )
-from django_bulk_hooks.context import TriggerContext
-from django_bulk_hooks.queryset import LifecycleQuerySet
-import logging
+from django_bulk_hooks.context import HookContext
+from django_bulk_hooks.queryset import HookQuerySet
 
 logger = logging.getLogger(__name__)
 
 
-class BulkLifecycleManager(models.Manager):
+class BulkHookManager(models.Manager):
     CHUNK_SIZE = 200
 
     def get_queryset(self):
-        return LifecycleQuerySet(self.model, using=self._db)
+        return HookQuerySet(self.model, using=self._db)
 
     @transaction.atomic
     def bulk_update(self, objs, fields, bypass_hooks=False, **kwargs):
@@ -35,7 +37,7 @@ class BulkLifecycleManager(models.Manager):
 
         if not bypass_hooks:
             originals = list(model_cls.objects.filter(pk__in=[obj.pk for obj in objs]))
-            ctx = TriggerContext(model_cls)
+            ctx = HookContext(model_cls)
             engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
 
             # Automatically detect fields that were modified during BEFORE_UPDATE hooks
@@ -115,7 +117,7 @@ class BulkLifecycleManager(models.Manager):
         result = []
 
         if not bypass_hooks:
-            ctx = TriggerContext(model_cls)
+            ctx = HookContext(model_cls)
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
@@ -139,17 +141,19 @@ class BulkLifecycleManager(models.Manager):
                 f"bulk_delete expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
             )
 
-        ctx = TriggerContext(model_cls)
+        ctx = HookContext(model_cls)
 
         if not bypass_hooks:
-            logger.debug("Executing BEFORE_DELETE hooks for %s", model_cls.__name__)
+            logger.info("Executing BEFORE_DELETE hooks for %s", model_cls.__name__)
+            logger.info("Number of objects to delete: %d", len(objs))
             engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
 
         pks = [obj.pk for obj in objs if obj.pk is not None]
         model_cls.objects.filter(pk__in=pks).delete()
 
         if not bypass_hooks:
-            logger.debug("Executing AFTER_DELETE hooks for %s", model_cls.__name__)
+            logger.info("Executing AFTER_DELETE hooks for %s", model_cls.__name__)
+            logger.info("Number of objects deleted: %d", len(objs))
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
 
         return objs

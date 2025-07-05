@@ -1,7 +1,7 @@
 from django.db import models, transaction
 
 
-class LifecycleQuerySet(models.QuerySet):
+class HookQuerySet(models.QuerySet):
     @transaction.atomic
     def delete(self):
         objs = list(self)
@@ -29,9 +29,9 @@ class LifecycleQuerySet(models.QuerySet):
 
         # Run BEFORE_UPDATE hooks
         from django_bulk_hooks import engine
-        from django_bulk_hooks.context import TriggerContext
+        from django_bulk_hooks.context import HookContext
 
-        ctx = TriggerContext(model_cls)
+        ctx = HookContext(model_cls)
         engine.run(model_cls, "before_update", instances, originals, ctx=ctx)
 
         # Use Django's built-in update logic directly

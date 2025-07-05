@@ -3,12 +3,14 @@ import threading
 from collections import deque
 
 from django.db import transaction
+
 from django_bulk_hooks.registry import get_hooks, register_hook
 
 logger = logging.getLogger(__name__)
 
-# Thread-local hook context and trigger state
-class TriggerVars(threading.local):
+
+# Thread-local hook context and hook state
+class HookVars(threading.local):
     def __init__(self):
         self.new = None
         self.old = None
@@ -16,48 +18,53 @@ class TriggerVars(threading.local):
         self.model = None
         self.depth = 0
 
-trigger = TriggerVars()
+
+hook_vars = HookVars()
 
 # Hook queue per thread
 _hook_context = threading.local()
+
 
 def get_hook_queue():
     if not hasattr(_hook_context, "queue"):
         _hook_context.queue = deque()
     return _hook_context.queue
 
-class TriggerContextState:
+
+class HookContextState:
     @property
     def is_before(self):
-        return trigger.event.startswith("before_") if trigger.event else False
+        return hook_vars.event.startswith("before_") if hook_vars.event else False
 
     @property
     def is_after(self):
-        return trigger.event.startswith("after_") if trigger.event else False
+        return hook_vars.event.startswith("after_") if hook_vars.event else False
 
     @property
     def is_create(self):
-        return "create" in trigger.event if trigger.event else False
+        return "create" in hook_vars.event if hook_vars.event else False
 
     @property
     def is_update(self):
-        return "update" in trigger.event if trigger.event else False
+        return "update" in hook_vars.event if hook_vars.event else False
 
     @property
     def new(self):
-        return trigger.new
+        return hook_vars.new
 
     @property
     def old(self):
-        return trigger.old
+        return hook_vars.old
 
     @property
     def model(self):
-        return trigger.model
+        return hook_vars.model
 
-Trigger = TriggerContextState()
 
-class TriggerHandlerMeta(type):
+Hook = HookContextState()
+
+
+class HookHandlerMeta(type):
     _registered = set()
 
     def __new__(mcs, name, bases, namespace):
@@ -66,7 +73,14 @@ class TriggerHandlerMeta(type):
             if hasattr(method, "hooks_hooks"):
                 for model_cls, event, condition, priority in method.hooks_hooks:
                     key = (model_cls, event, cls, method_name)
-                    if key not in TriggerHandlerMeta._registered:
+                    if key not in HookHandlerMeta._registered:
+                        logger.info(
+                            "Registering hook via HookHandlerMeta: model=%s, event=%s, handler_cls=%s, method_name=%s",
+                            model_cls.__name__,
+                            event,
+                            cls.__name__,
+                            method_name,
+                        )
                         register_hook(
                             model=model_cls,
                             event=event,
@@ -75,10 +89,11 @@ class TriggerHandlerMeta(type):
                             condition=condition,
                             priority=priority,
                         )
-                        TriggerHandlerMeta._registered.add(key)
+                        HookHandlerMeta._registered.add(key)
         return cls
 
-class TriggerHandler(metaclass=TriggerHandlerMeta):
+
+class HookHandler(metaclass=HookHandlerMeta):
     @classmethod
     def handle(
         cls,
@@ -109,11 +124,11 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
         old_records,
         **kwargs,
     ):
-        trigger.depth += 1
-        trigger.new = new_records
-        trigger.old = old_records
-        trigger.event = event
-        trigger.model = model
+        hook_vars.depth += 1
+        hook_vars.new = new_records
+        hook_vars.old = old_records
+        hook_vars.event = event
+        hook_vars.model = model
 
         hooks = sorted(get_hooks(model, event), key=lambda x: x[3])
         logger.debug("Processing %d hooks for %s.%s", len(hooks), model.__name__, event)
@@ -126,14 +141,21 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
 
             for handler_cls, method_name, condition, priority in hooks:
                 if condition is not None:
-                    checks = [condition.check(n, o) for n, o in zip(new_local, old_local)]
+                    checks = [
+                        condition.check(n, o) for n, o in zip(new_local, old_local)
+                    ]
                     if not any(checks):
                         continue
 
                 handler = handler_cls()
                 method = getattr(handler, method_name)
 
-                logger.info("Running hook %s.%s on %d items", handler_cls.__name__, method_name, len(new_local))
+                logger.info(
+                    "Running hook %s.%s on %d items",
+                    handler_cls.__name__,
+                    method_name,
+                    len(new_local),
+                )
                 try:
                     method(
                         new_records=new_local,
@@ -141,7 +163,9 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
                         **kwargs,
                     )
                 except Exception:
-                    logger.exception("Error in hook %s.%s", handler_cls.__name__, method_name)
+                    logger.exception(
+                        "Error in hook %s.%s", handler_cls.__name__, method_name
+                    )
 
         conn = transaction.get_connection()
         try:
@@ -150,8 +174,8 @@ class TriggerHandler(metaclass=TriggerHandlerMeta):
             else:
                 _execute()
         finally:
-            trigger.new = None
-            trigger.old = None
-            trigger.event = None
-            trigger.model = None
-            trigger.depth -= 1
+            hook_vars.new = None
+            hook_vars.old = None
+            hook_vars.event = None
+            hook_vars.model = None
+            hook_vars.depth -= 1
