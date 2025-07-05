@@ -10,6 +10,9 @@ from django_bulk_hooks.constants import (
     BEFORE_CREATE,
     BEFORE_DELETE,
     BEFORE_UPDATE,
+    VALIDATE_CREATE,
+    VALIDATE_UPDATE,
+    VALIDATE_DELETE,
 )
 from django_bulk_hooks.context import HookContext
 from django_bulk_hooks.queryset import HookQuerySet
@@ -24,7 +27,7 @@ class BulkHookManager(models.Manager):
         return HookQuerySet(self.model, using=self._db)
 
     @transaction.atomic
-    def bulk_update(self, objs, fields, bypass_hooks=False, **kwargs):
+    def bulk_update(self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs):
         if not objs:
             return []
 
@@ -38,6 +41,12 @@ class BulkHookManager(models.Manager):
         if not bypass_hooks:
             originals = list(model_cls.objects.filter(pk__in=[obj.pk for obj in objs]))
             ctx = HookContext(model_cls)
+            
+            # Run validation hooks first
+            if not bypass_validation:
+                engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
+            
+            # Then run business logic hooks
             engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
 
             # Automatically detect fields that were modified during BEFORE_UPDATE hooks
@@ -106,7 +115,7 @@ class BulkHookManager(models.Manager):
         return modified_fields
 
     @transaction.atomic
-    def bulk_create(self, objs, bypass_hooks=False, **kwargs):
+    def bulk_create(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
         model_cls = self.model
 
         if any(not isinstance(obj, model_cls) for obj in objs):
@@ -118,6 +127,12 @@ class BulkHookManager(models.Manager):
 
         if not bypass_hooks:
             ctx = HookContext(model_cls)
+            
+            # Run validation hooks first
+            if not bypass_validation:
+                engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
+            
+            # Then run business logic hooks
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
@@ -130,7 +145,7 @@ class BulkHookManager(models.Manager):
         return result
 
     @transaction.atomic
-    def bulk_delete(self, objs, batch_size=None, bypass_hooks=False):
+    def bulk_delete(self, objs, batch_size=None, bypass_hooks=False, bypass_validation=False):
         if not objs:
             return []
 
@@ -144,8 +159,14 @@ class BulkHookManager(models.Manager):
         ctx = HookContext(model_cls)
 
         if not bypass_hooks:
-            logger.info("Executing BEFORE_DELETE hooks for %s", model_cls.__name__)
+            logger.info("Executing hooks for %s", model_cls.__name__)
             logger.info("Number of objects to delete: %d", len(objs))
+            
+            # Run validation hooks first
+            if not bypass_validation:
+                engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
+            
+            # Then run business logic hooks
             engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
 
         pks = [obj.pk for obj in objs if obj.pk is not None]

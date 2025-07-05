@@ -35,11 +35,11 @@ class Account(HookModelMixin):
 ### Create a Hook Handler
 
 ```python
-from django_bulk_hooks import hook, AFTER_UPDATE, HookHandler
+from django_bulk_hooks import hook, AFTER_UPDATE, Hook
 from django_bulk_hooks.conditions import WhenFieldHasChanged
 from .models import Account
 
-class AccountHookHandler(HookHandler):
+class AccountHooks(Hook):
     @hook(AFTER_UPDATE, model=Account, condition=WhenFieldHasChanged("balance"))
     def log_balance_change(self, new_records, old_records):
         print("Accounts updated:", [a.pk for a in new_records])
@@ -147,7 +147,7 @@ Account.objects.bulk_delete(accounts)
 ### Advanced Hook Usage
 
 ```python
-class AdvancedAccountHandler(HookHandler):
+class AdvancedAccountHooks(Hook):
     @hook(BEFORE_UPDATE, model=Account, condition=WhenFieldHasChanged("balance"))
     def validate_balance_change(self, new_records, old_records):
         for new_account, old_account in zip(new_records, old_records):

@@ -64,7 +64,7 @@ class HookContextState:
 Hook = HookContextState()
 
 
-class HookHandlerMeta(type):
+class HookMeta(type):
     _registered = set()
 
     def __new__(mcs, name, bases, namespace):
@@ -73,9 +73,9 @@ class HookHandlerMeta(type):
             if hasattr(method, "hooks_hooks"):
                 for model_cls, event, condition, priority in method.hooks_hooks:
                     key = (model_cls, event, cls, method_name)
-                    if key not in HookHandlerMeta._registered:
+                    if key not in HookMeta._registered:
                         logger.info(
-                            "Registering hook via HookHandlerMeta: model=%s, event=%s, handler_cls=%s, method_name=%s",
+                            "Registering hook via HookMeta: model=%s, event=%s, handler_cls=%s, method_name=%s",
                             model_cls.__name__,
                             event,
                             cls.__name__,
@@ -89,11 +89,11 @@ class HookHandlerMeta(type):
                             condition=condition,
                             priority=priority,
                         )
-                        HookHandlerMeta._registered.add(key)
+                        HookMeta._registered.add(key)
         return cls
 
 
-class HookHandler(metaclass=HookHandlerMeta):
+class Hook(metaclass=HookMeta):
     @classmethod
     def handle(
         cls,
