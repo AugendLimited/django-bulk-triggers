@@ -74,13 +74,6 @@ class HookMeta(type):
                 for model_cls, event, condition, priority in method.hooks_hooks:
                     key = (model_cls, event, cls, method_name)
                     if key not in HookMeta._registered:
-                        logger.info(
-                            "Registering hook via HookMeta: model=%s, event=%s, handler_cls=%s, method_name=%s",
-                            model_cls.__name__,
-                            event,
-                            cls.__name__,
-                            method_name,
-                        )
                         register_hook(
                             model=model_cls,
                             event=event,
@@ -131,7 +124,6 @@ class Hook(metaclass=HookMeta):
         hook_vars.model = model
 
         hooks = sorted(get_hooks(model, event), key=lambda x: x[3])
-        logger.debug("Processing %d hooks for %s.%s", len(hooks), model.__name__, event)
 
         def _execute():
             new_local = new_records or []
@@ -150,12 +142,6 @@ class Hook(metaclass=HookMeta):
                 handler = handler_cls()
                 method = getattr(handler, method_name)
 
-                logger.info(
-                    "Running hook %s.%s on %d items",
-                    handler_cls.__name__,
-                    method_name,
-                    len(new_local),
-                )
                 try:
                     method(
                         new_records=new_local,

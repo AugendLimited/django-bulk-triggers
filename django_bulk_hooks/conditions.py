@@ -1,8 +1,3 @@
-import logging
-
-logger = logging.getLogger(__name__)
-
-
 def resolve_dotted_attr(instance, dotted_path):
     """
     Recursively resolve a dotted attribute path, e.g., "type.category".
@@ -39,12 +34,6 @@ class IsNotEqual(HookCondition):
 
     def check(self, instance, original_instance=None):
         current = resolve_dotted_attr(instance, self.field)
-        logger.debug(
-            "%s current=%r, original=%r",
-            self.field,
-            current,
-            resolve_dotted_attr(original_instance, self.field) if original_instance else None,
-        )
         if self.only_on_change:
             if original_instance is None:
                 return False
@@ -62,12 +51,6 @@ class IsEqual(HookCondition):
 
     def check(self, instance, original_instance=None):
         current = resolve_dotted_attr(instance, self.field)
-        logger.debug(
-            "%s current=%r, original=%r",
-            self.field,
-            current,
-            resolve_dotted_attr(original_instance, self.field) if original_instance else None,
-        )
         if self.only_on_change:
             if original_instance is None:
                 return False

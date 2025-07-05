@@ -1,7 +1,4 @@
-import logging
-
 from django.db import models, transaction
-
 from django_bulk_hooks import engine
 from django_bulk_hooks.constants import (
     AFTER_CREATE,
@@ -16,8 +13,6 @@ from django_bulk_hooks.constants import (
 )
 from django_bulk_hooks.context import HookContext
 from django_bulk_hooks.queryset import HookQuerySet
-
-logger = logging.getLogger(__name__)
 
 
 class BulkHookManager(models.Manager):
@@ -56,10 +51,6 @@ class BulkHookManager(models.Manager):
                 fields_set = set(fields)
                 fields_set.update(modified_fields)
                 fields = list(fields_set)
-                logger.info(
-                    "Automatically including modified fields in bulk_update: %s",
-                    modified_fields,
-                )
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
@@ -159,9 +150,6 @@ class BulkHookManager(models.Manager):
         ctx = HookContext(model_cls)
 
         if not bypass_hooks:
-            logger.info("Executing hooks for %s", model_cls.__name__)
-            logger.info("Number of objects to delete: %d", len(objs))
-            
             # Run validation hooks first
             if not bypass_validation:
                 engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
@@ -173,8 +161,6 @@ class BulkHookManager(models.Manager):
         model_cls.objects.filter(pk__in=pks).delete()
 
         if not bypass_hooks:
-            logger.info("Executing AFTER_DELETE hooks for %s", model_cls.__name__)
-            logger.info("Number of objects deleted: %d", len(objs))
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
 
         return objs
