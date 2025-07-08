@@ -39,5 +39,5 @@ def run(model_cls, event, new_instances, original_instances=None, ctx=None):
                 to_process_old.append(original)
 
         if to_process_new:
-            # Call the function with direct arguments
-            func(to_process_new, to_process_old if any(to_process_old) else None)
+            # Call the function with keyword arguments
+            func(new_records=to_process_new, old_records=to_process_old if any(to_process_old) else None)
