@@ -12,7 +12,7 @@ from django_bulk_hooks.constants import (
     VALIDATE_DELETE,
     VALIDATE_UPDATE,
 )
-from django_bulk_hooks.context import HookContext
+from django_bulk_hooks.context import HookContext, is_in_bulk_operation, set_bulk_operation_flag
 from django_bulk_hooks.queryset import HookQuerySet
 
 
@@ -177,7 +177,14 @@ class BulkHookManager(models.Manager):
             engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
 
         pks = [obj.pk for obj in objs if obj.pk is not None]
-        model_cls.objects.filter(pk__in=pks).delete()
+        
+        # Set flag to prevent recursion during the actual deletion
+        set_bulk_operation_flag(True)
+        try:
+            # Use the custom manager - hooks won't fire again due to the flag
+            model_cls.objects.filter(pk__in=pks).delete()
+        finally:
+            set_bulk_operation_flag(False)
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)

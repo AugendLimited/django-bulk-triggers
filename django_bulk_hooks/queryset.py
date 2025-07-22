@@ -1,4 +1,5 @@
 from django.db import models, transaction
+from django_bulk_hooks.context import is_in_bulk_operation
 
 
 class HookQuerySet(models.QuerySet):
@@ -7,7 +8,13 @@ class HookQuerySet(models.QuerySet):
         objs = list(self)
         if not objs:
             return 0
-        return self.model.objects.bulk_delete(objs)
+        
+        # If we're already in a bulk operation, use base manager to prevent recursion
+        if is_in_bulk_operation():
+            return self.model._base_manager.bulk_delete(objs)
+        else:
+            # Normal case - use custom manager to ensure hooks fire
+            return self.model.objects.bulk_delete(objs)
 
     @transaction.atomic
     def update(self, **kwargs):
@@ -35,8 +42,14 @@ class HookQuerySet(models.QuerySet):
         engine.run(model_cls, "before_update", instances, originals, ctx=ctx)
 
         # Use Django's built-in update logic directly
-        queryset = self.model._base_manager.filter(pk__in=pks)
-        update_count = queryset.update(**kwargs)
+        # Set flag to prevent recursion during the actual update
+        from django_bulk_hooks.context import set_bulk_operation_flag
+        set_bulk_operation_flag(True)
+        try:
+            queryset = self.model.objects.filter(pk__in=pks)
+            update_count = queryset.update(**kwargs)
+        finally:
+            set_bulk_operation_flag(False)
 
         # Run AFTER_UPDATE hooks
         engine.run(model_cls, "after_update", instances, originals, ctx=ctx)
