@@ -12,7 +12,7 @@ from django_bulk_hooks.constants import (
     VALIDATE_DELETE,
     VALIDATE_UPDATE,
 )
-from django_bulk_hooks.context import HookContext, is_in_bulk_operation, set_bulk_operation_flag
+from django_bulk_hooks.context import HookContext
 from django_bulk_hooks.queryset import HookQuerySet
 
 
@@ -37,20 +37,10 @@ class BulkHookManager(models.Manager):
             )
 
         if not bypass_hooks:
-            # Check if we're already in a hook context (recursive call)
-            # If so, refetch the current database state like Salesforce does
-            import threading
-
-            if hasattr(threading.current_thread(), "_hook_context"):
-                # We're in a recursive call - refetch current DB state
-                originals = list(
-                    model_cls.objects.filter(pk__in=[obj.pk for obj in objs])
-                )
-            else:
-                # First call - use the passed originals
-                originals = list(
-                    model_cls.objects.filter(pk__in=[obj.pk for obj in objs])
-                )
+            # Load originals for hook comparison
+            originals = list(
+                model_cls.objects.filter(pk__in=[obj.pk for obj in objs])
+            )
 
             ctx = HookContext(model_cls)
 
