@@ -178,13 +178,9 @@ class BulkHookManager(models.Manager):
 
         pks = [obj.pk for obj in objs if obj.pk is not None]
         
-        # Set flag to prevent recursion during the actual deletion
-        set_bulk_operation_flag(True)
-        try:
-            # Use the custom manager - hooks won't fire again due to the flag
-            model_cls.objects.filter(pk__in=pks).delete()
-        finally:
-            set_bulk_operation_flag(False)
+        # Use base manager for the actual deletion to prevent recursion
+        # The hooks have already been fired above, so we don't need them again
+        model_cls._base_manager.filter(pk__in=pks).delete()
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)

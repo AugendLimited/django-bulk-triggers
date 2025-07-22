@@ -8,13 +8,7 @@ class HookQuerySet(models.QuerySet):
         objs = list(self)
         if not objs:
             return 0
-        
-        # If we're already in a bulk operation, use base manager to prevent recursion
-        if is_in_bulk_operation():
-            return self.model._base_manager.bulk_delete(objs)
-        else:
-            # Normal case - use custom manager to ensure hooks fire
-            return self.model.objects.bulk_delete(objs)
+        return self.model.objects.bulk_delete(objs)
 
     @transaction.atomic
     def update(self, **kwargs):
