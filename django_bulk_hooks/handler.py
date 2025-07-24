@@ -1,3 +1,4 @@
+import inspect
 import logging
 import threading
 from collections import deque
@@ -144,11 +145,12 @@ class HookHandler(metaclass=HookMeta):
 
                 # Inspect the method signature to determine parameter order
                 import inspect
+
                 sig = inspect.signature(method)
                 params = list(sig.parameters.keys())
-                
+
                 # Remove 'self' from params if it exists
-                if params and params[0] == 'self':
+                if params and params[0] == "self":
                     params = params[1:]
 
                 # Always call with keyword arguments to make order irrelevant

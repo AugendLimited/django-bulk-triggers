@@ -207,3 +207,165 @@ class EfficientTransactionHandler:
 ```
 
 This approach ensures your hooks are robust and won't fail due to missing related objects, while also being efficient with database queries.
+
+## 🎯 Lambda Conditions and Anonymous Functions
+
+`django-bulk-hooks` supports using anonymous functions (lambda functions) and custom callables as conditions, giving you maximum flexibility for complex filtering logic.
+
+### Using LambdaCondition
+
+The `LambdaCondition` class allows you to use lambda functions or any callable as a condition:
+
+```python
+from django_bulk_hooks import LambdaCondition
+
+class ProductHandler:
+    # Simple lambda condition
+    @hook(Product, "after_create", condition=LambdaCondition(
+        lambda instance: instance.price > 100
+    ))
+    def handle_expensive_products(self, new_records, old_records):
+        """Handle products with price > 100"""
+        for product in new_records:
+            print(f"Expensive product: {product.name}")
+    
+    # Lambda with multiple conditions
+    @hook(Product, "after_update", condition=LambdaCondition(
+        lambda instance: instance.price > 50 and instance.is_active and instance.stock_quantity > 0
+    ))
+    def handle_available_expensive_products(self, new_records, old_records):
+        """Handle active products with price > 50 and stock > 0"""
+        for product in new_records:
+            print(f"Available expensive product: {product.name}")
+    
+    # Lambda comparing with original instance
+    @hook(Product, "after_update", condition=LambdaCondition(
+        lambda instance, original: original and instance.price > original.price * 1.5
+    ))
+    def handle_significant_price_increases(self, new_records, old_records):
+        """Handle products with >50% price increase"""
+        for new_product, old_product in zip(new_records, old_records):
+            if old_product:
+                increase = ((new_product.price - old_product.price) / old_product.price) * 100
+                print(f"Significant price increase: {new_product.name} +{increase:.1f}%")
+```
+
+### Combining Lambda Conditions with Built-in Conditions
+
+You can combine lambda conditions with built-in conditions using the `&` (AND) and `|` (OR) operators:
+
+```python
+from django_bulk_hooks.conditions import HasChanged, IsEqual
+
+class AdvancedProductHandler:
+    # Combine lambda with built-in conditions
+    @hook(Product, "after_update", condition=(
+        HasChanged("price") & 
+        LambdaCondition(lambda instance: instance.price > 100)
+    ))
+    def handle_expensive_price_changes(self, new_records, old_records):
+        """Handle when expensive products have price changes"""
+        for new_product, old_product in zip(new_records, old_records):
+            print(f"Expensive product price changed: {new_product.name}")
+    
+    # Complex combined conditions
+    @hook(Order, "after_update", condition=(
+        LambdaCondition(lambda instance: instance.status == 'completed') &
+        LambdaCondition(lambda instance, original: original and instance.total_amount > original.total_amount)
+    ))
+    def handle_completed_orders_with_increased_amount(self, new_records, old_records):
+        """Handle completed orders that had amount increases"""
+        for new_order, old_order in zip(new_records, old_records):
+            if old_order:
+                increase = new_order.total_amount - old_order.total_amount
+                print(f"Completed order with amount increase: {new_order.customer_name} +${increase}")
+```
+
+### Custom Condition Classes
+
+For reusable logic, you can create custom condition classes:
+
+```python
+from django_bulk_hooks.conditions import HookCondition
+
+class IsPremiumProduct(HookCondition):
+    def check(self, instance, original_instance=None):
+        return (
+            instance.price > 200 and 
+            instance.rating >= 4.0 and 
+            instance.is_active
+        )
+    
+    def get_required_fields(self):
+        return {'price', 'rating', 'is_active'}
+
+class ProductHandler:
+    @hook(Product, "after_create", condition=IsPremiumProduct())
+    def handle_premium_products(self, new_records, old_records):
+        """Handle premium products"""
+        for product in new_records:
+            print(f"Premium product: {product.name}")
+```
+
+### Lambda Conditions with Required Fields
+
+For optimization, you can specify which fields your lambda condition depends on:
+
+```python
+class OptimizedProductHandler:
+    @hook(Product, "after_update", condition=LambdaCondition(
+        lambda instance: instance.price > 100 and instance.category == 'electronics',
+        required_fields={'price', 'category'}
+    ))
+    def handle_expensive_electronics(self, new_records, old_records):
+        """Handle expensive electronics products"""
+        for product in new_records:
+            print(f"Expensive electronics: {product.name}")
+```
+
+### Best Practices for Lambda Conditions
+
+1. **Keep lambdas simple** - Complex logic should be moved to custom condition classes
+2. **Handle None values** - Always check for None before performing operations
+3. **Specify required fields** - This helps with query optimization
+4. **Use descriptive names** - Make your lambda conditions self-documenting
+5. **Test thoroughly** - Lambda conditions can be harder to debug than named functions
+
+```python
+# ✅ GOOD: Simple, clear lambda
+condition = LambdaCondition(lambda instance: instance.price > 100)
+
+# ✅ GOOD: Handles None values
+condition = LambdaCondition(
+    lambda instance: instance.price is not None and instance.price > 100
+)
+
+# ❌ AVOID: Complex logic in lambda
+condition = LambdaCondition(
+    lambda instance: (
+        instance.price > 100 and 
+        instance.category in ['electronics', 'computers'] and
+        instance.stock_quantity > 0 and
+        instance.rating >= 4.0 and
+        instance.is_active and
+        instance.created_at > datetime.now() - timedelta(days=30)
+    )
+)
+
+# ✅ BETTER: Use custom condition class for complex logic
+class IsRecentExpensiveElectronics(HookCondition):
+    def check(self, instance, original_instance=None):
+        return (
+            instance.price > 100 and 
+            instance.category in ['electronics', 'computers'] and
+            instance.stock_quantity > 0 and
+            instance.rating >= 4.0 and
+            instance.is_active and
+            instance.created_at > datetime.now() - timedelta(days=30)
+        )
+    
+    def get_required_fields(self):
+        return {'price', 'category', 'stock_quantity', 'rating', 'is_active', 'created_at'}
+```
+
+## 🔧 Best Practices for Related Objects

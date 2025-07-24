@@ -1,3 +1,19 @@
+from django_bulk_hooks.conditions import (
+    ChangesTo,
+    HasChanged,
+    IsBlank,
+    IsEqual,
+    IsGreaterThan,
+    IsGreaterThanOrEqual,
+    IsLessThan,
+    IsLessThanOrEqual,
+    IsNotEqual,
+    LambdaCondition,
+    WasEqual,
+    is_field_set,
+    safe_get_related_attr,
+    safe_get_related_object,
+)
 from django_bulk_hooks.constants import (
     AFTER_CREATE,
     AFTER_DELETE,
@@ -9,21 +25,10 @@ from django_bulk_hooks.constants import (
     VALIDATE_DELETE,
     VALIDATE_UPDATE,
 )
-from django_bulk_hooks.conditions import (
-    ChangesTo,
-    HasChanged,
-    IsEqual,
-    IsNotEqual,
-    WasEqual,
-    IsBlank,
-    safe_get_related_object,
-    safe_get_related_attr,
-    is_field_set,
-)
 from django_bulk_hooks.decorators import hook, select_related
+from django_bulk_hooks.enums import Priority
 from django_bulk_hooks.handler import HookHandler
 from django_bulk_hooks.models import HookModelMixin
-from django_bulk_hooks.enums import Priority
 
 __all__ = [
     "HookHandler",
@@ -49,4 +54,9 @@ __all__ = [
     "IsNotEqual",
     "WasEqual",
     "IsBlank",
+    "IsGreaterThan",
+    "IsLessThan",
+    "IsGreaterThanOrEqual",
+    "IsLessThanOrEqual",
+    "LambdaCondition",
 ]
