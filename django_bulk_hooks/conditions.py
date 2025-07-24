@@ -195,90 +195,86 @@ class HookCondition:
     def __invert__(self):
         return NotCondition(self)
 
-
-class IsNotEqual(HookCondition):
-    def __init__(self, field, value, only_on_change=False):
-        self.field = field
-        self.value = value
-        self.only_on_change = only_on_change
-
-    def check(self, instance, original_instance=None):
-        current = resolve_dotted_attr(instance, self.field)
-        if self.only_on_change:
-            if original_instance is None:
-                return False
-            previous = resolve_dotted_attr(original_instance, self.field)
-            return previous == self.value and current != self.value
-        else:
-            return current != self.value
+    def get_required_fields(self):
+        """
+        Returns a set of field names that this condition needs to evaluate.
+        Override in subclasses to specify required fields.
+        """
+        return set()
 
 
 class IsEqual(HookCondition):
-    def __init__(self, field, value, only_on_change=False):
+    def __init__(self, field, value):
         self.field = field
         self.value = value
-        self.only_on_change = only_on_change
 
     def check(self, instance, original_instance=None):
-        current = resolve_dotted_attr(instance, self.field)
-        if self.only_on_change:
-            if original_instance is None:
-                return False
-            previous = resolve_dotted_attr(original_instance, self.field)
-            return previous != self.value and current == self.value
-        else:
-            return current == self.value
+        current_value = resolve_dotted_attr(instance, self.field)
+        return current_value == self.value
+
+    def get_required_fields(self):
+        return {self.field.split('.')[0]}
 
 
-class HasChanged(HookCondition):
-    def __init__(self, field, has_changed=True):
+class IsNotEqual(HookCondition):
+    def __init__(self, field, value):
         self.field = field
-        self.has_changed = has_changed
+        self.value = value
 
     def check(self, instance, original_instance=None):
-        if not original_instance:
-            return False
-        current = resolve_dotted_attr(instance, self.field)
-        previous = resolve_dotted_attr(original_instance, self.field)
-        return (current != previous) == self.has_changed
+        current_value = resolve_dotted_attr(instance, self.field)
+        return current_value != self.value
+
+    def get_required_fields(self):
+        return {self.field.split('.')[0]}
 
 
 class WasEqual(HookCondition):
-    def __init__(self, field, value, only_on_change=False):
-        """
-        Check if a field's original value was `value`.
-        If only_on_change is True, only return True when the field has changed away from that value.
-        """
+    def __init__(self, field, value):
         self.field = field
         self.value = value
-        self.only_on_change = only_on_change
 
     def check(self, instance, original_instance=None):
         if original_instance is None:
             return False
-        previous = resolve_dotted_attr(original_instance, self.field)
-        if self.only_on_change:
-            current = resolve_dotted_attr(instance, self.field)
-            return previous == self.value and current != self.value
-        else:
-            return previous == self.value
+        original_value = resolve_dotted_attr(original_instance, self.field)
+        return original_value == self.value
+
+    def get_required_fields(self):
+        return {self.field.split('.')[0]}
+
+
+class HasChanged(HookCondition):
+    def __init__(self, field):
+        self.field = field
+
+    def check(self, instance, original_instance=None):
+        if original_instance is None:
+            return True
+        current_value = resolve_dotted_attr(instance, self.field)
+        original_value = resolve_dotted_attr(original_instance, self.field)
+        return current_value != original_value
+
+    def get_required_fields(self):
+        return {self.field.split('.')[0]}
 
 
 class ChangesTo(HookCondition):
     def __init__(self, field, value):
-        """
-        Check if a field's value has changed to `value`.
-        Only returns True when original value != value and current value == value.
-        """
         self.field = field
         self.value = value
 
     def check(self, instance, original_instance=None):
         if original_instance is None:
-            return False
-        previous = resolve_dotted_attr(original_instance, self.field)
-        current = resolve_dotted_attr(instance, self.field)
-        return previous != self.value and current == self.value
+            current_value = resolve_dotted_attr(instance, self.field)
+            return current_value == self.value
+
+        current_value = resolve_dotted_attr(instance, self.field)
+        original_value = resolve_dotted_attr(original_instance, self.field)
+        return current_value == self.value and current_value != original_value
+
+    def get_required_fields(self):
+        return {self.field.split('.')[0]}
 
 
 class IsGreaterThan(HookCondition):
@@ -322,30 +318,41 @@ class IsLessThanOrEqual(HookCondition):
 
 
 class AndCondition(HookCondition):
-    def __init__(self, cond1, cond2):
-        self.cond1 = cond1
-        self.cond2 = cond2
+    def __init__(self, condition1, condition2):
+        self.condition1 = condition1
+        self.condition2 = condition2
 
     def check(self, instance, original_instance=None):
-        return self.cond1.check(instance, original_instance) and self.cond2.check(
-            instance, original_instance
+        return (
+            self.condition1.check(instance, original_instance)
+            and self.condition2.check(instance, original_instance)
         )
+
+    def get_required_fields(self):
+        return self.condition1.get_required_fields() | self.condition2.get_required_fields()
 
 
 class OrCondition(HookCondition):
-    def __init__(self, cond1, cond2):
-        self.cond1 = cond1
-        self.cond2 = cond2
+    def __init__(self, condition1, condition2):
+        self.condition1 = condition1
+        self.condition2 = condition2
 
     def check(self, instance, original_instance=None):
-        return self.cond1.check(instance, original_instance) or self.cond2.check(
-            instance, original_instance
+        return (
+            self.condition1.check(instance, original_instance)
+            or self.condition2.check(instance, original_instance)
         )
+
+    def get_required_fields(self):
+        return self.condition1.get_required_fields() | self.condition2.get_required_fields()
 
 
 class NotCondition(HookCondition):
-    def __init__(self, cond):
-        self.cond = cond
+    def __init__(self, condition):
+        self.condition = condition
 
     def check(self, instance, original_instance=None):
-        return not self.cond.check(instance, original_instance)
+        return not self.condition.check(instance, original_instance)
+
+    def get_required_fields(self):
+        return self.condition.get_required_fields()
