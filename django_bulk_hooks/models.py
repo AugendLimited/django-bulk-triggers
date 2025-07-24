@@ -57,32 +57,36 @@ class HookModelMixin(models.Model):
 
     def save(self, *args, **kwargs):
         is_create = self.pk is None
+        ctx = HookContext(self.__class__)
 
         if is_create:
-            # For create operations, we don't have old records
-            ctx = HookContext(self.__class__)
+            # For create operations, run BEFORE hooks first
             run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
-
+            
+            # Then let Django save
             super().save(*args, **kwargs)
-
+            
+            # Then run AFTER hooks
             run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
         else:
             # For update operations, we need to get the old record
             try:
                 old_instance = self.__class__.objects.get(pk=self.pk)
-                ctx = HookContext(self.__class__)
+                
+                # Run BEFORE hooks first
                 run(self.__class__, BEFORE_UPDATE, [self], [old_instance], ctx=ctx)
-
+                
+                # Then let Django save
                 super().save(*args, **kwargs)
-
+                
+                # Then run AFTER hooks
                 run(self.__class__, AFTER_UPDATE, [self], [old_instance], ctx=ctx)
             except self.__class__.DoesNotExist:
                 # If the old instance doesn't exist, treat as create
-                ctx = HookContext(self.__class__)
                 run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
-
+                
                 super().save(*args, **kwargs)
-
+                
                 run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
 
         return self
