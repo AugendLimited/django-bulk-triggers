@@ -1,4 +1,8 @@
+import contextlib
+from functools import wraps
+
 from django.db import models, transaction
+from django.db.models.fields.related_descriptors import ForwardManyToOneDescriptor
 
 from django_bulk_hooks.constants import (
     AFTER_CREATE,
@@ -14,9 +18,6 @@ from django_bulk_hooks.constants import (
 from django_bulk_hooks.context import HookContext
 from django_bulk_hooks.engine import run
 from django_bulk_hooks.manager import BulkHookManager
-from django.db.models.fields.related_descriptors import ForwardManyToOneDescriptor
-from functools import wraps
-import contextlib
 
 
 @contextlib.contextmanager
@@ -26,7 +27,7 @@ def patch_foreign_key_behavior():
     RelatedObjectDoesNotExist when accessing an unset foreign key field.
     """
     original_get = ForwardManyToOneDescriptor.__get__
-    
+
     @wraps(original_get)
     def safe_get(self, instance, cls=None):
         if instance is None:
@@ -35,7 +36,7 @@ def patch_foreign_key_behavior():
             return original_get(self, instance, cls)
         except self.RelatedObjectDoesNotExist:
             return None
-    
+
     # Patch the descriptor
     ForwardManyToOneDescriptor.__get__ = safe_get
     try:
@@ -63,7 +64,7 @@ class HookModelMixin(models.Model):
         # Skip hook validation during admin form validation
         # This prevents RelatedObjectDoesNotExist errors when Django hasn't
         # fully set up the object's relationships yet
-        if hasattr(self, '_state') and getattr(self._state, 'validating', False):
+        if hasattr(self, "_state") and getattr(self._state, "validating", False):
             return
 
         # Determine if this is a create or update operation
@@ -80,7 +81,9 @@ class HookModelMixin(models.Model):
                 old_instance = self.__class__.objects.get(pk=self.pk)
                 ctx = HookContext(self.__class__)
                 with patch_foreign_key_behavior():
-                    run(self.__class__, VALIDATE_UPDATE, [self], [old_instance], ctx=ctx)
+                    run(
+                        self.__class__, VALIDATE_UPDATE, [self], [old_instance], ctx=ctx
+                    )
             except self.__class__.DoesNotExist:
                 # If the old instance doesn't exist, treat as create
                 ctx = HookContext(self.__class__)
@@ -91,27 +94,40 @@ class HookModelMixin(models.Model):
         is_create = self.pk is None
         ctx = HookContext(self.__class__)
 
-        # Let Django save first to handle form validation
-        super().save(*args, **kwargs)
-
-        # Then run our hooks with the validated data
+        # Run BEFORE hooks before saving to allow field modifications
         with patch_foreign_key_behavior():
             if is_create:
                 # For create operations
                 run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
                 run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
+            else:
+                # For update operations
+                try:
+                    old_instance = self.__class__.objects.get(pk=self.pk)
+                    run(
+                        self.__class__, VALIDATE_UPDATE, [self], [old_instance], ctx=ctx
+                    )
+                    run(self.__class__, BEFORE_UPDATE, [self], [old_instance], ctx=ctx)
+                except self.__class__.DoesNotExist:
+                    # If the old instance doesn't exist, treat as create
+                    run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
+                    run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
+
+        # Now let Django save with any modifications from BEFORE hooks
+        super().save(*args, **kwargs)
+
+        # Then run AFTER hooks
+        with patch_foreign_key_behavior():
+            if is_create:
+                # For create operations
                 run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
             else:
                 # For update operations
                 try:
                     old_instance = self.__class__.objects.get(pk=self.pk)
-                    run(self.__class__, VALIDATE_UPDATE, [self], [old_instance], ctx=ctx)
-                    run(self.__class__, BEFORE_UPDATE, [self], [old_instance], ctx=ctx)
                     run(self.__class__, AFTER_UPDATE, [self], [old_instance], ctx=ctx)
                 except self.__class__.DoesNotExist:
                     # If the old instance doesn't exist, treat as create
-                    run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
-                    run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
                     run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
 
         return self
@@ -125,5 +141,5 @@ class HookModelMixin(models.Model):
             run(self.__class__, BEFORE_DELETE, [self], ctx=ctx)
             result = super().delete(*args, **kwargs)
             run(self.__class__, AFTER_DELETE, [self], ctx=ctx)
-            
+
         return result
