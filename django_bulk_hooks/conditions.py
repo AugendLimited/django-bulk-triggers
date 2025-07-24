@@ -29,6 +29,81 @@ def safe_get_related_object(instance, field_name):
         return None
 
 
+def safe_get_related_attr(instance, field_name, attr_name=None):
+    """
+    Safely get a related object or its attribute without raising RelatedObjectDoesNotExist.
+    
+    This is particularly useful in hooks where objects might not have their related
+    fields populated yet (e.g., during bulk_create operations).
+    
+    Args:
+        instance: The model instance
+        field_name: The foreign key field name
+        attr_name: Optional attribute name to access on the related object
+    
+    Returns:
+        The related object, the attribute value, or None if not available
+        
+    Example:
+        # Instead of: loan_transaction.status.name (which might fail)
+        # Use: safe_get_related_attr(loan_transaction, 'status', 'name')
+        
+        status_name = safe_get_related_attr(loan_transaction, 'status', 'name')
+        if status_name in {Status.COMPLETE.value, Status.FAILED.value}:
+            # Process the transaction
+            pass
+    """
+    related_obj = safe_get_related_object(instance, field_name)
+    if related_obj is None:
+        return None
+    
+    if attr_name is None:
+        return related_obj
+    
+    return getattr(related_obj, attr_name, None)
+
+
+def safe_get_related_attr_with_fallback(instance, field_name, attr_name=None, fallback_value=None):
+    """
+    Enhanced version of safe_get_related_attr that provides fallback handling.
+    
+    This function is especially useful for bulk operations where related objects
+    might not be fully loaded or might not exist yet.
+    
+    Args:
+        instance: The model instance
+        field_name: The foreign key field name
+        attr_name: Optional attribute name to access on the related object
+        fallback_value: Value to return if the related object or attribute doesn't exist
+    
+    Returns:
+        The related object, the attribute value, or fallback_value if not available
+    """
+    # First try the standard safe access
+    result = safe_get_related_attr(instance, field_name, attr_name)
+    if result is not None:
+        return result
+    
+    # If that fails, try to get the foreign key ID and fetch the object directly
+    fk_field_name = f"{field_name}_id"
+    if hasattr(instance, fk_field_name):
+        fk_id = getattr(instance, fk_field_name)
+        if fk_id is not None:
+            try:
+                # Get the field to determine the related model
+                field = instance._meta.get_field(field_name)
+                if field.is_relation and not field.many_to_many and not field.one_to_many:
+                    # Try to fetch the related object directly
+                    related_obj = field.related_model.objects.get(pk=fk_id)
+                    if attr_name is None:
+                        return related_obj
+                    return getattr(related_obj, attr_name, fallback_value)
+            except (field.related_model.DoesNotExist, AttributeError):
+                pass
+    
+    return fallback_value
+
+
 def resolve_dotted_attr(instance, dotted_path):
     """
     Recursively resolve a dotted attribute path, e.g., "type.category".

@@ -3,31 +3,9 @@ import logging
 from django.core.exceptions import ValidationError
 from django.db import models
 from django_bulk_hooks.registry import get_hooks
-from django_bulk_hooks.conditions import safe_get_related_object
+from django_bulk_hooks.conditions import safe_get_related_object, safe_get_related_attr
 
 logger = logging.getLogger(__name__)
-
-
-def safe_get_related_attr(instance, field_name, attr_name=None):
-    """
-    Safely get a related object or its attribute without raising RelatedObjectDoesNotExist.
-    
-    Args:
-        instance: The model instance
-        field_name: The foreign key field name
-        attr_name: Optional attribute name to access on the related object
-    
-    Returns:
-        The related object, the attribute value, or None if not available
-    """
-    related_obj = safe_get_related_object(instance, field_name)
-    if related_obj is None:
-        return None
-    
-    if attr_name is None:
-        return related_obj
-    
-    return getattr(related_obj, attr_name, None)
 
 
 def run(model_cls, event, new_instances, original_instances=None, ctx=None):
