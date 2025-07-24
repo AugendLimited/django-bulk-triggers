@@ -209,8 +209,13 @@ class IsEqual(HookCondition):
         self.value = value
 
     def check(self, instance, original_instance=None):
-        current_value = resolve_dotted_attr(instance, self.field)
-        return current_value == self.value
+        # Handle the case where the field might not exist yet
+        try:
+            current_value = getattr(instance, self.field, None)
+            return current_value == self.value
+        except Exception:
+            # If there's any error accessing the field, treat it as None
+            return self.value is None
 
     def get_required_fields(self):
         return {self.field.split('.')[0]}

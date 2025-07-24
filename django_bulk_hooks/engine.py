@@ -52,20 +52,31 @@ def run(model_cls, event, new_instances, original_instances=None, ctx=None):
         else:
             handler_instance, func = _handler_cache[handler_key]
 
-        # If no condition, process all instances at once
-        if not condition:
+        # Filter instances based on condition
+        if condition:
+            to_process_new = []
+            to_process_old = []
+
+            logger.debug(f"Checking condition {condition.__class__.__name__} for {len(new_instances)} instances")
+            for new, original in zip(new_instances, original_instances, strict=True):
+                logger.debug(f"Checking instance {new.__class__.__name__}(pk={new.pk})")
+                try:
+                    matches = condition.check(new, original)
+                    logger.debug(f"Condition check result: {matches}")
+                    if matches:
+                        to_process_new.append(new)
+                        to_process_old.append(original)
+                except Exception as e:
+                    logger.error(f"Error checking condition: {e}")
+                    raise
+
+            # Only call if we have matching instances
+            if to_process_new:
+                logger.debug(f"Running hook for {len(to_process_new)} matching instances")
+                func(new_records=to_process_new, old_records=to_process_old if any(to_process_old) else None)
+            else:
+                logger.debug("No instances matched condition")
+        else:
+            # No condition, process all instances
+            logger.debug("No condition, processing all instances")
             func(new_records=new_instances, old_records=original_instances if any(original_instances) else None)
-            continue
-
-        # For conditional hooks, filter instances first
-        to_process_new = []
-        to_process_old = []
-
-        for new, original in zip(new_instances, original_instances, strict=True):
-            if condition.check(new, original):
-                to_process_new.append(new)
-                to_process_old.append(original)
-
-        if to_process_new:
-            # Call the function with keyword arguments
-            func(new_records=to_process_new, old_records=to_process_old if any(to_process_old) else None)
