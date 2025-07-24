@@ -94,19 +94,29 @@ class HookModelMixin(models.Model):
         # Use a single context manager for all hooks
         with patch_foreign_key_behavior():
             if is_create:
-                # For create operations
+                # For create operations, run validation hooks first
+                run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
+                # Then run BEFORE hooks
                 run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
+                # Now save
                 super().save(*args, **kwargs)
+                # Finally run AFTER hooks
                 run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
             else:
                 # For update operations
                 try:
                     old_instance = self.__class__.objects.get(pk=self.pk)
+                    # Run validation hooks first
+                    run(self.__class__, VALIDATE_UPDATE, [self], [old_instance], ctx=ctx)
+                    # Then run BEFORE hooks
                     run(self.__class__, BEFORE_UPDATE, [self], [old_instance], ctx=ctx)
+                    # Now save
                     super().save(*args, **kwargs)
+                    # Finally run AFTER hooks
                     run(self.__class__, AFTER_UPDATE, [self], [old_instance], ctx=ctx)
                 except self.__class__.DoesNotExist:
                     # If the old instance doesn't exist, treat as create
+                    run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
                     run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
                     super().save(*args, **kwargs)
                     run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
