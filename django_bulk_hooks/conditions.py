@@ -1,12 +1,36 @@
+from django_bulk_hooks.engine import safe_get_related_object
+
+
 def resolve_dotted_attr(instance, dotted_path):
     """
     Recursively resolve a dotted attribute path, e.g., "type.category".
+    This function is designed to work with pre-loaded foreign keys to avoid queries.
     """
+    if instance is None:
+        return None
+    
+    current = instance
     for attr in dotted_path.split("."):
-        if instance is None:
+        if current is None:
             return None
-        instance = getattr(instance, attr, None)
-    return instance
+        
+        # Check if this is a foreign key that might trigger a query
+        if hasattr(current, '_meta') and hasattr(current._meta, 'get_field'):
+            try:
+                field = current._meta.get_field(attr)
+                if field.is_relation and not field.many_to_many and not field.one_to_many:
+                    # For foreign keys, use safe access to prevent RelatedObjectDoesNotExist
+                    current = safe_get_related_object(current, attr)
+                else:
+                    current = getattr(current, attr, None)
+            except Exception:
+                # If field lookup fails, fall back to regular attribute access
+                current = getattr(current, attr, None)
+        else:
+            # Not a model instance, use regular attribute access
+            current = getattr(current, attr, None)
+    
+    return current
 
 
 class HookCondition:
