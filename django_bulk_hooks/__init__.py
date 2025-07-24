@@ -12,6 +12,7 @@ from django_bulk_hooks.constants import (
 from django_bulk_hooks.engine import safe_get_related_object, safe_get_related_attr
 from django_bulk_hooks.handler import HookHandler
 from django_bulk_hooks.models import HookModelMixin
+from django_bulk_hooks.enums import Priority
 
 __all__ = [
     "HookHandler",
@@ -27,4 +28,5 @@ __all__ = [
     "VALIDATE_DELETE",
     "safe_get_related_object",
     "safe_get_related_attr",
+    "Priority",
 ]

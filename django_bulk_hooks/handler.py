@@ -86,7 +86,7 @@ class HookMeta(type):
         return cls
 
 
-class Hook(metaclass=HookMeta):
+class HookHandler(metaclass=HookMeta):
     @classmethod
     def handle(
         cls,

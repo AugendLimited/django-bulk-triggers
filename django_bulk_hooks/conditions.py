@@ -1,4 +1,32 @@
-from django_bulk_hooks.engine import safe_get_related_object
+from django.db import models
+
+
+def safe_get_related_object(instance, field_name):
+    """
+    Safely get a related object without raising RelatedObjectDoesNotExist.
+    Returns None if the foreign key field is None or the related object doesn't exist.
+    """
+    if not hasattr(instance, field_name):
+        return None
+    
+    # Get the foreign key field
+    try:
+        field = instance._meta.get_field(field_name)
+        if not field.is_relation or field.many_to_many or field.one_to_many:
+            return getattr(instance, field_name, None)
+    except models.FieldDoesNotExist:
+        return getattr(instance, field_name, None)
+    
+    # Check if the foreign key field is None
+    fk_field_name = f"{field_name}_id"
+    if hasattr(instance, fk_field_name) and getattr(instance, fk_field_name) is None:
+        return None
+    
+    # Try to get the related object, but catch RelatedObjectDoesNotExist
+    try:
+        return getattr(instance, field_name)
+    except field.related_model.RelatedObjectDoesNotExist:
+        return None
 
 
 def resolve_dotted_attr(instance, dotted_path):

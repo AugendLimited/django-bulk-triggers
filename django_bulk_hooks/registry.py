@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Union
 
-from django_bulk_hooks.priority import Priority
+from django_bulk_hooks.enums import Priority
 
 _hooks: dict[tuple[type, str], list[tuple[type, str, Callable, int]]] = {}
 
@@ -17,8 +17,7 @@ def register_hook(
 
 
 def get_hooks(model, event):
-    hooks = _hooks.get((model, event), [])
-    return hooks
+    return _hooks.get((model, event), [])
 
 
 def list_all_hooks():

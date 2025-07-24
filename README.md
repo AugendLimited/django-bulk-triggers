@@ -39,7 +39,7 @@ from django_bulk_hooks import hook, AFTER_UPDATE, Hook
 from django_bulk_hooks.conditions import WhenFieldHasChanged
 from .models import Account
 
-class AccountHooks(Hook):
+class AccountHooks(HookHandler):
     @hook(AFTER_UPDATE, model=Account, condition=WhenFieldHasChanged("balance"))
     def log_balance_change(self, new_records, old_records):
         print("Accounts updated:", [a.pk for a in new_records])
@@ -55,99 +55,10 @@ class AccountHooks(Hook):
         print("Accounts deleted:", [a.pk for a in old_records])
 ```
 
-## 🛠 Supported Hook Events
-
-- `BEFORE_CREATE`, `AFTER_CREATE`
-- `BEFORE_UPDATE`, `AFTER_UPDATE`
-- `BEFORE_DELETE`, `AFTER_DELETE`
-
-## 🔄 Lifecycle Events
-
-### Individual Model Operations
-
-The `HookModelMixin` automatically triggers hooks for individual model operations:
-
-```python
-# These will trigger BEFORE_CREATE and AFTER_CREATE hooks
-account = Account.objects.create(balance=100.00)
-account.save()  # for new instances
-
-# These will trigger BEFORE_UPDATE and AFTER_UPDATE hooks
-account.balance = 200.00
-account.save()  # for existing instances
-
-# This will trigger BEFORE_DELETE and AFTER_DELETE hooks
-account.delete()
-```
-
-### Bulk Operations
-
-Bulk operations also trigger the same hooks:
-
-```python
-# Bulk create - triggers BEFORE_CREATE and AFTER_CREATE hooks
-accounts = [
-    Account(balance=100.00),
-    Account(balance=200.00),
-]
-Account.objects.bulk_create(accounts)
-
-# Bulk update - triggers BEFORE_UPDATE and AFTER_UPDATE hooks
-for account in accounts:
-    account.balance *= 1.1
-Account.objects.bulk_update(accounts, ['balance'])
-
-# Bulk delete - triggers BEFORE_DELETE and AFTER_DELETE hooks
-Account.objects.bulk_delete(accounts)
-```
-
-### Queryset Operations
-
-Queryset operations are also supported:
-
-```python
-# Queryset update - triggers BEFORE_UPDATE and AFTER_UPDATE hooks
-Account.objects.update(balance=0.00)
-
-# Queryset delete - triggers BEFORE_DELETE and AFTER_DELETE hooks
-Account.objects.delete()
-```
-
-## 🧠 Why?
-
-Django's `bulk_` methods bypass signals and `save()`. This package fills that gap with:
-
-- Hooks that behave consistently across creates/updates/deletes
-- **NEW**: Individual model lifecycle hooks that work with `save()` and `delete()`
-- Scalable performance via chunking (default 200)
-- Support for `@hook` decorators and centralized hook classes
-- **NEW**: Automatic hook triggering for admin operations and other Django features
-
-## 📦 Usage Examples
-
-### Individual Model Operations
-
-```python
-# These automatically trigger hooks
-account = Account.objects.create(balance=100.00)
-account.balance = 200.00
-account.save()
-account.delete()
-```
-
-### Bulk Operations
-
-```python
-# These also trigger hooks
-Account.objects.bulk_create(accounts)
-Account.objects.bulk_update(accounts, ['balance'])
-Account.objects.bulk_delete(accounts)
-```
-
 ### Advanced Hook Usage
 
 ```python
-class AdvancedAccountHooks(Hook):
+class AdvancedAccountHooks(HookHandler):
     @hook(BEFORE_UPDATE, model=Account, condition=WhenFieldHasChanged("balance"))
     def validate_balance_change(self, new_records, old_records):
         for new_account, old_account in zip(new_records, old_records):
@@ -160,16 +71,3 @@ class AdvancedAccountHooks(Hook):
             # Send welcome email logic here
             pass
 ```
-
-## 🧩 Integration with Queryable Properties
-
-You can extend from `BulkHookManager` to support formula fields or property querying.
-
-```python
-class MyManager(BulkHookManager, QueryablePropertiesManager):
-    pass
-```
-
-## 📝 License
-
-MIT © 2024 Augend / Konrad Beck
