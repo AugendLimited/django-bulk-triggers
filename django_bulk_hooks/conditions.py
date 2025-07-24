@@ -195,13 +195,33 @@ class WasEqual(HookCondition):
 
 
 class HasChanged(HookCondition):
-    def __init__(self, field_name):
+    def __init__(self, field_name, has_changed=True):
+        """
+        Check if a field's value has changed or remained the same.
+        
+        Args:
+            field_name: The field name to check
+            has_changed: If True (default), condition passes when field has changed.
+                        If False, condition passes when field has remained the same.
+                        This is useful for:
+                        - Detecting stable/unchanged fields
+                        - Validating field immutability
+                        - Ensuring critical fields remain constant
+                        - State machine validations
+        """
         self.field_name = field_name
+        self.has_changed = has_changed
 
     def check(self, instance, original_instance=None):
         if original_instance is None:
-            return True
-        return getattr(instance, self.field_name, None) != getattr(original_instance, self.field_name, None)
+            # For new instances:
+            # - If we're checking for changes (has_changed=True), return True since it's a new record
+            # - If we're checking for stability (has_changed=False), return False since it's technically changed from nothing
+            return self.has_changed
+            
+        current_value = getattr(instance, self.field_name, None)
+        original_value = getattr(original_instance, self.field_name, None)
+        return (current_value != original_value) == self.has_changed
 
     def get_required_fields(self):
         return {self.field_name}
