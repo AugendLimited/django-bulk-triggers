@@ -29,30 +29,6 @@ def safe_get_related_object(instance, field_name):
         return None
 
 
-def is_field_set(instance, field_name):
-    """
-    Check if a foreign key field is set without raising RelatedObjectDoesNotExist.
-    
-    Args:
-        instance: The model instance
-        field_name: The foreign key field name
-    
-    Returns:
-        True if the field is set, False otherwise
-    """
-    # Check the foreign key ID field first
-    fk_field_name = f"{field_name}_id"
-    if hasattr(instance, fk_field_name):
-        fk_value = getattr(instance, fk_field_name, None)
-        return fk_value is not None
-    
-    # Fallback to checking the field directly
-    try:
-        return getattr(instance, field_name) is not None
-    except Exception:
-        return False
-
-
 def safe_get_related_attr(instance, field_name, attr_name=None):
     """
     Safely get a related object or its attribute without raising RelatedObjectDoesNotExist.
@@ -99,84 +75,19 @@ def safe_get_related_attr(instance, field_name, attr_name=None):
     related_obj = safe_get_related_object(instance, field_name)
     if related_obj is None:
         return None
-    
     if attr_name is None:
         return related_obj
-    
     return getattr(related_obj, attr_name, None)
 
 
-def safe_get_related_attr_with_fallback(instance, field_name, attr_name=None, fallback_value=None):
+def is_field_set(instance, field_name):
     """
-    Enhanced version of safe_get_related_attr that provides fallback handling.
+    Check if a field has been set on a model instance.
     
-    This function is especially useful for bulk operations where related objects
-    might not be fully loaded or might not exist yet.
-    
-    Args:
-        instance: The model instance
-        field_name: The foreign key field name
-        attr_name: Optional attribute name to access on the related object
-        fallback_value: Value to return if the related object or attribute doesn't exist
-    
-    Returns:
-        The related object, the attribute value, or fallback_value if not available
+    This is useful for checking if a field has been explicitly set,
+    even if it's been set to None.
     """
-    # First try the standard safe access
-    result = safe_get_related_attr(instance, field_name, attr_name)
-    if result is not None:
-        return result
-    
-    # If that fails, try to get the foreign key ID and fetch the object directly
-    fk_field_name = f"{field_name}_id"
-    if hasattr(instance, fk_field_name):
-        fk_id = getattr(instance, fk_field_name)
-        if fk_id is not None:
-            try:
-                # Get the field to determine the related model
-                field = instance._meta.get_field(field_name)
-                if field.is_relation and not field.many_to_many and not field.one_to_many:
-                    # Try to fetch the related object directly
-                    related_obj = field.related_model.objects.get(pk=fk_id)
-                    if attr_name is None:
-                        return related_obj
-                    return getattr(related_obj, attr_name, fallback_value)
-            except (field.related_model.DoesNotExist, AttributeError):
-                pass
-    
-    return fallback_value
-
-
-def resolve_dotted_attr(instance, dotted_path):
-    """
-    Recursively resolve a dotted attribute path, e.g., "type.category".
-    This function is designed to work with pre-loaded foreign keys to avoid queries.
-    """
-    if instance is None:
-        return None
-    
-    current = instance
-    for attr in dotted_path.split("."):
-        if current is None:
-            return None
-        
-        # Check if this is a foreign key that might trigger a query
-        if hasattr(current, '_meta') and hasattr(current._meta, 'get_field'):
-            try:
-                field = current._meta.get_field(attr)
-                if field.is_relation and not field.many_to_many and not field.one_to_many:
-                    # For foreign keys, use safe access to prevent RelatedObjectDoesNotExist
-                    current = safe_get_related_object(current, attr)
-                else:
-                    current = getattr(current, attr, None)
-            except Exception:
-                # If field lookup fails, fall back to regular attribute access
-                current = getattr(current, attr, None)
-        else:
-            # Not a model instance, use regular attribute access
-            current = getattr(current, attr, None)
-    
-    return current
+    return hasattr(instance, field_name)
 
 
 class HookCondition:
@@ -203,171 +114,47 @@ class HookCondition:
         return set()
 
 
-class IsEqual(HookCondition):
-    def __init__(self, field, value):
-        self.field = field
-        self.value = value
+class IsBlank(HookCondition):
+    """
+    Condition that checks if a field is blank (None or empty string).
+    """
+    def __init__(self, field_name):
+        self.field_name = field_name
 
     def check(self, instance, original_instance=None):
-        # Handle the case where the field might not exist yet
-        try:
-            current_value = getattr(instance, self.field, None)
-            return current_value == self.value
-        except Exception:
-            # If there's any error accessing the field, treat it as None
-            return self.value is None
+        value = getattr(instance, self.field_name, None)
+        return value is None or value == ""
 
     def get_required_fields(self):
-        return {self.field.split('.')[0]}
-
-
-class IsNotEqual(HookCondition):
-    def __init__(self, field, value):
-        self.field = field
-        self.value = value
-
-    def check(self, instance, original_instance=None):
-        current_value = resolve_dotted_attr(instance, self.field)
-        return current_value != self.value
-
-    def get_required_fields(self):
-        return {self.field.split('.')[0]}
-
-
-class WasEqual(HookCondition):
-    def __init__(self, field, value):
-        self.field = field
-        self.value = value
-
-    def check(self, instance, original_instance=None):
-        if original_instance is None:
-            return False
-        original_value = resolve_dotted_attr(original_instance, self.field)
-        return original_value == self.value
-
-    def get_required_fields(self):
-        return {self.field.split('.')[0]}
-
-
-class HasChanged(HookCondition):
-    def __init__(self, field, has_changed=True):
-        """
-        Check if a field's value has changed or remained the same.
-        
-        Args:
-            field: The field name to check
-            has_changed: If True (default), condition passes when field has changed.
-                        If False, condition passes when field has remained the same.
-                        This is useful for:
-                        - Detecting stable/unchanged fields
-                        - Validating field immutability
-                        - Ensuring critical fields remain constant
-                        - State machine validations
-        """
-        self.field = field
-        self.has_changed = has_changed
-
-    def check(self, instance, original_instance=None):
-        if original_instance is None:
-            # For new instances:
-            # - If we're checking for changes (has_changed=True), return False since there's no change yet
-            # - If we're checking for stability (has_changed=False), return True since it's technically unchanged
-            return not self.has_changed
-            
-        current_value = resolve_dotted_attr(instance, self.field)
-        original_value = resolve_dotted_attr(original_instance, self.field)
-        return (current_value != original_value) == self.has_changed
-
-    def get_required_fields(self):
-        return {self.field.split('.')[0]}
-
-
-class ChangesTo(HookCondition):
-    def __init__(self, field, value):
-        self.field = field
-        self.value = value
-
-    def check(self, instance, original_instance=None):
-        if original_instance is None:
-            current_value = resolve_dotted_attr(instance, self.field)
-            return current_value == self.value
-
-        current_value = resolve_dotted_attr(instance, self.field)
-        original_value = resolve_dotted_attr(original_instance, self.field)
-        return current_value == self.value and current_value != original_value
-
-    def get_required_fields(self):
-        return {self.field.split('.')[0]}
-
-
-class IsGreaterThan(HookCondition):
-    def __init__(self, field, value):
-        self.field = field
-        self.value = value
-
-    def check(self, instance, original_instance=None):
-        current = resolve_dotted_attr(instance, self.field)
-        return current is not None and current > self.value
-
-
-class IsGreaterThanOrEqual(HookCondition):
-    def __init__(self, field, value):
-        self.field = field
-        self.value = value
-
-    def check(self, instance, original_instance=None):
-        current = resolve_dotted_attr(instance, self.field)
-        return current is not None and current >= self.value
-
-
-class IsLessThan(HookCondition):
-    def __init__(self, field, value):
-        self.field = field
-        self.value = value
-
-    def check(self, instance, original_instance=None):
-        current = resolve_dotted_attr(instance, self.field)
-        return current is not None and current < self.value
-
-
-class IsLessThanOrEqual(HookCondition):
-    def __init__(self, field, value):
-        self.field = field
-        self.value = value
-
-    def check(self, instance, original_instance=None):
-        current = resolve_dotted_attr(instance, self.field)
-        return current is not None and current <= self.value
+        return {self.field_name}
 
 
 class AndCondition(HookCondition):
-    def __init__(self, condition1, condition2):
-        self.condition1 = condition1
-        self.condition2 = condition2
+    def __init__(self, *conditions):
+        self.conditions = conditions
 
     def check(self, instance, original_instance=None):
-        return (
-            self.condition1.check(instance, original_instance)
-            and self.condition2.check(instance, original_instance)
-        )
+        return all(c.check(instance, original_instance) for c in self.conditions)
 
     def get_required_fields(self):
-        return self.condition1.get_required_fields() | self.condition2.get_required_fields()
+        fields = set()
+        for condition in self.conditions:
+            fields.update(condition.get_required_fields())
+        return fields
 
 
 class OrCondition(HookCondition):
-    def __init__(self, condition1, condition2):
-        self.condition1 = condition1
-        self.condition2 = condition2
+    def __init__(self, *conditions):
+        self.conditions = conditions
 
     def check(self, instance, original_instance=None):
-        return (
-            self.condition1.check(instance, original_instance)
-            or self.condition2.check(instance, original_instance)
-        )
+        return any(c.check(instance, original_instance) for c in self.conditions)
 
     def get_required_fields(self):
-        return self.condition1.get_required_fields() | self.condition2.get_required_fields()
+        fields = set()
+        for condition in self.conditions:
+            fields.update(condition.get_required_fields())
+        return fields
 
 
 class NotCondition(HookCondition):
@@ -379,3 +166,71 @@ class NotCondition(HookCondition):
 
     def get_required_fields(self):
         return self.condition.get_required_fields()
+
+
+class IsEqual(HookCondition):
+    def __init__(self, field_name, value):
+        self.field_name = field_name
+        self.value = value
+
+    def check(self, instance, original_instance=None):
+        return getattr(instance, self.field_name, None) == self.value
+
+    def get_required_fields(self):
+        return {self.field_name}
+
+
+class WasEqual(HookCondition):
+    def __init__(self, field_name, value):
+        self.field_name = field_name
+        self.value = value
+
+    def check(self, instance, original_instance=None):
+        if original_instance is None:
+            return False
+        return getattr(original_instance, self.field_name, None) == self.value
+
+    def get_required_fields(self):
+        return {self.field_name}
+
+
+class HasChanged(HookCondition):
+    def __init__(self, field_name):
+        self.field_name = field_name
+
+    def check(self, instance, original_instance=None):
+        if original_instance is None:
+            return True
+        return getattr(instance, self.field_name, None) != getattr(original_instance, self.field_name, None)
+
+    def get_required_fields(self):
+        return {self.field_name}
+
+
+class ChangesTo(HookCondition):
+    def __init__(self, field_name, value):
+        self.field_name = field_name
+        self.value = value
+
+    def check(self, instance, original_instance=None):
+        if original_instance is None:
+            return getattr(instance, self.field_name, None) == self.value
+        return (
+            getattr(instance, self.field_name, None) == self.value
+            and getattr(instance, self.field_name, None) != getattr(original_instance, self.field_name, None)
+        )
+
+    def get_required_fields(self):
+        return {self.field_name}
+
+
+class IsNotEqual(HookCondition):
+    def __init__(self, field_name, value):
+        self.field_name = field_name
+        self.value = value
+
+    def check(self, instance, original_instance=None):
+        return getattr(instance, self.field_name, None) != self.value
+
+    def get_required_fields(self):
+        return {self.field_name}

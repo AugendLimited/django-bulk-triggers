@@ -15,6 +15,7 @@ from django_bulk_hooks.conditions import (
     IsEqual,
     IsNotEqual,
     WasEqual,
+    IsBlank,
     safe_get_related_object,
     safe_get_related_attr,
     is_field_set,
@@ -47,4 +48,5 @@ __all__ = [
     "IsEqual",
     "IsNotEqual",
     "WasEqual",
+    "IsBlank",
 ]

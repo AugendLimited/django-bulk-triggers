@@ -89,7 +89,7 @@ class ProductHandler:
     """
     
     @hook(Product, "before_create")
-    def set_default_status(self, new_records, old_records=None):
+    def set_default_status(self, old_records=None, new_records=None):
         """Set default status for new products."""
         default_status = Status.objects.filter(name="Draft").first()
         for product in new_records:
@@ -97,26 +97,26 @@ class ProductHandler:
                 product.status = default_status
     
     @hook(Product, "after_create")
-    def log_product_creation(self, new_records, old_records=None):
+    def log_product_creation(self, old_records=None, new_records=None):
         """Log when products are created."""
         for product in new_records:
             print(f"Created product: {product.name}")
     
     @hook(Product, "before_update")
-    def validate_price_changes(self, new_records, old_records):
+    def validate_price_changes(self, old_records=None, new_records=None):
         """Validate price changes."""
         for new_product, old_product in zip(new_records, old_records):
             if new_product.price < 0:
                 raise ValueError("Price cannot be negative")
     
     @hook(Product, "after_update", condition=HasChanged("status"))
-    def notify_status_change(self, new_records, old_records):
+    def notify_status_change(self, old_records=None, new_records=None):
         """Notify when product status changes."""
         for new_product, old_product in zip(new_records, old_records):
             print(f"Product {new_product.name} status changed from {old_product.status} to {new_product.status}")
     
     @hook(Product, "before_delete")
-    def prevent_active_deletion(self, new_records, old_records=None):
+    def prevent_active_deletion(self, old_records=None, new_records=None):
         """Prevent deletion of active products."""
         for product in new_records:
             if product.is_active:

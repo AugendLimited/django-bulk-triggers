@@ -142,10 +142,20 @@ class HookHandler(metaclass=HookMeta):
                 handler = handler_cls()
                 method = getattr(handler, method_name)
 
+                # Inspect the method signature to determine parameter order
+                import inspect
+                sig = inspect.signature(method)
+                params = list(sig.parameters.keys())
+                
+                # Remove 'self' from params if it exists
+                if params and params[0] == 'self':
+                    params = params[1:]
+
+                # Always call with keyword arguments to make order irrelevant
                 try:
                     method(
-                        new_records=new_local,
                         old_records=old_local,
+                        new_records=new_local,
                         **kwargs,
                     )
                 except Exception:
