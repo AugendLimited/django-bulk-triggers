@@ -9,6 +9,14 @@ from django_bulk_hooks.constants import (
     VALIDATE_DELETE,
     VALIDATE_UPDATE,
 )
+from django_bulk_hooks.conditions import (
+    ChangesTo,
+    HasChanged,
+    IsEqual,
+    IsNotEqual,
+    WasEqual,
+)
+from django_bulk_hooks.decorators import hook, select_related
 from django_bulk_hooks.engine import safe_get_related_object, safe_get_related_attr
 from django_bulk_hooks.handler import HookHandler
 from django_bulk_hooks.models import HookModelMixin
@@ -29,4 +37,11 @@ __all__ = [
     "safe_get_related_object",
     "safe_get_related_attr",
     "Priority",
+    "hook",
+    "select_related",
+    "ChangesTo",
+    "HasChanged",
+    "IsEqual",
+    "IsNotEqual",
+    "WasEqual",
 ]
