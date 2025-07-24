@@ -29,12 +29,36 @@ def safe_get_related_object(instance, field_name):
         return None
 
 
+def is_field_set(instance, field_name):
+    """
+    Check if a foreign key field is set without raising RelatedObjectDoesNotExist.
+    
+    Args:
+        instance: The model instance
+        field_name: The foreign key field name
+    
+    Returns:
+        True if the field is set, False otherwise
+    """
+    # Check the foreign key ID field first
+    fk_field_name = f"{field_name}_id"
+    if hasattr(instance, fk_field_name):
+        fk_value = getattr(instance, fk_field_name, None)
+        return fk_value is not None
+    
+    # Fallback to checking the field directly
+    try:
+        return getattr(instance, field_name) is not None
+    except Exception:
+        return False
+
+
 def safe_get_related_attr(instance, field_name, attr_name=None):
     """
     Safely get a related object or its attribute without raising RelatedObjectDoesNotExist.
     
     This is particularly useful in hooks where objects might not have their related
-    fields populated yet (e.g., during bulk_create operations).
+    fields populated yet (e.g., during bulk_create operations or on unsaved objects).
     
     Args:
         instance: The model instance
@@ -53,6 +77,25 @@ def safe_get_related_attr(instance, field_name, attr_name=None):
             # Process the transaction
             pass
     """
+    # For unsaved objects, check the foreign key ID field first
+    if instance.pk is None:
+        fk_field_name = f"{field_name}_id"
+        if hasattr(instance, fk_field_name):
+            fk_value = getattr(instance, fk_field_name, None)
+            if fk_value is None:
+                return None
+            # If we have an ID but the object isn't loaded, try to load it
+            try:
+                field = instance._meta.get_field(field_name)
+                if hasattr(field, 'related_model'):
+                    related_obj = field.related_model.objects.get(id=fk_value)
+                    if attr_name is None:
+                        return related_obj
+                    return getattr(related_obj, attr_name, None)
+            except (field.related_model.DoesNotExist, AttributeError):
+                return None
+    
+    # For saved objects or when the above doesn't work, use the original method
     related_obj = safe_get_related_object(instance, field_name)
     if related_obj is None:
         return None

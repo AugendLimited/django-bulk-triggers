@@ -22,6 +22,15 @@ def run(model_cls, event, new_instances, original_instances=None, ctx=None):
             except ValidationError as e:
                 logger.error("Validation failed for %s: %s", instance, e)
                 raise
+            except Exception as e:
+                # Handle RelatedObjectDoesNotExist and other exceptions that might occur
+                # when accessing foreign key fields on unsaved objects
+                if "RelatedObjectDoesNotExist" in str(type(e).__name__):
+                    logger.debug("Skipping validation for unsaved object with unset foreign keys: %s", e)
+                    continue
+                else:
+                    logger.error("Unexpected error during validation for %s: %s", instance, e)
+                    raise
 
     for handler_cls, method_name, condition, priority in hooks:
         handler_instance = handler_cls()

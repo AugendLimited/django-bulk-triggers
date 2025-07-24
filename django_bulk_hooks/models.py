@@ -28,7 +28,14 @@ class HookModelMixin(models.Model):
         This ensures that when Django calls clean() (like in admin forms),
         it triggers the VALIDATE_* hooks for validation only.
         """
+        # Call Django's clean first
         super().clean()
+
+        # Skip hook validation during admin form validation
+        # This prevents RelatedObjectDoesNotExist errors when Django hasn't
+        # fully set up the object's relationships yet
+        if hasattr(self, '_state') and getattr(self._state, 'validating', False):
+            return
 
         # Determine if this is a create or update operation
         is_create = self.pk is None

@@ -15,9 +15,11 @@ from django_bulk_hooks.conditions import (
     IsEqual,
     IsNotEqual,
     WasEqual,
+    safe_get_related_object,
+    safe_get_related_attr,
+    is_field_set,
 )
 from django_bulk_hooks.decorators import hook, select_related
-from django_bulk_hooks.engine import safe_get_related_object, safe_get_related_attr
 from django_bulk_hooks.handler import HookHandler
 from django_bulk_hooks.models import HookModelMixin
 from django_bulk_hooks.enums import Priority
@@ -36,6 +38,7 @@ __all__ = [
     "VALIDATE_DELETE",
     "safe_get_related_object",
     "safe_get_related_attr",
+    "is_field_set",
     "Priority",
     "hook",
     "select_related",
