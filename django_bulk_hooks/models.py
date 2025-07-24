@@ -91,40 +91,24 @@ class HookModelMixin(models.Model):
         is_create = self.pk is None
         ctx = HookContext(self.__class__)
 
-        if is_create:
-            # For create operations, run BEFORE hooks first
-            with patch_foreign_key_behavior():
+        # Use a single context manager for all hooks
+        with patch_foreign_key_behavior():
+            if is_create:
+                # For create operations
                 run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
-            
-            # Then let Django save
-            super().save(*args, **kwargs)
-            
-            # Then run AFTER hooks
-            with patch_foreign_key_behavior():
+                super().save(*args, **kwargs)
                 run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
-        else:
-            # For update operations, we need to get the old record
-            try:
-                old_instance = self.__class__.objects.get(pk=self.pk)
-                
-                # Run BEFORE hooks first
-                with patch_foreign_key_behavior():
+            else:
+                # For update operations
+                try:
+                    old_instance = self.__class__.objects.get(pk=self.pk)
                     run(self.__class__, BEFORE_UPDATE, [self], [old_instance], ctx=ctx)
-                
-                # Then let Django save
-                super().save(*args, **kwargs)
-                
-                # Then run AFTER hooks
-                with patch_foreign_key_behavior():
+                    super().save(*args, **kwargs)
                     run(self.__class__, AFTER_UPDATE, [self], [old_instance], ctx=ctx)
-            except self.__class__.DoesNotExist:
-                # If the old instance doesn't exist, treat as create
-                with patch_foreign_key_behavior():
+                except self.__class__.DoesNotExist:
+                    # If the old instance doesn't exist, treat as create
                     run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
-                
-                super().save(*args, **kwargs)
-                
-                with patch_foreign_key_behavior():
+                    super().save(*args, **kwargs)
                     run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
 
         return self
@@ -132,16 +116,11 @@ class HookModelMixin(models.Model):
     def delete(self, *args, **kwargs):
         ctx = HookContext(self.__class__)
 
-        # Run validation hooks first
+        # Use a single context manager for all hooks
         with patch_foreign_key_behavior():
             run(self.__class__, VALIDATE_DELETE, [self], ctx=ctx)
-
-        # Then run business logic hooks
-        with patch_foreign_key_behavior():
             run(self.__class__, BEFORE_DELETE, [self], ctx=ctx)
-
-        result = super().delete(*args, **kwargs)
-
-        with patch_foreign_key_behavior():
+            result = super().delete(*args, **kwargs)
             run(self.__class__, AFTER_DELETE, [self], ctx=ctx)
+            
         return result

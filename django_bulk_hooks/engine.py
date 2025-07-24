@@ -8,7 +8,12 @@ from django_bulk_hooks.conditions import safe_get_related_object, safe_get_relat
 logger = logging.getLogger(__name__)
 
 
+# Cache for hook handlers to avoid creating them repeatedly
+_handler_cache = {}
+
 def run(model_cls, event, new_instances, original_instances=None, ctx=None):
+    # Get hooks from cache or fetch them
+    cache_key = (model_cls, event)
     hooks = get_hooks(model_cls, event)
 
     if not hooks:
@@ -32,19 +37,32 @@ def run(model_cls, event, new_instances, original_instances=None, ctx=None):
                     logger.error("Unexpected error during validation for %s: %s", instance, e)
                     raise
 
-    for handler_cls, method_name, condition, priority in hooks:
-        handler_instance = handler_cls()
-        func = getattr(handler_instance, method_name)
+    # Pre-create None list for originals if needed
+    if original_instances is None:
+        original_instances = [None] * len(new_instances)
 
+    # Process all hooks
+    for handler_cls, method_name, condition, priority in hooks:
+        # Get or create handler instance from cache
+        handler_key = (handler_cls, method_name)
+        if handler_key not in _handler_cache:
+            handler_instance = handler_cls()
+            func = getattr(handler_instance, method_name)
+            _handler_cache[handler_key] = (handler_instance, func)
+        else:
+            handler_instance, func = _handler_cache[handler_key]
+
+        # If no condition, process all instances at once
+        if not condition:
+            func(new_records=new_instances, old_records=original_instances if any(original_instances) else None)
+            continue
+
+        # For conditional hooks, filter instances first
         to_process_new = []
         to_process_old = []
 
-        for new, original in zip(
-            new_instances,
-            original_instances or [None] * len(new_instances),
-            strict=True,
-        ):
-            if not condition or condition.check(new, original):
+        for new, original in zip(new_instances, original_instances, strict=True):
+            if condition.check(new, original):
                 to_process_new.append(new)
                 to_process_old.append(original)
 
