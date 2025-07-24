@@ -24,11 +24,11 @@ def hook(event, *, model, condition=None, priority=DEFAULT_PRIORITY):
 
 def select_related(*related_fields):
     """
-    Decorator that preloads related fields in-place on `new_records`, before the hook logic runs.
+    Decorator that marks a hook method to preload related fields.
     
-    This decorator provides bulk loading for performance when you explicitly need it.
-    If you don't use this decorator, the framework will automatically detect and load
-    foreign keys only when conditions need them, preserving standard Django behavior.
+    This decorator works in conjunction with the hook system to ensure that
+    related fields are bulk-loaded before the hook logic runs, preventing
+    queries in loops.
 
     - Works with instance methods (resolves `self`)
     - Avoids replacing model instances
@@ -37,114 +37,9 @@ def select_related(*related_fields):
     """
 
     def decorator(func):
-        sig = inspect.signature(func)
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            bound = sig.bind_partial(*args, **kwargs)
-            bound.apply_defaults()
-
-            if "new_records" not in bound.arguments:
-                raise TypeError(
-                    "@select_related requires a 'new_records' argument in the decorated function"
-                )
-
-            new_records = bound.arguments["new_records"]
-
-            if not isinstance(new_records, list):
-                raise TypeError(
-                    f"@select_related expects a list of model instances, got {type(new_records)}"
-                )
-
-            if not new_records:
-                return func(*args, **kwargs)
-
-            # Determine which instances actually need preloading
-            model_cls = new_records[0].__class__
-            ids_to_fetch = []
-            instances_without_pk = []
-            
-            for obj in new_records:
-                if obj.pk is None:
-                    # For objects without PKs (BEFORE_CREATE), check if foreign key fields are already set
-                    instances_without_pk.append(obj)
-                    continue
-                
-                # if any related field is not already cached on the instance,
-                # mark it for fetching
-                if any(field not in obj._state.fields_cache for field in related_fields):
-                    ids_to_fetch.append(obj.pk)
-
-            # Load foreign keys for objects with PKs
-            fetched = {}
-            if ids_to_fetch:
-                fetched = model_cls.objects.select_related(*related_fields).in_bulk(ids_to_fetch)
-
-            # Apply loaded foreign keys to objects with PKs
-            for obj in new_records:
-                if obj.pk is None:
-                    continue
-                    
-                preloaded = fetched.get(obj.pk)
-                if not preloaded:
-                    continue
-                for field in related_fields:
-                    if field in obj._state.fields_cache:
-                        # don't override values that were explicitly set or already loaded
-                        continue
-                    if "." in field:
-                        raise ValueError(
-                            f"@select_related does not support nested fields like '{field}'"
-                        )
-
-                    try:
-                        f = model_cls._meta.get_field(field)
-                        if not (
-                            f.is_relation and not f.many_to_many and not f.one_to_many
-                        ):
-                            continue
-                    except FieldDoesNotExist:
-                        continue
-
-                    try:
-                        rel_obj = getattr(preloaded, field)
-                        setattr(obj, field, rel_obj)
-                        obj._state.fields_cache[field] = rel_obj
-                    except AttributeError:
-                        pass
-            
-            # For objects without PKs, ensure foreign key fields are properly set in the cache
-            # This prevents RelatedObjectDoesNotExist when accessing foreign keys
-            for obj in instances_without_pk:
-                for field in related_fields:
-                    if "." in field:
-                        raise ValueError(
-                            f"@select_related does not support nested fields like '{field}'"
-                        )
-
-                    try:
-                        f = model_cls._meta.get_field(field)
-                        if not (
-                            f.is_relation and not f.many_to_many and not f.one_to_many
-                        ):
-                            continue
-                    except FieldDoesNotExist:
-                        continue
-                    
-                    # Check if the foreign key field is set
-                    fk_field_name = f"{field}_id"
-                    if hasattr(obj, fk_field_name) and getattr(obj, fk_field_name) is not None:
-                        # The foreign key ID is set, so we can try to get the related object safely
-                        rel_obj = safe_get_related_object(obj, field)
-                        if rel_obj is not None:
-                            # Ensure it's cached to prevent future queries
-                            if not hasattr(obj._state, 'fields_cache'):
-                                obj._state.fields_cache = {}
-                            obj._state.fields_cache[field] = rel_obj
-
-            return func(*bound.args, **bound.kwargs)
-
-        return wrapper
+        # Store the related fields on the function for later access
+        func._select_related_fields = related_fields
+        return func
 
     return decorator
 

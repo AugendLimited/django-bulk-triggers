@@ -3,15 +3,15 @@ from typing import Union
 
 from django_bulk_hooks.enums import Priority
 
-_hooks: dict[tuple[type, str], list[tuple[type, str, Callable, int]]] = {}
+_hooks: dict[tuple[type, str], list[tuple[type, str, Callable, int, tuple]]] = {}
 
 
 def register_hook(
-    model, event, handler_cls, method_name, condition, priority: Union[int, Priority]
+    model, event, handler_cls, method_name, condition, priority: Union[int, Priority], select_related_fields=None
 ):
     key = (model, event)
     hooks = _hooks.setdefault(key, [])
-    hooks.append((handler_cls, method_name, condition, priority))
+    hooks.append((handler_cls, method_name, condition, priority, select_related_fields))
     # keep sorted by priority
     hooks.sort(key=lambda x: x[3])
 

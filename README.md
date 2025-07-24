@@ -15,6 +15,7 @@
 - Class-based hook handlers with DI support
 - Support for both bulk and individual model operations
 - **NEW**: Safe handling of related objects to prevent `RelatedObjectDoesNotExist` errors
+- **NEW**: `@select_related` decorator to prevent queries in loops
 
 ## 🚀 Quickstart
 
@@ -36,61 +37,83 @@ class Account(HookModelMixin):
 ### Create a Hook Handler
 
 ```python
-from django_bulk_hooks import hook, AFTER_UPDATE, Hook
+from django_bulk_hooks import hook, AFTER_UPDATE, select_related
 from django_bulk_hooks.conditions import WhenFieldHasChanged
 from .models import Account
 
-class AccountHooks(HookHandler):
+class AccountHandler:
     @hook(AFTER_UPDATE, model=Account, condition=WhenFieldHasChanged("balance"))
-    def log_balance_change(self, new_records, old_records):
-        print("Accounts updated:", [a.pk for a in new_records])
-    
-    @hook(BEFORE_CREATE, model=Account)
-    def before_create(self, new_records, old_records):
+    @select_related("user")  # Preload user to prevent queries in loops
+    def notify_balance_change(self, new_records, old_records):
         for account in new_records:
-            if account.balance < 0:
-                raise ValueError("Account cannot have negative balance")
-    
-    @hook(AFTER_DELETE, model=Account)
-    def after_delete(self, new_records, old_records):
-        print("Accounts deleted:", [a.pk for a in old_records])
+            # This won't cause a query since user is preloaded
+            user_email = account.user.email
+            self.send_notification(user_email, account.balance)
 ```
 
-### Advanced Hook Usage
+## 🔧 Using `@select_related` to Prevent Queries in Loops
+
+The `@select_related` decorator is essential when your hook logic needs to access related objects. Without it, you might end up with N+1 query problems.
+
+### ❌ Without `@select_related` (causes queries in loops)
 
 ```python
-class AdvancedAccountHooks(HookHandler):
-    @hook(BEFORE_UPDATE, model=Account, condition=WhenFieldHasChanged("balance"))
-    def validate_balance_change(self, new_records, old_records):
-        for new_account, old_account in zip(new_records, old_records):
-            if new_account.balance < 0 and old_account.balance >= 0:
-                raise ValueError("Cannot set negative balance")
-    
-    @hook(AFTER_CREATE, model=Account)
-    def send_welcome_email(self, new_records, old_records):
-        for account in new_records:
-            # Send welcome email logic here
-            pass
+@hook(AFTER_CREATE, model=LoanAccount)
+def process_accounts(self, new_records, old_records):
+    for account in new_records:
+        # ❌ This causes a query for each account!
+        status_name = account.status.name
+        if status_name == "ACTIVE":
+            self.activate_account(account)
 ```
 
-## 🔒 Safely Handling Related Objects
-
-One of the most common issues when working with hooks is the `RelatedObjectDoesNotExist` exception. This occurs when you try to access a related object that doesn't exist or hasn't been saved yet.
-
-### The Problem
+### ✅ With `@select_related` (bulk loads related objects)
 
 ```python
-# ❌ DANGEROUS: This can raise RelatedObjectDoesNotExist
-@hook(AFTER_CREATE, model=Transaction)
-def process_transaction(self, new_records, old_records):
+@hook(AFTER_CREATE, model=LoanAccount)
+@select_related("status")  # Bulk load status objects
+def process_accounts(self, new_records, old_records):
+    for account in new_records:
+        # ✅ No query here - status is preloaded
+        status_name = account.status.name
+        if status_name == "ACTIVE":
+            self.activate_account(account)
+```
+
+### Multiple Related Fields
+
+```python
+@hook(AFTER_UPDATE, model=Transaction)
+@select_related("account", "category", "status")
+def process_transactions(self, new_records, old_records):
     for transaction in new_records:
-        # This will fail if transaction.status is None or doesn't exist
-        if transaction.status.name == "COMPLETE":
-            # Process the transaction
-            pass
+        # All related objects are preloaded - no queries in loops
+        account_name = transaction.account.name
+        category_type = transaction.category.type
+        status_name = transaction.status.name
+        
+        if status_name == "COMPLETE":
+            self.process_complete_transaction(transaction)
 ```
 
-### The Solution
+### Your Original Example (Fixed)
+
+```python
+@hook(BEFORE_CREATE, model=LoanAccount, condition=IsEqual("status.name", value=Status.ACTIVE.value))
+@hook(
+    BEFORE_UPDATE,
+    model=LoanAccount,
+    condition=HasChanged("status", has_changed=True) & IsEqual("status.name", value=Status.ACTIVE.value),
+    priority=Priority.HIGH,
+)
+@select_related("status")  # This ensures status is preloaded
+def _set_activated_date(self, old_records: list[LoanAccount], new_records: list[LoanAccount], **kwargs) -> None:
+    logger.info(f"Setting activated date for {new_records}")
+    # No queries in loops - status objects are preloaded
+    self._loan_account_service.set_activated_date(new_records)
+```
+
+## 🛡️ Safe Handling of Related Objects
 
 Use the `safe_get_related_attr` utility function to safely access related object attributes:
 
@@ -116,7 +139,7 @@ def process_transaction(self, new_records, old_records):
 
 ```python
 from django.db import models
-from django_bulk_hooks import hook
+from django_bulk_hooks import hook, select_related
 from django_bulk_hooks.conditions import safe_get_related_attr
 
 class Status(models.Model):
@@ -137,10 +160,11 @@ class TransactionHandler:
                 transaction.status = default_status
     
     @hook(Transaction, "after_create")
+    @select_related("status", "category")  # Preload related objects
     def process_transactions(self, new_records, old_records=None):
         """Process transactions based on their status."""
         for transaction in new_records:
-            # ✅ SAFE: Get status name safely
+            # ✅ SAFE: Get status name safely (no queries in loops)
             status_name = safe_get_related_attr(transaction, 'status', 'name')
             
             if status_name == "COMPLETE":
@@ -150,7 +174,7 @@ class TransactionHandler:
             elif status_name is None:
                 print(f"Transaction {transaction.id} has no status")
             
-            # ✅ SAFE: Check for related object existence
+            # ✅ SAFE: Check for related object existence (no queries in loops)
             category = safe_get_related_attr(transaction, 'category')
             if category:
                 print(f"Transaction {transaction.id} belongs to category: {category.name}")
@@ -166,206 +190,86 @@ class TransactionHandler:
 
 ### Best Practices for Related Objects
 
-1. **Always use `safe_get_related_attr`** when accessing related object attributes in hooks
-2. **Set default values in `BEFORE_CREATE` hooks** to ensure related objects exist
-3. **Handle None cases explicitly** to avoid unexpected behavior
-4. **Use bulk operations efficiently** by fetching related objects once and reusing them
+1. **Always use `@select_related`** when accessing related object attributes in hooks
+2. **Use `safe_get_related_attr`** for safe access to related object attributes
+3. **Set default values in `BEFORE_CREATE` hooks** to ensure related objects exist
+4. **Handle None cases explicitly** to avoid unexpected behavior
+5. **Use bulk operations efficiently** by fetching related objects once and reusing them
+
+## 🔍 Performance Tips
+
+### Monitor Query Count
 
 ```python
-class EfficientTransactionHandler:
-    @hook(Transaction, "before_create")
-    def prepare_transactions(self, new_records, old_records=None):
-        """Efficiently prepare transactions for bulk creation."""
-        # Get default objects once to avoid multiple queries
-        default_status = Status.objects.filter(name="PENDING").first()
-        default_category = Category.objects.filter(name="GENERAL").first()
-        
-        for transaction in new_records:
-            if transaction.status is None:
-                transaction.status = default_status
-            if transaction.category is None:
-                transaction.category = default_category
-    
-    @hook(Transaction, "after_create")
-    def post_creation_processing(self, new_records, old_records=None):
-        """Process transactions after creation."""
-        # Group by status for efficient processing
-        transactions_by_status = {}
-        
-        for transaction in new_records:
-            status_name = safe_get_related_attr(transaction, 'status', 'name')
-            if status_name not in transactions_by_status:
-                transactions_by_status[status_name] = []
-            transactions_by_status[status_name].append(transaction)
-        
-        # Process each group
-        for status_name, transactions in transactions_by_status.items():
-            if status_name == "COMPLETE":
-                self._batch_process_complete(transactions)
-            elif status_name == "FAILED":
-                self._batch_process_failed(transactions)
+from django.db import connection, reset_queries
+
+# Before your bulk operation
+reset_queries()
+
+# Your bulk operation
+accounts = Account.objects.bulk_create(account_list)
+
+# After your bulk operation
+print(f"Total queries: {len(connection.queries)}")
 ```
 
-This approach ensures your hooks are robust and won't fail due to missing related objects, while also being efficient with database queries.
-
-## 🎯 Lambda Conditions and Anonymous Functions
-
-`django-bulk-hooks` supports using anonymous functions (lambda functions) and custom callables as conditions, giving you maximum flexibility for complex filtering logic.
-
-### Using LambdaCondition
-
-The `LambdaCondition` class allows you to use lambda functions or any callable as a condition:
+### Use `@select_related` Strategically
 
 ```python
-from django_bulk_hooks import LambdaCondition
-
-class ProductHandler:
-    # Simple lambda condition
-    @hook(Product, "after_create", condition=LambdaCondition(
-        lambda instance: instance.price > 100
-    ))
-    def handle_expensive_products(self, new_records, old_records):
-        """Handle products with price > 100"""
-        for product in new_records:
-            print(f"Expensive product: {product.name}")
-    
-    # Lambda with multiple conditions
-    @hook(Product, "after_update", condition=LambdaCondition(
-        lambda instance: instance.price > 50 and instance.is_active and instance.stock_quantity > 0
-    ))
-    def handle_available_expensive_products(self, new_records, old_records):
-        """Handle active products with price > 50 and stock > 0"""
-        for product in new_records:
-            print(f"Available expensive product: {product.name}")
-    
-    # Lambda comparing with original instance
-    @hook(Product, "after_update", condition=LambdaCondition(
-        lambda instance, original: original and instance.price > original.price * 1.5
-    ))
-    def handle_significant_price_increases(self, new_records, old_records):
-        """Handle products with >50% price increase"""
-        for new_product, old_product in zip(new_records, old_records):
-            if old_product:
-                increase = ((new_product.price - old_product.price) / old_product.price) * 100
-                print(f"Significant price increase: {new_product.name} +{increase:.1f}%")
+# Only select_related fields you actually use
+@select_related("status")  # Good - only what you need
+@select_related("status", "category", "user", "account")  # Only if you use all of them
 ```
 
-### Combining Lambda Conditions with Built-in Conditions
-
-You can combine lambda conditions with built-in conditions using the `&` (AND) and `|` (OR) operators:
+### Avoid Nested Loops with Related Objects
 
 ```python
-from django_bulk_hooks.conditions import HasChanged, IsEqual
+# ❌ Bad - nested loops with related objects
+@hook(AFTER_CREATE, model=Order)
+def process_orders(self, new_records, old_records):
+    for order in new_records:
+        for item in order.items.all():  # This causes queries!
+            process_item(item)
 
-class AdvancedProductHandler:
-    # Combine lambda with built-in conditions
-    @hook(Product, "after_update", condition=(
-        HasChanged("price") & 
-        LambdaCondition(lambda instance: instance.price > 100)
-    ))
-    def handle_expensive_price_changes(self, new_records, old_records):
-        """Handle when expensive products have price changes"""
-        for new_product, old_product in zip(new_records, old_records):
-            print(f"Expensive product price changed: {new_product.name}")
+# ✅ Good - use prefetch_related for many-to-many/one-to-many
+@hook(AFTER_CREATE, model=Order)
+@select_related("customer")
+def process_orders(self, new_records, old_records):
+    # Prefetch items for all orders at once
+    from django.db.models import Prefetch
+    orders_with_items = Order.objects.prefetch_related(
+        Prefetch('items', queryset=Item.objects.select_related('product'))
+    ).filter(id__in=[order.id for order in new_records])
     
-    # Complex combined conditions
-    @hook(Order, "after_update", condition=(
-        LambdaCondition(lambda instance: instance.status == 'completed') &
-        LambdaCondition(lambda instance, original: original and instance.total_amount > original.total_amount)
-    ))
-    def handle_completed_orders_with_increased_amount(self, new_records, old_records):
-        """Handle completed orders that had amount increases"""
-        for new_order, old_order in zip(new_records, old_records):
-            if old_order:
-                increase = new_order.total_amount - old_order.total_amount
-                print(f"Completed order with amount increase: {new_order.customer_name} +${increase}")
+    for order in orders_with_items:
+        for item in order.items.all():  # No queries here
+            process_item(item)
 ```
 
-### Custom Condition Classes
+## 📚 API Reference
 
-For reusable logic, you can create custom condition classes:
+### Decorators
 
-```python
-from django_bulk_hooks.conditions import HookCondition
+- `@hook(event, model, condition=None, priority=DEFAULT_PRIORITY)` - Register a hook
+- `@select_related(*fields)` - Preload related fields to prevent queries in loops
 
-class IsPremiumProduct(HookCondition):
-    def check(self, instance, original_instance=None):
-        return (
-            instance.price > 200 and 
-            instance.rating >= 4.0 and 
-            instance.is_active
-        )
-    
-    def get_required_fields(self):
-        return {'price', 'rating', 'is_active'}
+### Conditions
 
-class ProductHandler:
-    @hook(Product, "after_create", condition=IsPremiumProduct())
-    def handle_premium_products(self, new_records, old_records):
-        """Handle premium products"""
-        for product in new_records:
-            print(f"Premium product: {product.name}")
-```
+- `IsEqual(field, value)` - Check if field equals value
+- `HasChanged(field, has_changed=True)` - Check if field has changed
+- `safe_get_related_attr(instance, field, attr=None)` - Safely get related object attributes
 
-### Lambda Conditions with Required Fields
+### Events
 
-For optimization, you can specify which fields your lambda condition depends on:
+- `BEFORE_CREATE`, `AFTER_CREATE`
+- `BEFORE_UPDATE`, `AFTER_UPDATE`
+- `BEFORE_DELETE`, `AFTER_DELETE`
+- `VALIDATE_CREATE`, `VALIDATE_UPDATE`, `VALIDATE_DELETE`
 
-```python
-class OptimizedProductHandler:
-    @hook(Product, "after_update", condition=LambdaCondition(
-        lambda instance: instance.price > 100 and instance.category == 'electronics',
-        required_fields={'price', 'category'}
-    ))
-    def handle_expensive_electronics(self, new_records, old_records):
-        """Handle expensive electronics products"""
-        for product in new_records:
-            print(f"Expensive electronics: {product.name}")
-```
+## 🤝 Contributing
 
-### Best Practices for Lambda Conditions
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-1. **Keep lambdas simple** - Complex logic should be moved to custom condition classes
-2. **Handle None values** - Always check for None before performing operations
-3. **Specify required fields** - This helps with query optimization
-4. **Use descriptive names** - Make your lambda conditions self-documenting
-5. **Test thoroughly** - Lambda conditions can be harder to debug than named functions
+## 📄 License
 
-```python
-# ✅ GOOD: Simple, clear lambda
-condition = LambdaCondition(lambda instance: instance.price > 100)
-
-# ✅ GOOD: Handles None values
-condition = LambdaCondition(
-    lambda instance: instance.price is not None and instance.price > 100
-)
-
-# ❌ AVOID: Complex logic in lambda
-condition = LambdaCondition(
-    lambda instance: (
-        instance.price > 100 and 
-        instance.category in ['electronics', 'computers'] and
-        instance.stock_quantity > 0 and
-        instance.rating >= 4.0 and
-        instance.is_active and
-        instance.created_at > datetime.now() - timedelta(days=30)
-    )
-)
-
-# ✅ BETTER: Use custom condition class for complex logic
-class IsRecentExpensiveElectronics(HookCondition):
-    def check(self, instance, original_instance=None):
-        return (
-            instance.price > 100 and 
-            instance.category in ['electronics', 'computers'] and
-            instance.stock_quantity > 0 and
-            instance.rating >= 4.0 and
-            instance.is_active and
-            instance.created_at > datetime.now() - timedelta(days=30)
-        )
-    
-    def get_required_fields(self):
-        return {'price', 'category', 'stock_quantity', 'rating', 'is_active', 'created_at'}
-```
-
-## 🔧 Best Practices for Related Objects
+This project is licensed under the MIT License - see the LICENSE file for details.
