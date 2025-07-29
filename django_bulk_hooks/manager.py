@@ -140,20 +140,32 @@ class BulkHookManager(models.Manager):
                     continue
                 
                 # Handle multi-table inheritance
-                # Step 1: Bulk create base objects without hooks
+                # Step 1: Bulk create base objects with hooks
                 base_objects = self._extract_base_objects(class_objects, obj_class)
-                created_base = super(models.Manager, self).bulk_create(base_objects, **kwargs)
+                
+                # Use the model's manager with hooks
+                base_model = self._get_base_model(obj_class)
+                if hasattr(base_model.objects, 'bulk_create'):
+                    # Use the base model's manager with hooks
+                    created_base = base_model.objects.bulk_create(base_objects, **kwargs)
+                else:
+                    # Fallback to _base_manager
+                    created_base = base_model._base_manager.bulk_create(base_objects, **kwargs)
                 
                 # Step 2: Update original objects with base IDs
                 for obj, base_obj in zip(class_objects, created_base):
                     obj.pk = base_obj.pk
                     obj._state.adding = False
                 
-                # Step 3: Bulk create child objects without hooks
+                # Step 3: Bulk create child objects with hooks
                 child_objects = self._extract_child_objects(class_objects, obj_class)
                 if child_objects:
-                    # Use _base_manager to avoid recursion
-                    obj_class._base_manager.bulk_create(child_objects, **kwargs)
+                    # Use the model's manager with hooks
+                    if hasattr(obj_class.objects, 'bulk_create'):
+                        obj_class.objects.bulk_create(child_objects, **kwargs)
+                    else:
+                        # Fallback to _base_manager
+                        obj_class._base_manager.bulk_create(child_objects, **kwargs)
                 
                 result.extend(class_objects)
                 
@@ -163,6 +175,8 @@ class BulkHookManager(models.Manager):
                 logger = logging.getLogger(__name__)
                 logger.error(f"Error in _bulk_create_inherited for {obj_class}: {e}")
                 logger.error(f"Model fields: {[f.name for f in obj_class._meta.fields]}")
+                logger.error(f"Base model: {self._get_base_model(obj_class)}")
+                logger.error(f"Base model manager: {self._get_base_model(obj_class).objects}")
                 raise
         
         return result
