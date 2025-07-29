@@ -54,8 +54,18 @@ class BulkHookManager(models.Manager):
         for obj in objs:
             base_obj = base_model()
             for field in base_model._meta.fields:
-                if field.name != 'id' and hasattr(obj, field.name):
-                    setattr(base_obj, field.name, getattr(obj, field.name))
+                # Skip ID field
+                if field.name == 'id':
+                    continue
+                
+                # Safely copy field values
+                try:
+                    if hasattr(obj, field.name):
+                        setattr(base_obj, field.name, getattr(obj, field.name))
+                except (AttributeError, ValueError):
+                    # Skip fields that can't be copied
+                    continue
+            
             base_objects.append(base_obj)
         
         return base_objects
@@ -72,10 +82,20 @@ class BulkHookManager(models.Manager):
             
             # Copy only fields specific to this model
             for field in model_cls._meta.fields:
-                if (field.name != 'id' and 
-                    field.model == model_cls and 
-                    hasattr(obj, field.name)):
-                    setattr(child_obj, field.name, getattr(obj, field.name))
+                # Skip ID field and fields that don't belong to this model
+                if field.name == 'id':
+                    continue
+                
+                # Check if this field belongs to the current model
+                # Use a safer way to check field ownership
+                try:
+                    if hasattr(field, 'model') and field.model == model_cls:
+                        # This field belongs to the current model
+                        if hasattr(obj, field.name):
+                            setattr(child_obj, field.name, getattr(obj, field.name))
+                except AttributeError:
+                    # Skip fields that don't have proper model reference
+                    continue
             
             child_objects.append(child_obj)
         
@@ -100,33 +120,42 @@ class BulkHookManager(models.Manager):
             objects_by_class[obj_class].append(obj)
         
         for obj_class, class_objects in objects_by_class.items():
-            # Check if this class has multi-table inheritance
-            parent_models = [p for p in obj_class._meta.get_parent_list() 
-                           if not p._meta.abstract]
-            
-            if not parent_models:
-                # No inheritance, use standard bulk_create
-                chunk_result = super(models.Manager, self).bulk_create(class_objects, **kwargs)
-                result.extend(chunk_result)
-                continue
-            
-            # Handle multi-table inheritance
-            # Step 1: Bulk create base objects without hooks
-            base_objects = self._extract_base_objects(class_objects, obj_class)
-            created_base = super(models.Manager, self).bulk_create(base_objects, **kwargs)
-            
-            # Step 2: Update original objects with base IDs
-            for obj, base_obj in zip(class_objects, created_base):
-                obj.pk = base_obj.pk
-                obj._state.adding = False
-            
-            # Step 3: Bulk create child objects without hooks
-            child_objects = self._extract_child_objects(class_objects, obj_class)
-            if child_objects:
-                # Use _base_manager to avoid recursion
-                obj_class._base_manager.bulk_create(child_objects, **kwargs)
-            
-            result.extend(class_objects)
+            try:
+                # Check if this class has multi-table inheritance
+                parent_models = [p for p in obj_class._meta.get_parent_list() 
+                               if not p._meta.abstract]
+                
+                if not parent_models:
+                    # No inheritance, use standard bulk_create
+                    chunk_result = super(models.Manager, self).bulk_create(class_objects, **kwargs)
+                    result.extend(chunk_result)
+                    continue
+                
+                # Handle multi-table inheritance
+                # Step 1: Bulk create base objects without hooks
+                base_objects = self._extract_base_objects(class_objects, obj_class)
+                created_base = super(models.Manager, self).bulk_create(base_objects, **kwargs)
+                
+                # Step 2: Update original objects with base IDs
+                for obj, base_obj in zip(class_objects, created_base):
+                    obj.pk = base_obj.pk
+                    obj._state.adding = False
+                
+                # Step 3: Bulk create child objects without hooks
+                child_objects = self._extract_child_objects(class_objects, obj_class)
+                if child_objects:
+                    # Use _base_manager to avoid recursion
+                    obj_class._base_manager.bulk_create(child_objects, **kwargs)
+                
+                result.extend(class_objects)
+                
+            except Exception as e:
+                # Add debugging information
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error in _bulk_create_inherited for {obj_class}: {e}")
+                logger.error(f"Model fields: {[f.name for f in obj_class._meta.fields]}")
+                raise
         
         return result
 
