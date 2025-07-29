@@ -1,4 +1,3 @@
-import inspect
 import logging
 import threading
 from collections import deque
@@ -75,11 +74,6 @@ class HookMeta(type):
                 for model_cls, event, condition, priority in method.hooks_hooks:
                     key = (model_cls, event, cls, method_name)
                     if key not in HookMeta._registered:
-                        # Check if the method has been decorated with select_related
-                        select_related_fields = getattr(
-                            method, "_select_related_fields", None
-                        )
-
                         register_hook(
                             model=model_cls,
                             event=event,
@@ -87,13 +81,12 @@ class HookMeta(type):
                             method_name=method_name,
                             condition=condition,
                             priority=priority,
-                            select_related_fields=select_related_fields,
                         )
                         HookMeta._registered.add(key)
         return cls
 
 
-class HookHandler(metaclass=HookMeta):
+class Hook(metaclass=HookMeta):
     @classmethod
     def handle(
         cls,
@@ -138,17 +131,10 @@ class HookHandler(metaclass=HookMeta):
             if len(old_local) < len(new_local):
                 old_local += [None] * (len(new_local) - len(old_local))
 
-            for handler_cls, method_name, condition, priority, select_related_fields in hooks:
-                # Apply select_related if specified to prevent queries in loops
-                if select_related_fields:
-                    from django_bulk_hooks.engine import _apply_select_related
-                    new_local_with_related = _apply_select_related(new_local, select_related_fields)
-                else:
-                    new_local_with_related = new_local
-
+            for handler_cls, method_name, condition, priority in hooks:
                 if condition is not None:
                     checks = [
-                        condition.check(n, o) for n, o in zip(new_local_with_related, old_local)
+                        condition.check(n, o) for n, o in zip(new_local, old_local)
                     ]
                     if not any(checks):
                         continue
@@ -156,21 +142,10 @@ class HookHandler(metaclass=HookMeta):
                 handler = handler_cls()
                 method = getattr(handler, method_name)
 
-                # Inspect the method signature to determine parameter order
-                import inspect
-
-                sig = inspect.signature(method)
-                params = list(sig.parameters.keys())
-
-                # Remove 'self' from params if it exists
-                if params and params[0] == "self":
-                    params = params[1:]
-
-                # Always call with keyword arguments to make order irrelevant
                 try:
                     method(
+                        new_records=new_local,
                         old_records=old_local,
-                        new_records=new_local_with_related,
                         **kwargs,
                     )
                 except Exception:
