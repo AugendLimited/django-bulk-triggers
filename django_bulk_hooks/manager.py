@@ -42,10 +42,13 @@ class BulkHookManager(models.Manager):
         """
         base_model = model_cls
         while base_model._meta.parents:
-            parent = next(iter(base_model._meta.parents.values()))
-            if not parent._meta.abstract:
-                base_model = parent
+            # Get the first non-abstract parent model
+            for parent_model in base_model._meta.parents.keys():
+                if not parent_model._meta.abstract:
+                    base_model = parent_model
+                    break
             else:
+                # No non-abstract parents found, break the loop
                 break
         return base_model
     
