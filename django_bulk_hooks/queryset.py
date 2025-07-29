@@ -18,8 +18,9 @@ class HookQuerySet(models.QuerySet):
         model_cls = self.model
         pks = [obj.pk for obj in instances]
 
-        # Load originals for hook comparison
-        originals = list(model_cls.objects.filter(pk__in=pks))
+        # Load originals for hook comparison and ensure they match the order of instances
+        original_map = {obj.pk: obj for obj in model_cls.objects.filter(pk__in=pks)}
+        originals = [original_map.get(obj.pk) for obj in instances]
 
         # Apply field updates to instances
         for obj in instances:

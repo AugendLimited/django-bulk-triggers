@@ -37,10 +37,11 @@ class BulkHookManager(models.Manager):
             )
 
         if not bypass_hooks:
-            # Load originals for hook comparison
-            originals = list(
-                model_cls.objects.filter(pk__in=[obj.pk for obj in objs])
-            )
+            # Load originals for hook comparison and ensure they match the order of new instances
+            original_map = {
+                obj.pk: obj for obj in model_cls.objects.filter(pk__in=[obj.pk for obj in objs])
+            }
+            originals = [original_map.get(obj.pk) for obj in objs]
 
             ctx = HookContext(model_cls)
 
@@ -77,17 +78,11 @@ class BulkHookManager(models.Manager):
         if not original_instances:
             return set()
 
-        # Create a mapping of pk to original instance for efficient lookup
-        original_map = {obj.pk: obj for obj in original_instances if obj.pk is not None}
-
         modified_fields = set()
 
-        for new_instance in new_instances:
-            if new_instance.pk is None:
-                continue
-
-            original = original_map.get(new_instance.pk)
-            if not original:
+        # Since original_instances is now ordered to match new_instances, we can zip them directly
+        for new_instance, original in zip(new_instances, original_instances):
+            if new_instance.pk is None or original is None:
                 continue
 
             # Compare all fields to detect changes

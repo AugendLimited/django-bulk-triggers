@@ -122,6 +122,7 @@ Django's `bulk_` methods bypass signals and `save()`. This package fills that ga
 - Scalable performance via chunking (default 200)
 - Support for `@hook` decorators and centralized hook classes
 - **NEW**: Automatic hook triggering for admin operations and other Django features
+- **NEW**: Proper ordering guarantees for old/new record pairing in hooks (Salesforce-like behavior)
 
 ## 📦 Usage Examples
 
@@ -159,6 +160,27 @@ class AdvancedAccountHooks(Hook):
         for account in new_records:
             # Send welcome email logic here
             pass
+```
+
+### Salesforce-like Ordering Guarantees
+
+The system ensures that `old_records` and `new_records` are always properly paired, regardless of the order in which you pass objects to bulk operations:
+
+```python
+class LoanAccountHooks(Hook):
+    @hook(BEFORE_UPDATE, model=LoanAccount)
+    def validate_account_number(self, new_records, old_records):
+        # old_records[i] always corresponds to new_records[i]
+        for new_account, old_account in zip(new_records, old_records):
+            if old_account.account_number != new_account.account_number:
+                raise ValidationError("Account number cannot be changed")
+
+# This works correctly even with reordered objects:
+accounts = [account1, account2, account3]  # IDs: 1, 2, 3
+reordered = [account3, account1, account2]  # IDs: 3, 1, 2
+
+# The hook will still receive properly paired old/new records
+LoanAccount.objects.bulk_update(reordered, ['balance'])
 ```
 
 ## 🧩 Integration with Queryable Properties
