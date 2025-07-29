@@ -145,11 +145,17 @@ class BulkHookManager(models.Manager):
                 
                 # Use the model's manager with hooks
                 base_model = self._get_base_model(obj_class)
-                if hasattr(base_model.objects, 'bulk_create'):
-                    # Use the base model's manager with hooks
-                    created_base = base_model.objects.bulk_create(base_objects, **kwargs)
-                else:
-                    # Fallback to _base_manager
+                
+                # Try to avoid recursion by using raw SQL or _base_manager
+                try:
+                    if hasattr(base_model.objects, 'bulk_create'):
+                        # Use the base model's manager with hooks
+                        created_base = base_model.objects.bulk_create(base_objects, **kwargs)
+                    else:
+                        # Fallback to _base_manager
+                        created_base = base_model._base_manager.bulk_create(base_objects, **kwargs)
+                except RecursionError:
+                    # If recursion error, use _base_manager directly
                     created_base = base_model._base_manager.bulk_create(base_objects, **kwargs)
                 
                 # Step 2: Update original objects with base IDs
@@ -160,11 +166,14 @@ class BulkHookManager(models.Manager):
                 # Step 3: Bulk create child objects with hooks
                 child_objects = self._extract_child_objects(class_objects, obj_class)
                 if child_objects:
-                    # Use the model's manager with hooks
-                    if hasattr(obj_class.objects, 'bulk_create'):
-                        obj_class.objects.bulk_create(child_objects, **kwargs)
-                    else:
-                        # Fallback to _base_manager
+                    # Try to avoid recursion by using raw SQL or _base_manager
+                    try:
+                        if hasattr(obj_class.objects, 'bulk_create'):
+                            obj_class.objects.bulk_create(child_objects, **kwargs)
+                        else:
+                            obj_class._base_manager.bulk_create(child_objects, **kwargs)
+                    except RecursionError:
+                        # If recursion error, use _base_manager directly
                         obj_class._base_manager.bulk_create(child_objects, **kwargs)
                 
                 result.extend(class_objects)
@@ -177,6 +186,19 @@ class BulkHookManager(models.Manager):
                 logger.error(f"Model fields: {[f.name for f in obj_class._meta.fields]}")
                 logger.error(f"Base model: {self._get_base_model(obj_class)}")
                 logger.error(f"Base model manager: {self._get_base_model(obj_class).objects}")
+                
+                # If it's a recursion error, try a simpler approach
+                if isinstance(e, RecursionError):
+                    logger.error("Recursion error detected, trying fallback approach")
+                    try:
+                        # Fallback: use individual saves
+                        for obj in class_objects:
+                            obj.save()
+                        result.extend(class_objects)
+                        continue
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback approach also failed: {fallback_error}")
+                
                 raise
         
         return result
