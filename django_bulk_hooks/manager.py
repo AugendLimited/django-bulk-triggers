@@ -166,15 +166,13 @@ class BulkHookManager(models.Manager):
                 # Step 3: Bulk create child objects with hooks
                 child_objects = self._extract_child_objects(class_objects, obj_class)
                 if child_objects:
-                    # Try to avoid recursion by using raw SQL or _base_manager
+                    # Use _base_manager to avoid recursion with custom managers
                     try:
-                        if hasattr(obj_class.objects, 'bulk_create'):
-                            obj_class.objects.bulk_create(child_objects, **kwargs)
-                        else:
-                            obj_class._base_manager.bulk_create(child_objects, **kwargs)
-                    except RecursionError:
-                        # If recursion error, use _base_manager directly
                         obj_class._base_manager.bulk_create(child_objects, **kwargs)
+                    except RecursionError:
+                        # If recursion error, use individual saves
+                        for obj in child_objects:
+                            obj.save()
                 
                 result.extend(class_objects)
                 
