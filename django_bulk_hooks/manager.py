@@ -26,10 +26,15 @@ class BulkHookManager(models.Manager):
         """
         Check if this model uses multi-table inheritance.
         """
-        return (
-            model_cls._meta.parents and 
-            not all(parent._meta.abstract for parent in model_cls._meta.parents.values())
-        )
+        if not model_cls._meta.parents:
+            return False
+        
+        # Check if any parent is not abstract
+        for parent_model in model_cls._meta.parents.keys():
+            if not parent_model._meta.abstract:
+                return True
+        
+        return False
     
     def _get_base_model(self, model_cls):
         """
