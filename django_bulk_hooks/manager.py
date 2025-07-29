@@ -22,185 +22,6 @@ class BulkHookManager(models.Manager):
     def get_queryset(self):
         return HookQuerySet(self.model, using=self._db)
 
-    def _has_multi_table_inheritance(self, model_cls):
-        """
-        Check if this model uses multi-table inheritance.
-        """
-        if not model_cls._meta.parents:
-            return False
-        
-        # Check if any parent is not abstract
-        for parent_model in model_cls._meta.parents.keys():
-            if not parent_model._meta.abstract:
-                return True
-        
-        return False
-    
-    def _get_base_model(self, model_cls):
-        """
-        Get the base model (first non-abstract parent or self).
-        """
-        base_model = model_cls
-        while base_model._meta.parents:
-            # Get the first non-abstract parent model
-            for parent_model in base_model._meta.parents.keys():
-                if not parent_model._meta.abstract:
-                    base_model = parent_model
-                    break
-            else:
-                # No non-abstract parents found, break the loop
-                break
-        return base_model
-    
-    def _extract_base_objects(self, objs, model_cls):
-        """
-        Extract base model objects from inherited objects.
-        """
-        base_model = self._get_base_model(model_cls)
-        base_objects = []
-        
-        for obj in objs:
-            base_obj = base_model()
-            for field in base_model._meta.fields:
-                # Skip ID field
-                if field.name == 'id':
-                    continue
-                
-                # Safely copy field values
-                try:
-                    if hasattr(obj, field.name):
-                        setattr(base_obj, field.name, getattr(obj, field.name))
-                except (AttributeError, ValueError):
-                    # Skip fields that can't be copied
-                    continue
-            
-            base_objects.append(base_obj)
-        
-        return base_objects
-    
-    def _extract_child_objects(self, objs, model_cls):
-        """
-        Extract child model objects from inherited objects.
-        """
-        child_objects = []
-        
-        for obj in objs:
-            child_obj = model_cls()
-            child_obj.pk = obj.pk  # Set the same PK as base
-            
-            # Copy only fields specific to this model
-            for field in model_cls._meta.fields:
-                # Skip ID field and fields that don't belong to this model
-                if field.name == 'id':
-                    continue
-                
-                # Check if this field belongs to the current model
-                # Use a safer way to check field ownership
-                try:
-                    if hasattr(field, 'model') and field.model == model_cls:
-                        # This field belongs to the current model
-                        if hasattr(obj, field.name):
-                            setattr(child_obj, field.name, getattr(obj, field.name))
-                except AttributeError:
-                    # Skip fields that don't have proper model reference
-                    continue
-            
-            child_objects.append(child_obj)
-        
-        return child_objects
-    
-    def _bulk_create_inherited(self, objs, **kwargs):
-        """
-        Handle bulk create for inherited models by handling each table separately.
-        """
-        if not objs:
-            return []
-        
-        model_cls = self.model
-        result = []
-        
-        # Group objects by their actual class
-        objects_by_class = {}
-        for obj in objs:
-            obj_class = obj.__class__
-            if obj_class not in objects_by_class:
-                objects_by_class[obj_class] = []
-            objects_by_class[obj_class].append(obj)
-        
-        for obj_class, class_objects in objects_by_class.items():
-            try:
-                # Check if this class has multi-table inheritance
-                parent_models = [p for p in obj_class._meta.get_parent_list() 
-                               if not p._meta.abstract]
-                
-                if not parent_models:
-                    # No inheritance, use standard bulk_create
-                    chunk_result = super(models.Manager, self).bulk_create(class_objects, **kwargs)
-                    result.extend(chunk_result)
-                    continue
-                
-                # Handle multi-table inheritance
-                # Step 1: Bulk create base objects with hooks
-                base_objects = self._extract_base_objects(class_objects, obj_class)
-                
-                # Use the model's manager with hooks
-                base_model = self._get_base_model(obj_class)
-                
-                # Try to avoid recursion by using raw SQL or _base_manager
-                try:
-                    if hasattr(base_model.objects, 'bulk_create'):
-                        # Use the base model's manager with hooks
-                        created_base = base_model.objects.bulk_create(base_objects, **kwargs)
-                    else:
-                        # Fallback to _base_manager
-                        created_base = base_model._base_manager.bulk_create(base_objects, **kwargs)
-                except RecursionError:
-                    # If recursion error, use _base_manager directly
-                    created_base = base_model._base_manager.bulk_create(base_objects, **kwargs)
-                
-                # Step 2: Update original objects with base IDs
-                for obj, base_obj in zip(class_objects, created_base):
-                    obj.pk = base_obj.pk
-                    obj._state.adding = False
-                
-                # Step 3: Bulk create child objects with hooks
-                child_objects = self._extract_child_objects(class_objects, obj_class)
-                if child_objects:
-                    # Use _base_manager to avoid recursion with custom managers
-                    try:
-                        obj_class._base_manager.bulk_create(child_objects, **kwargs)
-                    except RecursionError:
-                        # If recursion error, use individual saves
-                        for obj in child_objects:
-                            obj.save()
-                
-                result.extend(class_objects)
-                
-            except Exception as e:
-                # Add debugging information
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error in _bulk_create_inherited for {obj_class}: {e}")
-                logger.error(f"Model fields: {[f.name for f in obj_class._meta.fields]}")
-                logger.error(f"Base model: {self._get_base_model(obj_class)}")
-                logger.error(f"Base model manager: {self._get_base_model(obj_class).objects}")
-                
-                # If it's a recursion error, try a simpler approach
-                if isinstance(e, RecursionError):
-                    logger.error("Recursion error detected, trying fallback approach")
-                    try:
-                        # Fallback: use individual saves
-                        for obj in class_objects:
-                            obj.save()
-                        result.extend(class_objects)
-                        continue
-                    except Exception as fallback_error:
-                        logger.error(f"Fallback approach also failed: {fallback_error}")
-                
-                raise
-        
-        return result
-
     @transaction.atomic
     def bulk_update(
         self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs
@@ -295,9 +116,6 @@ class BulkHookManager(models.Manager):
                 f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
             )
 
-        # Check if this model uses multi-table inheritance
-        has_multi_table_inheritance = self._has_multi_table_inheritance(model_cls)
-
         result = []
 
         if not bypass_hooks:
@@ -310,18 +128,9 @@ class BulkHookManager(models.Manager):
             # Then run business logic hooks
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
 
-        # Perform bulk create in chunks
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
-            
-            if has_multi_table_inheritance:
-                # Use our multi-table bulk create
-                created_chunk = self._bulk_create_inherited(chunk, **kwargs)
-            else:
-                # Use Django's standard bulk create
-                created_chunk = super(models.Manager, self).bulk_create(chunk, **kwargs)
-            
-            result.extend(created_chunk)
+            result.extend(super(models.Manager, self).bulk_create(chunk, **kwargs))
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
