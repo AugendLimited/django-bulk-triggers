@@ -1,24 +1,23 @@
 from collections.abc import Callable
 from typing import Union
 
-from django_bulk_hooks.priority import Priority
+from django_bulk_hooks.enums import Priority
 
-_hooks: dict[tuple[type, str], list[tuple[type, str, Callable, int]]] = {}
+_hooks: dict[tuple[type, str], list[tuple[type, str, Callable, int, tuple]]] = {}
 
 
 def register_hook(
-    model, event, handler_cls, method_name, condition, priority: Union[int, Priority]
+    model, event, handler_cls, method_name, condition, priority: Union[int, Priority], select_related_fields=None
 ):
     key = (model, event)
     hooks = _hooks.setdefault(key, [])
-    hooks.append((handler_cls, method_name, condition, priority))
+    hooks.append((handler_cls, method_name, condition, priority, select_related_fields))
     # keep sorted by priority
     hooks.sort(key=lambda x: x[3])
 
 
 def get_hooks(model, event):
-    hooks = _hooks.get((model, event), [])
-    return hooks
+    return _hooks.get((model, event), [])
 
 
 def list_all_hooks():

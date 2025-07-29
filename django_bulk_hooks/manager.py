@@ -17,15 +17,82 @@ from django_bulk_hooks.queryset import HookQuerySet
 
 
 class BulkHookManager(models.Manager):
-    CHUNK_SIZE = 200
+    # Default chunk sizes - can be overridden per model
+    DEFAULT_CHUNK_SIZE = 200
+    DEFAULT_RELATED_CHUNK_SIZE = 500  # Higher for related object fetching
+    
+    def __init__(self):
+        super().__init__()
+        self._chunk_size = self.DEFAULT_CHUNK_SIZE
+        self._related_chunk_size = self.DEFAULT_RELATED_CHUNK_SIZE
+        self._prefetch_related_fields = set()
+        self._select_related_fields = set()
 
-    def get_queryset(self):
-        return HookQuerySet(self.model, using=self._db)
+    def configure(self, chunk_size=None, related_chunk_size=None, 
+                 select_related=None, prefetch_related=None):
+        """
+        Configure bulk operation parameters for this manager.
+        
+        Args:
+            chunk_size: Number of objects to process in each bulk operation chunk
+            related_chunk_size: Number of objects to fetch in each related object query
+            select_related: List of fields to always select_related in bulk operations
+            prefetch_related: List of fields to always prefetch_related in bulk operations
+        """
+        if chunk_size is not None:
+            self._chunk_size = chunk_size
+        if related_chunk_size is not None:
+            self._related_chunk_size = related_chunk_size
+        if select_related:
+            self._select_related_fields.update(select_related)
+        if prefetch_related:
+            self._prefetch_related_fields.update(prefetch_related)
+
+    def _load_originals_optimized(self, pks, fields_to_fetch=None):
+        """
+        Optimized loading of original instances with smart batching and field selection.
+        """
+        queryset = self.model.objects.filter(pk__in=pks)
+        
+        # Only select specific fields if provided
+        if fields_to_fetch:
+            queryset = queryset.only('pk', *fields_to_fetch)
+            
+        # Apply configured related field optimizations
+        if self._select_related_fields:
+            queryset = queryset.select_related(*self._select_related_fields)
+        if self._prefetch_related_fields:
+            queryset = queryset.prefetch_related(*self._prefetch_related_fields)
+            
+        # Batch load in chunks to avoid memory issues
+        all_originals = []
+        for i in range(0, len(pks), self._related_chunk_size):
+            chunk_pks = pks[i:i + self._related_chunk_size]
+            chunk_originals = list(queryset.filter(pk__in=chunk_pks))
+            all_originals.extend(chunk_originals)
+            
+        return all_originals
+
+    def _get_fields_to_fetch(self, objs, fields):
+        """
+        Determine which fields need to be fetched based on what's being updated
+        and what's needed for hooks.
+        """
+        fields_to_fetch = set(fields)
+        
+        # Add fields needed by registered hooks
+        from django_bulk_hooks.registry import get_hooks
+        hooks = get_hooks(self.model, "before_update") + get_hooks(self.model, "after_update")
+        
+        for handler_cls, method_name, condition, _ in hooks:
+            if condition:
+                # If there's a condition, we need all fields it might access
+                fields_to_fetch.update(condition.get_required_fields())
+                
+        return fields_to_fetch
 
     @transaction.atomic
-    def bulk_update(
-        self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs
-    ):
+    def bulk_update(self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs):
         if not objs:
             return []
 
@@ -37,36 +104,42 @@ class BulkHookManager(models.Manager):
             )
 
         if not bypass_hooks:
-            # Load originals for hook comparison and ensure they match the order of new instances
-            original_map = {
-                obj.pk: obj for obj in model_cls.objects.filter(pk__in=[obj.pk for obj in objs])
-            }
-            originals = [original_map.get(obj.pk) for obj in objs]
+            # Determine which fields we need to fetch
+            fields_to_fetch = self._get_fields_to_fetch(objs, fields)
+            
+            # Load originals efficiently
+            pks = [obj.pk for obj in objs if obj.pk is not None]
+            originals = self._load_originals_optimized(pks, fields_to_fetch)
+            
+            # Create a mapping for quick lookup
+            original_map = {obj.pk: obj for obj in originals}
+            
+            # Align originals with new instances
+            aligned_originals = [original_map.get(obj.pk) for obj in objs]
 
             ctx = HookContext(model_cls)
 
             # Run validation hooks first
             if not bypass_validation:
-                engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
+                engine.run(model_cls, VALIDATE_UPDATE, objs, aligned_originals, ctx=ctx)
 
             # Then run business logic hooks
-            engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+            engine.run(model_cls, BEFORE_UPDATE, objs, aligned_originals, ctx=ctx)
 
             # Automatically detect fields that were modified during BEFORE_UPDATE hooks
-            modified_fields = self._detect_modified_fields(objs, originals)
+            modified_fields = self._detect_modified_fields(objs, aligned_originals)
             if modified_fields:
-                # Convert to set for efficient union operation
                 fields_set = set(fields)
                 fields_set.update(modified_fields)
                 fields = list(fields_set)
 
-        for i in range(0, len(objs), self.CHUNK_SIZE):
-            chunk = objs[i : i + self.CHUNK_SIZE]
-            # Call the base implementation to avoid re-triggering this method
+        # Process in chunks
+        for i in range(0, len(objs), self._chunk_size):
+            chunk = objs[i:i + self._chunk_size]
             super(models.Manager, self).bulk_update(chunk, fields, **kwargs)
 
         if not bypass_hooks:
-            engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
+            engine.run(model_cls, AFTER_UPDATE, objs, aligned_originals, ctx=ctx)
 
         return objs
 
@@ -109,42 +182,52 @@ class BulkHookManager(models.Manager):
 
     @transaction.atomic
     def bulk_create(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
+        if not objs:
+            return []
+
         model_cls = self.model
+        result = []
 
         if any(not isinstance(obj, model_cls) for obj in objs):
             raise TypeError(
                 f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
             )
 
-        result = []
-
         if not bypass_hooks:
             ctx = HookContext(model_cls)
 
-            # Run validation hooks first
+            # Process validation in chunks to avoid memory issues
             if not bypass_validation:
-                engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
+                for i in range(0, len(objs), self._chunk_size):
+                    chunk = objs[i:i + self._chunk_size]
+                    engine.run(model_cls, VALIDATE_CREATE, chunk, ctx=ctx)
 
-            # Then run business logic hooks
-            engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
+            # Process before_create hooks in chunks
+            for i in range(0, len(objs), self._chunk_size):
+                chunk = objs[i:i + self._chunk_size]
+                engine.run(model_cls, BEFORE_CREATE, chunk, ctx=ctx)
 
-        for i in range(0, len(objs), self.CHUNK_SIZE):
-            chunk = objs[i : i + self.CHUNK_SIZE]
-            result.extend(super(models.Manager, self).bulk_create(chunk, **kwargs))
+        # Perform bulk create in chunks
+        for i in range(0, len(objs), self._chunk_size):
+            chunk = objs[i:i + self._chunk_size]
+            created_chunk = super(models.Manager, self).bulk_create(chunk, **kwargs)
+            result.extend(created_chunk)
 
         if not bypass_hooks:
-            engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
+            # Process after_create hooks in chunks
+            for i in range(0, len(result), self._chunk_size):
+                chunk = result[i:i + self._chunk_size]
+                engine.run(model_cls, AFTER_CREATE, chunk, ctx=ctx)
 
         return result
 
     @transaction.atomic
-    def bulk_delete(
-        self, objs, batch_size=None, bypass_hooks=False, bypass_validation=False
-    ):
+    def bulk_delete(self, objs, batch_size=None, bypass_hooks=False, bypass_validation=False):
         if not objs:
             return []
 
         model_cls = self.model
+        chunk_size = batch_size or self._chunk_size
 
         if any(not isinstance(obj, model_cls) for obj in objs):
             raise TypeError(
@@ -154,21 +237,25 @@ class BulkHookManager(models.Manager):
         ctx = HookContext(model_cls)
 
         if not bypass_hooks:
-            # Run validation hooks first
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
+            # Process hooks in chunks
+            for i in range(0, len(objs), chunk_size):
+                chunk = objs[i:i + chunk_size]
+                
+                if not bypass_validation:
+                    engine.run(model_cls, VALIDATE_DELETE, chunk, ctx=ctx)
+                engine.run(model_cls, BEFORE_DELETE, chunk, ctx=ctx)
 
-            # Then run business logic hooks
-            engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
-
+        # Collect PKs and delete in chunks
         pks = [obj.pk for obj in objs if obj.pk is not None]
-        
-        # Use base manager for the actual deletion to prevent recursion
-        # The hooks have already been fired above, so we don't need them again
-        model_cls._base_manager.filter(pk__in=pks).delete()
+        for i in range(0, len(pks), chunk_size):
+            chunk_pks = pks[i:i + chunk_size]
+            model_cls._base_manager.filter(pk__in=chunk_pks).delete()
 
         if not bypass_hooks:
-            engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
+            # Process after_delete hooks in chunks
+            for i in range(0, len(objs), chunk_size):
+                chunk = objs[i:i + chunk_size]
+                engine.run(model_cls, AFTER_DELETE, chunk, ctx=ctx)
 
         return objs
 
