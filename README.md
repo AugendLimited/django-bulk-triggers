@@ -29,7 +29,7 @@ from django_bulk_hooks.models import HookModelMixin
 
 class Account(HookModelMixin):
     balance = models.DecimalField(max_digits=10, decimal_places=2)
-    # The HookModelMixin automatically provides BulkHookManager
+    # The HookModelMixin automatically provides BulkManager
 ```
 
 ### Create a Hook Handler
@@ -185,10 +185,10 @@ LoanAccount.objects.bulk_update(reordered, ['balance'])
 
 ## 🧩 Integration with Queryable Properties
 
-You can extend from `BulkHookManager` to support formula fields or property querying.
+You can extend from `BulkManager` to support formula fields or property querying.
 
 ```python
-class MyManager(BulkHookManager, QueryablePropertiesManager):
+class MyManager(BulkManager, QueryablePropertiesManager):
     pass
 ```
 

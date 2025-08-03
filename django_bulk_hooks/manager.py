@@ -1,4 +1,5 @@
 from django.db import models, transaction
+from django.db.models import AutoField
 
 from django_bulk_hooks import engine
 from django_bulk_hooks.constants import (
@@ -16,7 +17,7 @@ from django_bulk_hooks.context import HookContext
 from django_bulk_hooks.queryset import HookQuerySet
 
 
-class BulkHookManager(models.Manager):
+class BulkManager(models.Manager):
     CHUNK_SIZE = 200
 
     def get_queryset(self):
@@ -110,272 +111,149 @@ class BulkHookManager(models.Manager):
 
     @transaction.atomic
     def bulk_create(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
+        """
+        Enhanced bulk_create that handles multi-table inheritance (MTI) and single-table models.
+        Falls back to Django's standard bulk_create for single-table models.
+        Fires hooks as usual.
+        """
         model_cls = self.model
+
+        if not objs:
+            return []
 
         if any(not isinstance(obj, model_cls) for obj in objs):
             raise TypeError(
                 f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
             )
 
-        result = []
-
+        # Fire hooks before DB ops
         if not bypass_hooks:
             ctx = HookContext(model_cls)
-
-            # Run validation hooks first
             if not bypass_validation:
                 engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
-
-            # Then run business logic hooks
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
 
-        for i in range(0, len(objs), self.CHUNK_SIZE):
-            chunk = objs[i : i + self.CHUNK_SIZE]
-            result.extend(super(models.Manager, self).bulk_create(chunk, **kwargs))
+        # MTI detection: if inheritance chain > 1, use MTI logic
+        inheritance_chain = self._get_inheritance_chain()
+        if len(inheritance_chain) <= 1:
+            # Single-table: use Django's standard bulk_create
+            result = []
+            for i in range(0, len(objs), self.CHUNK_SIZE):
+                chunk = objs[i : i + self.CHUNK_SIZE]
+                result.extend(super(models.Manager, self).bulk_create(chunk, **kwargs))
+        else:
+            # Multi-table: use workaround (parent saves, child bulk)
+            result = self._mti_bulk_create(objs, inheritance_chain, **kwargs)
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
 
         return result
 
-    @transaction.atomic
-    def mti_bulk_create(
-        self, objs, bypass_hooks=False, bypass_validation=False, **kwargs
-    ):
+    def _get_inheritance_chain(self):
         """
-        Bulk create for Multi-Table Inheritance scenarios.
-
-        This implements the hybrid approach:
-        1. Insert parent tables individually to get primary keys back
-        2. Bulk insert into the childmost table
-
-        This works around Django's limitation where bulk_create doesn't return
-        primary keys for auto-increment fields, which prevents inserting into
-        child tables that reference the parent.
+        Get the complete inheritance chain from root parent to current model.
+        Returns list of model classes in order: [RootParent, Parent, Child]
         """
-        if not objs:
-            return []
+        chain = []
+        current_model = self.model
+        while current_model:
+            if not current_model._meta.proxy:
+                chain.append(current_model)
+            parents = [
+                parent
+                for parent in current_model._meta.parents.keys()
+                if not parent._meta.proxy
+            ]
+            current_model = parents[0] if parents else None
+        chain.reverse()
+        return chain
 
-        model_cls = self.model
+    def _mti_bulk_create(self, objs, inheritance_chain, **kwargs):
+        """
+        Implements workaround: individual saves for parents, bulk create for child.
+        """
+        batch_size = kwargs.get("batch_size") or len(objs)
+        created_objects = []
+        with transaction.atomic(using=self.db, savepoint=False):
+            for i in range(0, len(objs), batch_size):
+                batch = objs[i : i + batch_size]
+                batch_result = self._process_mti_batch(
+                    batch, inheritance_chain, **kwargs
+                )
+                created_objects.extend(batch_result)
+        return created_objects
 
-        if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(
-                f"mti_bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
+    def _process_mti_batch(self, batch, inheritance_chain, **kwargs):
+        """
+        Process a single batch of objects through the inheritance chain.
+        """
+        # Step 1: Handle parent tables with individual saves (needed for PKs)
+        parent_objects_map = {}
+        for obj in batch:
+            parent_instances = {}
+            current_parent = None
+            for model_class in inheritance_chain[:-1]:
+                parent_obj = self._create_parent_instance(
+                    obj, model_class, current_parent
+                )
+                parent_obj.save()
+                parent_instances[model_class] = parent_obj
+                current_parent = parent_obj
+            parent_objects_map[id(obj)] = parent_instances
+        # Step 2: Bulk insert for child objects
+        child_model = inheritance_chain[-1]
+        child_objects = []
+        for obj in batch:
+            child_obj = self._create_child_instance(
+                obj, child_model, parent_objects_map.get(id(obj), {})
             )
+            child_objects.append(child_obj)
+        # Use Django's _base_manager for child table to avoid recursion
+        child_manager = child_model._base_manager
+        child_manager._for_write = True
+        created = child_manager.bulk_create(child_objects, **kwargs)
+        # Step 3: Update original objects with generated PKs and state
+        pk_field_name = child_model._meta.pk.name
+        for orig_obj, child_obj in zip(batch, created):
+            setattr(orig_obj, pk_field_name, getattr(child_obj, pk_field_name))
+            orig_obj._state.adding = False
+            orig_obj._state.db = self.db
+        return batch
 
-        # Check if this is actually an MTI scenario
-        if not self._is_mti_scenario(model_cls):
-            # Fall back to regular bulk_create for non-MTI models
-            return self.bulk_create(objs, bypass_hooks, bypass_validation, **kwargs)
-
-        result = []
-
-        if not bypass_hooks:
-            ctx = HookContext(model_cls)
-
-            # Run validation hooks first
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
-
-            # Then run business logic hooks
-            engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
-
-        # Group objects by their concrete model to handle each inheritance level
-        concrete_models = self._get_concrete_models(model_cls)
-
-        # Process each inheritance level from parent to child
-        for concrete_model in concrete_models:
-            model_objs = [obj for obj in objs if isinstance(obj, concrete_model)]
-
-            if not model_objs:
-                continue
-
-            if concrete_model == model_cls:
-                # This is the childmost model - use bulk insert
-                for i in range(0, len(model_objs), self.CHUNK_SIZE):
-                    chunk = model_objs[i : i + self.CHUNK_SIZE]
-                    result.extend(
-                        super(models.Manager, self).bulk_create(chunk, **kwargs)
-                    )
-            else:
-                # This is a parent model - insert individually to get PKs back
-                for obj in model_objs:
-                    # Use the base manager to avoid hook recursion
-                    obj.save(using=self._db)
-                    result.append(obj)
-
-        if not bypass_hooks:
-            engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
-
-        return result
-
-    def _is_mti_scenario(self, model_cls):
-        """
-        Check if this model is part of a Multi-Table Inheritance scenario.
-        """
-        # Check if the model has a parent that's not abstract
-        if model_cls._meta.parents:
-            for parent_model in model_cls._meta.parents.values():
-                if not parent_model._meta.abstract:
-                    return True
-
-        # Check if this model is a parent of non-abstract models
-        for related_model in model_cls._meta.get_fields():
-            if hasattr(related_model, "related_model") and related_model.related_model:
+    def _create_parent_instance(self, source_obj, parent_model, current_parent):
+        parent_obj = parent_model()
+        for field in parent_model._meta.local_fields:
+            # Only copy if the field exists on the source and is not None
+            if hasattr(source_obj, field.name):
+                value = getattr(source_obj, field.name, None)
+                if value is not None:
+                    setattr(parent_obj, field.name, value)
+        if current_parent is not None:
+            for field in parent_model._meta.local_fields:
                 if (
-                    related_model.related_model._meta.parents
-                    and model_cls in related_model.related_model._meta.parents.values()
+                    hasattr(field, "remote_field")
+                    and field.remote_field
+                    and field.remote_field.model == current_parent.__class__
                 ):
-                    return True
+                    setattr(parent_obj, field.name, current_parent)
+                    break
+        return parent_obj
 
-        return False
-
-    def _get_concrete_models(self, model_cls):
-        """
-        Get all concrete models in the inheritance hierarchy, ordered from parent to child.
-        """
-        models = []
-
-        # Get all parent models (non-abstract)
-        current_model = model_cls
-        while current_model._meta.parents:
-            for parent_model in current_model._meta.parents.values():
-                if not parent_model._meta.abstract:
-                    if parent_model not in models:
-                        models.insert(0, parent_model)
-            current_model = list(current_model._meta.parents.values())[0]
-
-        # Add the current model
-        if model_cls not in models:
-            models.append(model_cls)
-
-        return models
-
-    @transaction.atomic
-    def mti_bulk_create_with_uuid(
-        self, objs, bypass_hooks=False, bypass_validation=False, **kwargs
-    ):
-        """
-        Bulk create for Multi-Table Inheritance scenarios using UUID primary keys.
-
-        This implements approach #1 from Django's comments:
-        - Use non-autoincrement primary keys (UUIDs)
-        - This allows bulk_create to return primary keys
-        - Works with all inheritance levels simultaneously
-
-        Requirements:
-        - Model must use UUIDField as primary key
-        - UUIDs must be pre-assigned before calling this method
-        """
-        if not objs:
-            return []
-
-        model_cls = self.model
-
-        if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(
-                f"mti_bulk_create_with_uuid expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
-            )
-
-        # Check if this is actually an MTI scenario
-        if not self._is_mti_scenario(model_cls):
-            # Fall back to regular bulk_create for non-MTI models
-            return self.bulk_create(objs, bypass_hooks, bypass_validation, **kwargs)
-
-        # Verify all objects have UUID primary keys assigned
-        for obj in objs:
-            if obj.pk is None:
-                raise ValueError(
-                    f"Object {obj} must have a UUID primary key assigned before calling mti_bulk_create_with_uuid"
-                )
-            if not self._is_uuid_field(obj._meta.pk):
-                raise ValueError(
-                    f"Model {model_cls.__name__} must use UUIDField as primary key for mti_bulk_create_with_uuid"
-                )
-
-        result = []
-
-        if not bypass_hooks:
-            ctx = HookContext(model_cls)
-
-            # Run validation hooks first
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
-
-            # Then run business logic hooks
-            engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
-
-        # Group objects by their concrete model to handle each inheritance level
-        concrete_models = self._get_concrete_models(model_cls)
-
-        # Process each inheritance level from parent to child
-        for concrete_model in concrete_models:
-            model_objs = [obj for obj in objs if isinstance(obj, concrete_model)]
-
-            if not model_objs:
+    def _create_child_instance(self, source_obj, child_model, parent_instances):
+        child_obj = child_model()
+        for field in child_model._meta.local_fields:
+            if isinstance(field, AutoField):
                 continue
-
-            # Use bulk create for all levels since we have UUIDs
-            for i in range(0, len(model_objs), self.CHUNK_SIZE):
-                chunk = model_objs[i : i + self.CHUNK_SIZE]
-                # Use the base manager to avoid hook recursion
-                created = concrete_model._base_manager.bulk_create(chunk, **kwargs)
-                result.extend(created)
-
-        if not bypass_hooks:
-            engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
-
-        return result
-
-    def _is_uuid_field(self, field):
-        """
-        Check if a field is a UUID field.
-        """
-        from django.db import models
-
-        return isinstance(field, models.UUIDField)
-
-    def mti_bulk_create_auto_uuid(
-        self, objs, bypass_hooks=False, bypass_validation=False, **kwargs
-    ):
-        """
-        Bulk create for Multi-Table Inheritance scenarios with automatic UUID generation.
-
-        This is a convenience method that automatically assigns UUIDs to objects
-        before calling mti_bulk_create_with_uuid.
-        """
-        import uuid
-
-        if not objs:
-            return []
-
-        model_cls = self.model
-
-        if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(
-                f"mti_bulk_create_auto_uuid expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
-            )
-
-        # Check if this is actually an MTI scenario
-        if not self._is_mti_scenario(model_cls):
-            # Fall back to regular bulk_create for non-MTI models
-            return self.bulk_create(objs, bypass_hooks, bypass_validation, **kwargs)
-
-        # Verify the model uses UUID primary key
-        if not self._is_uuid_field(model_cls._meta.pk):
-            raise ValueError(
-                f"Model {model_cls.__name__} must use UUIDField as primary key for mti_bulk_create_auto_uuid"
-            )
-
-        # Assign UUIDs to objects that don't have them
-        for obj in objs:
-            if obj.pk is None:
-                obj.pk = uuid.uuid4()
-
-        # Now call the UUID-based bulk create
-        return self.mti_bulk_create_with_uuid(
-            objs, bypass_hooks, bypass_validation, **kwargs
-        )
+            if hasattr(source_obj, field.name):
+                value = getattr(source_obj, field.name, None)
+                if value is not None:
+                    setattr(child_obj, field.name, value)
+        for parent_model, parent_instance in parent_instances.items():
+            parent_link = child_model._meta.get_ancestor_link(parent_model)
+            if parent_link:
+                setattr(child_obj, parent_link.name, parent_instance)
+        return child_obj
 
     @transaction.atomic
     def bulk_delete(

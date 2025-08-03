@@ -1,4 +1,4 @@
 from django_bulk_hooks.handler import Hook
-from django_bulk_hooks.manager import BulkHookManager
+from django_bulk_hooks.manager import BulkManager
 
-__all__ = ["BulkHookManager", "Hook"]
+__all__ = ["BulkManager", "Hook"]

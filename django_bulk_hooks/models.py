@@ -13,11 +13,11 @@ from django_bulk_hooks.constants import (
 )
 from django_bulk_hooks.context import HookContext
 from django_bulk_hooks.engine import run
-from django_bulk_hooks.manager import BulkHookManager
+from django_bulk_hooks.manager import BulkManager
 
 
 class HookModelMixin(models.Model):
-    objects = BulkHookManager()
+    objects = BulkManager()
 
     class Meta:
         abstract = True
