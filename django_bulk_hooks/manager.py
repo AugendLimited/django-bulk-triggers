@@ -1,3 +1,5 @@
+
+
 from django.db import models, transaction
 from django.db.models import AutoField
 
@@ -20,8 +22,11 @@ from django_bulk_hooks.queryset import HookQuerySet
 class BulkHookManager(models.Manager):
     CHUNK_SIZE = 200
 
+
     def get_queryset(self):
         return HookQuerySet(self.model, using=self._db)
+
+
 
     @transaction.atomic
     def bulk_update(
@@ -72,6 +77,90 @@ class BulkHookManager(models.Manager):
 
         return objs
 
+
+
+    @transaction.atomic
+    def bulk_create(
+        self,
+        objs,
+        batch_size=None,
+        ignore_conflicts=False,
+        update_conflicts=False,
+        update_fields=None,
+        unique_fields=None,
+        bypass_hooks=False,
+        bypass_validation=False,
+    ):
+        """
+        Insert each of the instances into the database. Behaves like Django's bulk_create,
+        but supports multi-table inheritance (MTI) models. All arguments are supported and
+        passed through to the correct logic. For MTI, only a subset of options may be supported.
+        """
+        model_cls = self.model
+
+        if batch_size is not None and batch_size <= 0:
+            raise ValueError("Batch size must be a positive integer.")
+
+        # Check that the parents share the same concrete model with our model to detect inheritance pattern
+        for parent in model_cls._meta.all_parents:
+            if parent._meta.concrete_model is not model_cls._meta.concrete_model:
+                # We allow this for MTI, but not for single-table
+                break
+
+        if not objs:
+            return objs
+
+        if any(not isinstance(obj, model_cls) for obj in objs):
+            raise TypeError(
+                f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
+            )
+
+        # Set auto_now_add/auto_now fields before DB ops
+        self._set_auto_now_fields(objs, model_cls)
+
+        # Fire hooks before DB ops
+        if not bypass_hooks:
+            ctx = HookContext(model_cls)
+            if not bypass_validation:
+                engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
+            engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
+
+        # MTI detection: if inheritance chain > 1, use MTI logic
+        inheritance_chain = self._get_inheritance_chain()
+        if len(inheritance_chain) <= 1:
+            # Single-table: use Django's standard bulk_create
+            # Pass through all supported arguments
+            result = super(models.Manager, self).bulk_create(
+                objs,
+                batch_size=batch_size,
+                ignore_conflicts=ignore_conflicts,
+                update_conflicts=update_conflicts,
+                update_fields=update_fields,
+                unique_fields=unique_fields,
+            )
+        else:
+            # Multi-table: use workaround (parent saves, child bulk)
+            # Only batch_size is supported for MTI; others will raise NotImplementedError
+            if ignore_conflicts or update_conflicts or update_fields or unique_fields:
+                raise NotImplementedError(
+                    "bulk_create with ignore_conflicts, update_conflicts, update_fields, or unique_fields is not supported for multi-table inheritance models."
+                )
+            result = self._mti_bulk_create(
+                objs, inheritance_chain, batch_size=batch_size
+            )
+
+        if not bypass_hooks:
+            engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
+
+        return result
+
+
+
+
+
+
+    # --- Private helper methods (moved to bottom for clarity) ---
+
     def _detect_modified_fields(self, new_instances, original_instances):
         """
         Detect fields that were modified during BEFORE_UPDATE hooks by comparing
@@ -109,47 +198,6 @@ class BulkHookManager(models.Manager):
 
         return modified_fields
 
-    @transaction.atomic
-    def bulk_create(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
-        """
-        Enhanced bulk_create that handles multi-table inheritance (MTI) and single-table models.
-        Falls back to Django's standard bulk_create for single-table models.
-        Fires hooks as usual.
-        """
-        model_cls = self.model
-
-        if not objs:
-            return []
-
-        if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(
-                f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
-            )
-
-        # Fire hooks before DB ops
-        if not bypass_hooks:
-            ctx = HookContext(model_cls)
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
-            engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
-
-        # MTI detection: if inheritance chain > 1, use MTI logic
-        inheritance_chain = self._get_inheritance_chain()
-        if len(inheritance_chain) <= 1:
-            # Single-table: use Django's standard bulk_create
-            result = []
-            for i in range(0, len(objs), self.CHUNK_SIZE):
-                chunk = objs[i : i + self.CHUNK_SIZE]
-                result.extend(super(models.Manager, self).bulk_create(chunk, **kwargs))
-        else:
-            # Multi-table: use workaround (parent saves, child bulk)
-            result = self._mti_bulk_create(objs, inheritance_chain, **kwargs)
-
-        if not bypass_hooks:
-            engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
-
-        return result
-
     def _get_inheritance_chain(self):
         """
         Get the complete inheritance chain from root parent to current model.
@@ -172,12 +220,16 @@ class BulkHookManager(models.Manager):
     def _mti_bulk_create(self, objs, inheritance_chain, **kwargs):
         """
         Implements workaround: individual saves for parents, bulk create for child.
+        Sets auto_now_add/auto_now fields for each model in the chain.
         """
         batch_size = kwargs.get("batch_size") or len(objs)
         created_objects = []
         with transaction.atomic(using=self.db, savepoint=False):
             for i in range(0, len(objs), batch_size):
                 batch = objs[i : i + batch_size]
+                # Set auto_now fields for each model in the chain
+                for model in inheritance_chain:
+                    self._set_auto_now_fields(batch, model)
                 batch_result = self._process_mti_batch(
                     batch, inheritance_chain, **kwargs
                 )
@@ -209,10 +261,27 @@ class BulkHookManager(models.Manager):
                 obj, child_model, parent_objects_map.get(id(obj), {})
             )
             child_objects.append(child_obj)
-        # Use Django's _base_manager for child table to avoid recursion
-        child_manager = child_model._base_manager
-        child_manager._for_write = True
-        created = child_manager.bulk_create(child_objects, **kwargs)
+        # If the child model is still MTI, call our own logic recursively
+        if len([p for p in child_model._meta.parents.keys() if not p._meta.proxy]) > 0:
+            # Build inheritance chain for the child model
+            inheritance_chain = []
+            current_model = child_model
+            while current_model:
+                if not current_model._meta.proxy:
+                    inheritance_chain.append(current_model)
+                parents = [
+                    parent
+                    for parent in current_model._meta.parents.keys()
+                    if not parent._meta.proxy
+                ]
+                current_model = parents[0] if parents else None
+            inheritance_chain.reverse()
+            created = self._mti_bulk_create(child_objects, inheritance_chain, **kwargs)
+        else:
+            # Single-table, safe to use bulk_create
+            child_manager = child_model._base_manager
+            child_manager._for_write = True
+            created = child_manager.bulk_create(child_objects, **kwargs)
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
         for orig_obj, child_obj in zip(batch, created):
@@ -254,6 +323,19 @@ class BulkHookManager(models.Manager):
             if parent_link:
                 setattr(child_obj, parent_link.name, parent_instance)
         return child_obj
+
+    def _set_auto_now_fields(self, objs, model):
+        """
+        Set auto_now_add and auto_now fields on objects before bulk_create.
+        """
+        from django.utils import timezone
+        now = timezone.now()
+        for obj in objs:
+            for field in model._meta.local_fields:
+                if getattr(field, 'auto_now_add', False) and getattr(obj, field.name, None) is None:
+                    setattr(obj, field.name, now)
+                if getattr(field, 'auto_now', False):
+                    setattr(obj, field.name, now)
 
     @transaction.atomic
     def bulk_delete(
