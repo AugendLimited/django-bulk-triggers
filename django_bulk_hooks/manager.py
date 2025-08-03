@@ -17,7 +17,7 @@ from django_bulk_hooks.context import HookContext
 from django_bulk_hooks.queryset import HookQuerySet
 
 
-class BulkManager(models.Manager):
+class BulkHookManager(models.Manager):
     CHUNK_SIZE = 200
 
     def get_queryset(self):
