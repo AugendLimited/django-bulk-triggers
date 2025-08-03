@@ -1,5 +1,3 @@
-
-
 from django.db import models, transaction
 from django.db.models import AutoField
 
@@ -22,11 +20,8 @@ from django_bulk_hooks.queryset import HookQuerySet
 class BulkHookManager(models.Manager):
     CHUNK_SIZE = 200
 
-
     def get_queryset(self):
         return HookQuerySet(self.model, using=self._db)
-
-
 
     @transaction.atomic
     def bulk_update(
@@ -76,8 +71,6 @@ class BulkHookManager(models.Manager):
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
 
         return objs
-
-
 
     @transaction.atomic
     def bulk_create(
@@ -153,11 +146,6 @@ class BulkHookManager(models.Manager):
             engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
 
         return result
-
-
-
-
-
 
     # --- Private helper methods (moved to bottom for clarity) ---
 
@@ -329,12 +317,16 @@ class BulkHookManager(models.Manager):
         Set auto_now_add and auto_now fields on objects before bulk_create.
         """
         from django.utils import timezone
+
         now = timezone.now()
         for obj in objs:
             for field in model._meta.local_fields:
-                if getattr(field, 'auto_now_add', False) and getattr(obj, field.name, None) is None:
+                if (
+                    getattr(field, "auto_now_add", False)
+                    and getattr(obj, field.name, None) is None
+                ):
                     setattr(obj, field.name, now)
-                if getattr(field, 'auto_now', False):
+                if getattr(field, "auto_now", False):
                     setattr(obj, field.name, now)
 
     @transaction.atomic
