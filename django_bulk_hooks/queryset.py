@@ -24,8 +24,9 @@ class HookQuerySet(models.QuerySet):
         objs = list(self)
         if not objs:
             return 0
-        # Call the base QuerySet implementation to avoid recursion
-        return super().bulk_delete(objs)
+        # Use our bulk_delete method to handle hooks properly
+        self.bulk_delete(objs)
+        return len(objs)
 
     @transaction.atomic
     def update(self, **kwargs):
@@ -33,33 +34,28 @@ class HookQuerySet(models.QuerySet):
         if not instances:
             return 0
 
-        model_cls = self.model
-        pks = [obj.pk for obj in instances]
-
-        # Load originals for hook comparison and ensure they match the order of instances
-        # Use the base manager to avoid recursion
-        original_map = {
-            obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
-        }
-        originals = [original_map.get(obj.pk) for obj in instances]
-
         # Apply field updates to instances
         for obj in instances:
             for field, value in kwargs.items():
                 setattr(obj, field, value)
 
-        # Run BEFORE_UPDATE hooks
-        ctx = HookContext(model_cls)
-        engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
+        # Use our bulk_update method to handle hooks properly
+        self.bulk_update(instances, list(kwargs.keys()))
+        return len(instances)
 
-        # Use Django's built-in update logic directly
-        # Call the base QuerySet implementation to avoid recursion
-        update_count = super().update(**kwargs)
-
-        # Run AFTER_UPDATE hooks
-        engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
-
-        return update_count
+    def save(self, obj):
+        """
+        Save a single object using the appropriate bulk operation.
+        """
+        if obj.pk:
+            # Use bulk_update for existing objects
+            self.bulk_update(
+                [obj], [field.name for field in obj._meta.fields if field.name != "id"]
+            )
+        else:
+            # Use bulk_create for new objects
+            self.bulk_create([obj])
+        return obj
 
     @transaction.atomic
     def bulk_create(
@@ -254,9 +250,23 @@ class HookQuerySet(models.QuerySet):
 
         pks = [obj.pk for obj in objs if obj.pk is not None]
 
-        # Call the base QuerySet implementation to avoid recursion
-        # The hooks have already been fired above, so we don't need them again
-        super().bulk_delete(objs, batch_size=batch_size)
+        # Use Django's base manager to perform the actual deletion
+        # This avoids recursion and uses Django's built-in delete logic
+        from django.db.models import QuerySet
+
+        base_qs = QuerySet(model_cls, using=self.db)
+
+        # Delete in batches if batch_size is specified
+        if batch_size:
+            for i in range(0, len(objs), batch_size):
+                batch = objs[i : i + batch_size]
+                batch_pks = [obj.pk for obj in batch if obj.pk is not None]
+                if batch_pks:
+                    base_qs.filter(pk__in=batch_pks).delete()
+        else:
+            # Delete all at once
+            if pks:
+                base_qs.filter(pk__in=pks).delete()
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)

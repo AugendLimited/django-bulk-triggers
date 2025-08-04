@@ -44,7 +44,8 @@ class HookModelMixin(models.Model):
         else:
             # For update operations, run VALIDATE_UPDATE hooks for validation
             try:
-                old_instance = self.__class__.objects.get(pk=self.pk)
+                # Use _base_manager to avoid triggering hooks recursively
+                old_instance = self.__class__._base_manager.get(pk=self.pk)
                 ctx = HookContext(self.__class__)
                 run(self.__class__, VALIDATE_UPDATE, [self], [old_instance], ctx=ctx)
             except self.__class__.DoesNotExist:
@@ -56,7 +57,7 @@ class HookModelMixin(models.Model):
         # If bypass_hooks is True, use base manager to avoid triggering hooks
         if bypass_hooks:
             return self._base_manager.save(self, *args, **kwargs)
-        
+
         is_create = self.pk is None
 
         if is_create:
@@ -70,7 +71,8 @@ class HookModelMixin(models.Model):
         else:
             # For update operations, we need to get the old record
             try:
-                old_instance = self.__class__.objects.get(pk=self.pk)
+                # Use _base_manager to avoid triggering hooks recursively
+                old_instance = self.__class__._base_manager.get(pk=self.pk)
                 ctx = HookContext(self.__class__)
                 run(self.__class__, BEFORE_UPDATE, [self], [old_instance], ctx=ctx)
 
@@ -92,7 +94,7 @@ class HookModelMixin(models.Model):
         # If bypass_hooks is True, use base manager to avoid triggering hooks
         if bypass_hooks:
             return self._base_manager.delete(self, *args, **kwargs)
-        
+
         ctx = HookContext(self.__class__)
 
         # Run validation hooks first
