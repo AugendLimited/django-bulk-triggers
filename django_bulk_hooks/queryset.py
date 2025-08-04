@@ -155,12 +155,20 @@ class HookQuerySet(models.QuerySet):
         return result
 
     @transaction.atomic
-    def bulk_update(
-        self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs
-    ):
-        if not objs:
-            return []
-
+    def bulk_update(self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs):
+        """
+        Bulk update objects in the database.
+        """
+        import inspect
+        print(f"DEBUG: QuerySet.bulk_update called with:")
+        print(f"  - self: {type(self)}")
+        print(f"  - objs: {type(objs)}")
+        print(f"  - fields: {fields}")
+        print(f"  - bypass_hooks: {bypass_hooks}")
+        print(f"  - bypass_validation: {bypass_validation}")
+        print(f"  - kwargs: {kwargs}")
+        print(f"DEBUG: Method signature: {inspect.signature(self.bulk_update)}")
+        
         model_cls = self.model
 
         if any(not isinstance(obj, model_cls) for obj in objs):
