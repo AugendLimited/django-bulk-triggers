@@ -1,4 +1,4 @@
-from django.db import models, transaction
+from django.db import models
 
 from django_bulk_hooks.constants import (
     AFTER_CREATE,
@@ -22,13 +22,17 @@ class HookModelMixin(models.Model):
     class Meta:
         abstract = True
 
-    def clean(self):
+    def clean(self, bypass_hooks=False):
         """
         Override clean() to trigger validation hooks.
         This ensures that when Django calls clean() (like in admin forms),
         it triggers the VALIDATE_* hooks for validation only.
         """
         super().clean()
+
+        # If bypass_hooks is True, skip validation hooks
+        if bypass_hooks:
+            return
 
         # Determine if this is a create or update operation
         is_create = self.pk is None
@@ -48,7 +52,11 @@ class HookModelMixin(models.Model):
                 ctx = HookContext(self.__class__)
                 run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, bypass_hooks=False, **kwargs):
+        # If bypass_hooks is True, use base manager to avoid triggering hooks
+        if bypass_hooks:
+            return self._base_manager.save(self, *args, **kwargs)
+        
         is_create = self.pk is None
 
         if is_create:
@@ -80,7 +88,11 @@ class HookModelMixin(models.Model):
 
         return self
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, bypass_hooks=False, **kwargs):
+        # If bypass_hooks is True, use base manager to avoid triggering hooks
+        if bypass_hooks:
+            return self._base_manager.delete(self, *args, **kwargs)
+        
         ctx = HookContext(self.__class__)
 
         # Run validation hooks first
