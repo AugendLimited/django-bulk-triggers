@@ -396,7 +396,10 @@ class HookQuerySet(models.QuerySet):
             # For child models in MTI, we need to include the foreign key to the parent
             # but exclude the primary key since it's inherited
             print(f"DEBUG: All local fields: {[f.name for f in opts.local_fields]}")
-            fields = [f for f in opts.local_fields if not f.generated and not f.primary_key]
+            
+            # Include all local fields except generated ones
+            # We need to include the foreign key to the parent (business_ptr)
+            fields = [f for f in opts.local_fields if not f.generated]
             print(f"DEBUG: Child model fields to insert: {[f.name for f in fields]}")
             
             # Debug: Check what fields are actually set on the child objects
@@ -507,9 +510,9 @@ class HookQuerySet(models.QuerySet):
         for parent_model, parent_instance in parent_instances.items():
             parent_link = child_model._meta.get_ancestor_link(parent_model)
             if parent_link:
-                # Set the foreign key to the parent instance (Django will handle the ID)
-                setattr(child_obj, parent_link.name, parent_instance)
-                print(f"DEBUG: Set {parent_link.name} to {parent_instance} (PK: {parent_instance.pk})")
+                # Set the foreign key value (the ID) to the parent's PK
+                setattr(child_obj, parent_link.target_field.attname, parent_instance.pk)
+                print(f"DEBUG: Set {parent_link.target_field.attname} to {parent_instance.pk}")
 
         # Handle auto_now_add and auto_now fields like Django does
         for field in child_model._meta.local_fields:
