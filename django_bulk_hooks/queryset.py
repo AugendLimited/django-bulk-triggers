@@ -393,8 +393,8 @@ class HookQuerySet(models.QuerySet):
             
             # Use Django's internal _batched_insert method
             opts = child_model._meta
-            # For child models in MTI, we should only use the child's local fields
-            # since inherited fields are stored in the parent table
+            # For child models in MTI, we need to include the foreign key to the parent
+            # but exclude the primary key since it's inherited
             fields = [f for f in opts.local_fields if not f.generated and not f.primary_key]
             print(f"DEBUG: Child model fields to insert: {[f.name for f in fields]}")
             
@@ -494,7 +494,9 @@ class HookQuerySet(models.QuerySet):
         for parent_model, parent_instance in parent_instances.items():
             parent_link = child_model._meta.get_ancestor_link(parent_model)
             if parent_link:
+                # Set the foreign key to the parent instance (Django will handle the ID)
                 setattr(child_obj, parent_link.name, parent_instance)
+                print(f"DEBUG: Set {parent_link.name} to {parent_instance} (PK: {parent_instance.pk})")
 
         # Handle auto_now_add and auto_now fields like Django does
         for field in child_model._meta.local_fields:
