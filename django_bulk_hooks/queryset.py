@@ -1,10 +1,6 @@
-from django.db import models, transaction, connections
-from django.db.models import AutoField, Q, Max
-from django.db import NotSupportedError
-from django.db.models.constants import OnConflict
-from django.db.models.expressions import DatabaseDefault
-import operator
-from functools import reduce
+
+from django.db import models, transaction
+from django.db.models import AutoField
 
 from django_bulk_hooks import engine
 from django_bulk_hooks.constants import (
