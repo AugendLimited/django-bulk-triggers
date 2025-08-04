@@ -24,9 +24,11 @@ class BulkHookManager(models.Manager):
         # Check if this is our HookQuerySet or a different QuerySet
         if hasattr(qs, 'bulk_update') and 'bypass_hooks' in inspect.signature(qs.bulk_update).parameters:
             # Our HookQuerySet - pass all parameters
+            print(f"DEBUG: Using our HookQuerySet for {self.model}")
             return qs.bulk_update(objs, fields, bypass_hooks=bypass_hooks, bypass_validation=bypass_validation, **kwargs)
         else:
             # Different QuerySet (like queryable_properties) - only pass standard parameters
+            print(f"DEBUG: Using different QuerySet ({type(qs)}) for {self.model}, bypassing hooks")
             django_kwargs = {k: v for k, v in kwargs.items() if k not in ['bypass_hooks', 'bypass_validation']}
             return qs.bulk_update(objs, fields, **django_kwargs)
 
@@ -52,6 +54,7 @@ class BulkHookManager(models.Manager):
         # Check if this is our HookQuerySet or a different QuerySet
         if hasattr(qs, 'bulk_create') and 'bypass_hooks' in inspect.signature(qs.bulk_create).parameters:
             # Our HookQuerySet - pass all parameters
+            print(f"DEBUG: Using our HookQuerySet for {self.model}")
             kwargs = {
                 'batch_size': batch_size,
                 'ignore_conflicts': ignore_conflicts,
@@ -62,6 +65,7 @@ class BulkHookManager(models.Manager):
             return qs.bulk_create(objs, bypass_hooks=bypass_hooks, bypass_validation=bypass_validation, **kwargs)
         else:
             # Different QuerySet - only pass standard parameters
+            print(f"DEBUG: Using different QuerySet ({type(qs)}) for {self.model}, bypassing hooks")
             kwargs = {
                 'batch_size': batch_size,
                 'ignore_conflicts': ignore_conflicts,
@@ -85,12 +89,14 @@ class BulkHookManager(models.Manager):
         # Check if this is our HookQuerySet or a different QuerySet
         if hasattr(qs, 'bulk_delete') and 'bypass_hooks' in inspect.signature(qs.bulk_delete).parameters:
             # Our HookQuerySet - pass all parameters
+            print(f"DEBUG: Using our HookQuerySet for {self.model}")
             kwargs = {
                 'batch_size': batch_size,
             }
             return qs.bulk_delete(objs, bypass_hooks=bypass_hooks, bypass_validation=bypass_validation, **kwargs)
         else:
             # Different QuerySet - only pass standard parameters
+            print(f"DEBUG: Using different QuerySet ({type(qs)}) for {self.model}, bypassing hooks")
             kwargs = {
                 'batch_size': batch_size,
             }

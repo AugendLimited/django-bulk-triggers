@@ -112,10 +112,13 @@ class HookQuerySet(models.QuerySet):
 
         # Fire hooks before DB ops
         if not bypass_hooks:
+            print(f"DEBUG: Firing BEFORE_CREATE hooks for {model_cls}")
             ctx = HookContext(model_cls)
             if not bypass_validation:
                 engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
+        else:
+            print(f"DEBUG: Skipping hooks due to bypass_hooks=True for {model_cls}")
 
         # For MTI models, we need to handle them specially
         if is_mti:
@@ -150,7 +153,12 @@ class HookQuerySet(models.QuerySet):
                 unique_fields=unique_fields,
             )
 
-
+        # Fire AFTER_CREATE hooks
+        if not bypass_hooks:
+            print(f"DEBUG: Firing AFTER_CREATE hooks for {model_cls}")
+            engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
+        else:
+            print(f"DEBUG: Skipping AFTER_CREATE hooks due to bypass_hooks=True for {model_cls}")
 
         return result
 
@@ -170,6 +178,11 @@ class HookQuerySet(models.QuerySet):
         print(f"DEBUG: Method signature: {inspect.signature(self.bulk_update)}")
         
         model_cls = self.model
+        print(f"DEBUG: Model class: {model_cls}")
+        print(f"DEBUG: bypass_hooks value: {bypass_hooks}")
+        
+        if not objs:
+            return []
 
         if any(not isinstance(obj, model_cls) for obj in objs):
             raise TypeError(
@@ -210,7 +223,10 @@ class HookQuerySet(models.QuerySet):
             super().bulk_update(chunk, fields, **django_kwargs)
 
         if not bypass_hooks:
+            print(f"DEBUG: Firing AFTER_UPDATE hooks for {model_cls}")
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
+        else:
+            print(f"DEBUG: Skipping AFTER_UPDATE hooks due to bypass_hooks=True for {model_cls}")
 
         return objs
 
