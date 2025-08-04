@@ -393,7 +393,9 @@ class HookQuerySet(models.QuerySet):
             
             # Use Django's internal _batched_insert method
             opts = child_model._meta
-            fields = [f for f in opts.concrete_fields if not f.generated]
+            # For child models in MTI, we need to exclude the parent's primary key
+            # since it's inherited and not stored in the child table
+            fields = [f for f in opts.concrete_fields if not f.generated and not f.primary_key]
             
             with transaction.atomic(using=self.db, savepoint=False):
                  if objs_with_pk:
@@ -413,7 +415,8 @@ class HookQuerySet(models.QuerySet):
                  
                  if objs_without_pk:
                      print(f"DEBUG: Inserting {len(objs_without_pk)} objects without PK")
-                     fields = [f for f in fields if not isinstance(f, AutoField)]
+                     # For objects without PK, we still need to exclude primary key fields
+                     fields = [f for f in fields if not isinstance(f, AutoField) and not f.primary_key]
                      returned_columns = base_qs._batched_insert(
                          objs_without_pk,
                          fields,
