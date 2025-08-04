@@ -131,8 +131,12 @@ class HookQuerySet(models.QuerySet):
         else:
             # For single-table models, use Django's built-in bulk_create
             # but we need to call it on the base manager to avoid recursion
+            # Filter out custom parameters that Django's bulk_create doesn't accept
 
-            result = model_cls._base_manager.bulk_create(
+            # Use Django's original QuerySet to avoid recursive calls
+            from django.db.models import QuerySet
+            original_qs = QuerySet(model_cls, using=self.db)
+            result = original_qs.bulk_create(
                 objs,
                 batch_size=batch_size,
                 ignore_conflicts=ignore_conflicts,
