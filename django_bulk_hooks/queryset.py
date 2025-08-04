@@ -318,19 +318,17 @@ class HookQuerySet(models.QuerySet):
                 current_parent = parent_obj
             parent_objects_map[id(obj)] = parent_instances
         
-        # Step 2: Create and bulk insert child objects
+        # Step 2: Create and save child objects
         child_model = inheritance_chain[-1]
-        child_objects = []
+        created = []
         for obj in batch:
             child_obj = self._create_child_instance(
                 obj, child_model, parent_objects_map.get(id(obj), {})
             )
-            child_objects.append(child_obj)
-        
-        # Use Django's bulk_create for child objects - this handles auto_now_add correctly
-        child_manager = child_model._base_manager
-        child_manager._for_write = True
-        created = child_manager.bulk_create(child_objects, **kwargs)
+            # Save child object individually since Django's bulk_create doesn't support MTI
+            # Use Django's Model.save() directly to avoid hooks but get proper field handling
+            models.Model.save(child_obj)
+            created.append(child_obj)
         
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
