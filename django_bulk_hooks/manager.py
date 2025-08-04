@@ -14,7 +14,7 @@ class BulkHookManager(models.Manager):
         Delegate to QuerySet's bulk_update implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.
         """
-        return self.get_queryset().bulk_update(objs, fields, bypass_hooks=bypass_hooks, bypass_validation=bypass_validation, **kwargs)
+        return self.get_queryset().bulk_update(objs, fields, bypass_hooks, bypass_validation, **kwargs)
 
     def bulk_create(
         self,
