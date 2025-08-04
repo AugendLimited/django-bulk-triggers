@@ -511,9 +511,11 @@ class HookQuerySet(models.QuerySet):
             parent_link = child_model._meta.get_ancestor_link(parent_model)
             if parent_link:
                 print(f"DEBUG: Parent link: {parent_link.name}, target_field: {parent_link.target_field.name}, attname: {parent_link.target_field.attname}")
+                print(f"DEBUG: Parent link attname: {parent_link.attname}")
                 # Set the foreign key value (the ID) to the parent's PK
-                setattr(child_obj, parent_link.target_field.attname, parent_instance.pk)
-                print(f"DEBUG: Set {parent_link.target_field.attname} to {parent_instance.pk}")
+                # Use the parent link field's attname, not the target field's attname
+                setattr(child_obj, parent_link.attname, parent_instance.pk)
+                print(f"DEBUG: Set {parent_link.attname} to {parent_instance.pk}")
 
         # Handle auto_now_add and auto_now fields like Django does
         for field in child_model._meta.local_fields:
