@@ -510,6 +510,7 @@ class HookQuerySet(models.QuerySet):
         for parent_model, parent_instance in parent_instances.items():
             parent_link = child_model._meta.get_ancestor_link(parent_model)
             if parent_link:
+                print(f"DEBUG: Parent link: {parent_link.name}, target_field: {parent_link.target_field.name}, attname: {parent_link.target_field.attname}")
                 # Set the foreign key value (the ID) to the parent's PK
                 setattr(child_obj, parent_link.target_field.attname, parent_instance.pk)
                 print(f"DEBUG: Set {parent_link.target_field.attname} to {parent_instance.pk}")
