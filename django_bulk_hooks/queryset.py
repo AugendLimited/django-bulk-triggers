@@ -371,20 +371,50 @@ class HookQuerySet(models.QuerySet):
             all_child_objects.append(child_obj)
         print(f"DEBUG: Created {len(all_child_objects)} child objects")
 
-        # Step 2.5: Single bulk insert into childmost table
+        # Step 2.5: Use Django's internal _batched_insert method directly
         if all_child_objects:
-            print(f"DEBUG: Attempting to bulk_create {len(all_child_objects)} child objects for {child_model.__name__}")
-            try:
-                # Use Django's internal bulk_create to bypass MTI exception
-                child_model._base_manager.bulk_create(all_child_objects)
-                print(f"DEBUG: Successfully bulk_created child objects")
-            except ValueError as e:
-                print(f"DEBUG: bulk_create failed with error: {e}")
-                print(f"DEBUG: Falling back to individual creates for child objects")
-                # Fall back to individual creates if bulk_create fails
-                for child_obj in all_child_objects:
-                    child_obj.save(using=self.db)
-                print(f"DEBUG: Successfully created child objects individually")
+            print(f"DEBUG: Using Django's internal _batched_insert for {len(all_child_objects)} child objects")
+            
+            # Get the base manager's queryset
+            base_qs = child_model._base_manager.using(self.db)
+            
+            # Use Django's internal _batched_insert method directly
+            # This bypasses the MTI check but uses Django's optimized bulk insert
+            opts = child_model._meta
+            fields = [f for f in opts.concrete_fields if not f.generated]
+            
+            # Prepare objects for bulk insert (same logic as Django's bulk_create)
+            objs_with_pk, objs_without_pk = base_qs._prepare_for_bulk_create(all_child_objects)
+            
+            with transaction.atomic(using=self.db, savepoint=False):
+                if objs_with_pk:
+                    returned_columns = base_qs._batched_insert(
+                        objs_with_pk,
+                        fields,
+                        batch_size=None,
+                    )
+                    for obj_with_pk, results in zip(objs_with_pk, returned_columns):
+                        for result, field in zip(results, opts.db_returning_fields):
+                            if field != opts.pk:
+                                setattr(obj_with_pk, field.attname, result)
+                    for obj_with_pk in objs_with_pk:
+                        obj_with_pk._state.adding = False
+                        obj_with_pk._state.db = self.db
+                
+                if objs_without_pk:
+                    fields = [f for f in fields if not isinstance(f, AutoField)]
+                    returned_columns = base_qs._batched_insert(
+                        objs_without_pk,
+                        fields,
+                        batch_size=None,
+                    )
+                    for obj_without_pk, results in zip(objs_without_pk, returned_columns):
+                        for result, field in zip(results, opts.db_returning_fields):
+                            setattr(obj_without_pk, field.attname, result)
+                        obj_without_pk._state.adding = False
+                        obj_without_pk._state.db = self.db
+            
+            print(f"DEBUG: Successfully bulk created child objects using Django's internal methods")
 
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
