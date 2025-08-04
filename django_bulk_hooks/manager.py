@@ -33,15 +33,21 @@ class BulkHookManager(models.Manager):
         Delegate to QuerySet's bulk_create implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.
         """
+        kwargs = {
+            'batch_size': batch_size,
+            'ignore_conflicts': ignore_conflicts,
+            'update_conflicts': update_conflicts,
+            'update_fields': update_fields,
+            'unique_fields': unique_fields,
+        }
+        # Only include custom args if explicitly set to True
+        if bypass_hooks:
+            kwargs['bypass_hooks'] = bypass_hooks
+        if bypass_validation:
+            kwargs['bypass_validation'] = bypass_validation
         return self.get_queryset().bulk_create(
             objs,
-            batch_size=batch_size,
-            ignore_conflicts=ignore_conflicts,
-            update_conflicts=update_conflicts,
-            update_fields=update_fields,
-            unique_fields=unique_fields,
-            bypass_hooks=bypass_hooks,
-            bypass_validation=bypass_validation,
+            **kwargs
         )
 
     def bulk_delete(
