@@ -396,6 +396,11 @@ class HookQuerySet(models.QuerySet):
             # For child models in MTI, we need to exclude the parent's primary key
             # since it's inherited and not stored in the child table
             fields = [f for f in opts.concrete_fields if not f.generated and not f.primary_key]
+            print(f"DEBUG: Child model fields to insert: {[f.name for f in fields]}")
+            
+            # Debug: Check what fields are actually set on the child objects
+            for i, child_obj in enumerate(all_child_objects[:3]):  # Check first 3 objects
+                print(f"DEBUG: Child object {i} fields: {[f.name for f in child_model._meta.local_fields if hasattr(child_obj, f.name) and getattr(child_obj, f.name) is not None]}")
             
             with transaction.atomic(using=self.db, savepoint=False):
                  if objs_with_pk:
@@ -476,6 +481,7 @@ class HookQuerySet(models.QuerySet):
 
     def _create_child_instance(self, source_obj, child_model, parent_instances):
         child_obj = child_model()
+        # Only copy fields that exist in the child model's local fields
         for field in child_model._meta.local_fields:
             if isinstance(field, AutoField):
                 continue
@@ -483,6 +489,8 @@ class HookQuerySet(models.QuerySet):
                 value = getattr(source_obj, field.name, None)
                 if value is not None:
                     setattr(child_obj, field.name, value)
+        
+        # Set parent links for MTI
         for parent_model, parent_instance in parent_instances.items():
             parent_link = child_model._meta.get_ancestor_link(parent_model)
             if parent_link:
