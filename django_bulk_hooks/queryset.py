@@ -24,9 +24,8 @@ class HookQuerySet(models.QuerySet):
         objs = list(self)
         if not objs:
             return 0
-        # Use our bulk_delete method to handle hooks properly
-        self.bulk_delete(objs)
-        return len(objs)
+        # Call the base QuerySet implementation to avoid recursion
+        return super().bulk_delete(objs)
 
     @transaction.atomic
     def update(self, **kwargs):
@@ -34,28 +33,31 @@ class HookQuerySet(models.QuerySet):
         if not instances:
             return 0
 
+        model_cls = self.model
+        pks = [obj.pk for obj in instances]
+
+        # Load originals for hook comparison and ensure they match the order of instances
+        # Use the base manager to avoid recursion
+        original_map = {obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)}
+        originals = [original_map.get(obj.pk) for obj in instances]
+
         # Apply field updates to instances
         for obj in instances:
             for field, value in kwargs.items():
                 setattr(obj, field, value)
 
-        # Use our bulk_update method to handle hooks properly
-        self.bulk_update(instances, list(kwargs.keys()))
-        return len(instances)
+        # Run BEFORE_UPDATE hooks
+        ctx = HookContext(model_cls)
+        engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
 
-    def save(self, obj):
-        """
-        Save a single object using the appropriate bulk operation.
-        """
-        if obj.pk:
-            # Use bulk_update for existing objects
-            self.bulk_update(
-                [obj], [field.name for field in obj._meta.fields if field.name != "id"]
-            )
-        else:
-            # Use bulk_create for new objects
-            self.bulk_create([obj])
-        return obj
+        # Use Django's built-in update logic directly
+        # Call the base QuerySet implementation to avoid recursion
+        update_count = super().update(**kwargs)
+
+        # Run AFTER_UPDATE hooks
+        engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
+
+        return update_count
 
     @transaction.atomic
     def bulk_create(
@@ -112,30 +114,35 @@ class HookQuerySet(models.QuerySet):
 
         # Fire hooks before DB ops
         if not bypass_hooks:
+            print(f"DEBUG: Firing BEFORE_CREATE hooks for {model_cls}")
+            print(f"DEBUG: Number of objects: {len(objs)}")
+            print(f"DEBUG: Object types: {[type(obj) for obj in objs]}")
+            print(f"DEBUG: QuerySet type: {type(self)}")
+            print(f"DEBUG: Is this HookQuerySet? {isinstance(self, HookQuerySet)}")
             ctx = HookContext(model_cls)
             if not bypass_validation:
+                print(f"DEBUG: Running VALIDATE_CREATE hooks")
                 engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
+            print(f"DEBUG: Running BEFORE_CREATE hooks")
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
+        else:
+            print(f"DEBUG: Skipping hooks due to bypass_hooks=True for {model_cls}")
 
         # For MTI models, we need to handle them specially
         if is_mti:
             # Use our MTI-specific logic
             # Filter out custom parameters that Django's bulk_create doesn't accept
             mti_kwargs = {
-                "batch_size": batch_size,
-                "ignore_conflicts": ignore_conflicts,
-                "update_conflicts": update_conflicts,
-                "update_fields": update_fields,
-                "unique_fields": unique_fields,
+                'batch_size': batch_size,
+                'ignore_conflicts': ignore_conflicts,
+                'update_conflicts': update_conflicts,
+                'update_fields': update_fields,
+                'unique_fields': unique_fields,
             }
             # Remove custom hook kwargs if present in self.bulk_create signature
             result = self._mti_bulk_create(
                 objs,
-                **{
-                    k: v
-                    for k, v in mti_kwargs.items()
-                    if k not in ["bypass_hooks", "bypass_validation"]
-                },
+                **{k: v for k, v in mti_kwargs.items() if k not in ['bypass_hooks', 'bypass_validation']}
             )
         else:
             # For single-table models, use Django's built-in bulk_create
@@ -144,7 +151,6 @@ class HookQuerySet(models.QuerySet):
 
             # Use Django's original QuerySet to avoid recursive calls
             from django.db.models import QuerySet
-
             original_qs = QuerySet(model_cls, using=self.db)
             result = original_qs.bulk_create(
                 objs,
@@ -157,19 +163,37 @@ class HookQuerySet(models.QuerySet):
 
         # Fire AFTER_CREATE hooks
         if not bypass_hooks:
+            print(f"DEBUG: Firing AFTER_CREATE hooks for {model_cls}")
+            print(f"DEBUG: Number of objects: {len(objs)}")
+            print(f"DEBUG: QuerySet type: {type(self)}")
+            print(f"DEBUG: Is this HookQuerySet? {isinstance(self, HookQuerySet)}")
             engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
+        else:
+            print(f"DEBUG: Skipping AFTER_CREATE hooks due to bypass_hooks=True for {model_cls}")
 
         return result
 
     @transaction.atomic
-    def bulk_update(
-        self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs
-    ):
+    def bulk_update(self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs):
         """
         Bulk update objects in the database.
         """
+        import inspect
+        print(f"DEBUG: QuerySet.bulk_update called with:")
+        print(f"  - self: {type(self)}")
+        print(f"  - objs: {type(objs)}")
+        print(f"  - fields: {fields}")
+        print(f"  - bypass_hooks: {bypass_hooks}")
+        print(f"  - bypass_validation: {bypass_validation}")
+        print(f"  - kwargs: {kwargs}")
+        print(f"DEBUG: Method signature: {inspect.signature(self.bulk_update)}")
+        
         model_cls = self.model
-
+        print(f"DEBUG: Model class: {model_cls}")
+        print(f"DEBUG: bypass_hooks value: {bypass_hooks}")
+        print(f"DEBUG: QuerySet type: {type(self)}")
+        print(f"DEBUG: Is this HookQuerySet? {isinstance(self, HookQuerySet)}")
+        
         if not objs:
             return []
 
@@ -183,9 +207,7 @@ class HookQuerySet(models.QuerySet):
             # Use the base manager to avoid recursion
             original_map = {
                 obj.pk: obj
-                for obj in model_cls._base_manager.filter(
-                    pk__in=[obj.pk for obj in objs]
-                )
+                for obj in model_cls._base_manager.filter(pk__in=[obj.pk for obj in objs])
             }
             originals = [original_map.get(obj.pk) for obj in objs]
 
@@ -197,7 +219,12 @@ class HookQuerySet(models.QuerySet):
 
             # Then run business logic hooks
             if not bypass_hooks:
+                print(f"DEBUG: Firing BEFORE_UPDATE hooks for {model_cls}")
+                print(f"DEBUG: Number of objects: {len(objs)}")
+                print(f"DEBUG: Object types: {[type(obj) for obj in objs]}")
                 engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+            else:
+                print(f"DEBUG: Skipping hooks due to bypass_hooks=True for {model_cls}")
 
             # Automatically detect fields that were modified during BEFORE_UPDATE hooks
             modified_fields = self._detect_modified_fields(objs, originals)
@@ -212,15 +239,15 @@ class HookQuerySet(models.QuerySet):
 
             # Call the base implementation to avoid re-triggering this method
             # Filter out custom parameters that Django's bulk_update doesn't accept
-            django_kwargs = {
-                k: v
-                for k, v in kwargs.items()
-                if k not in ["bypass_hooks", "bypass_validation"]
-            }
+            django_kwargs = {k: v for k, v in kwargs.items() if k not in ['bypass_hooks', 'bypass_validation']}
             super().bulk_update(chunk, fields, **django_kwargs)
 
         if not bypass_hooks:
+            print(f"DEBUG: Firing AFTER_UPDATE hooks for {model_cls}")
+            print(f"DEBUG: Number of objects: {len(objs)}")
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
+        else:
+            print(f"DEBUG: Skipping AFTER_UPDATE hooks due to bypass_hooks=True for {model_cls}")
 
         return objs
 
@@ -250,23 +277,9 @@ class HookQuerySet(models.QuerySet):
 
         pks = [obj.pk for obj in objs if obj.pk is not None]
 
-        # Use Django's base manager to perform the actual deletion
-        # This avoids recursion and uses Django's built-in delete logic
-        from django.db.models import QuerySet
-
-        base_qs = QuerySet(model_cls, using=self.db)
-
-        # Delete in batches if batch_size is specified
-        if batch_size:
-            for i in range(0, len(objs), batch_size):
-                batch = objs[i : i + batch_size]
-                batch_pks = [obj.pk for obj in batch if obj.pk is not None]
-                if batch_pks:
-                    base_qs.filter(pk__in=batch_pks).delete()
-        else:
-            # Delete all at once
-            if pks:
-                base_qs.filter(pk__in=pks).delete()
+        # Call the base QuerySet implementation to avoid recursion
+        # The hooks have already been fired above, so we don't need them again
+        super().bulk_delete(objs, batch_size=batch_size)
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
@@ -337,11 +350,7 @@ class HookQuerySet(models.QuerySet):
         Sets auto_now_add/auto_now fields for each model in the chain.
         """
         # Remove custom hook kwargs before passing to Django internals
-        django_kwargs = {
-            k: v
-            for k, v in kwargs.items()
-            if k not in ["bypass_hooks", "bypass_validation"]
-        }
+        django_kwargs = {k: v for k, v in kwargs.items() if k not in ['bypass_hooks', 'bypass_validation']}
         if inheritance_chain is None:
             inheritance_chain = self._get_inheritance_chain()
 
@@ -374,9 +383,9 @@ class HookQuerySet(models.QuerySet):
 
         # Step 1: Do O(n) normal inserts into parent tables to get primary keys back
         # Get bypass_hooks from kwargs
-        bypass_hooks = kwargs.get("bypass_hooks", False)
-        bypass_validation = kwargs.get("bypass_validation", False)
-
+        bypass_hooks = kwargs.get('bypass_hooks', False)
+        bypass_validation = kwargs.get('bypass_validation', False)
+        
         for obj in batch:
             parent_instances = {}
             current_parent = None
@@ -384,35 +393,32 @@ class HookQuerySet(models.QuerySet):
                 parent_obj = self._create_parent_instance(
                     obj, model_class, current_parent
                 )
-
+                
                 # Fire parent hooks if not bypassed
                 if not bypass_hooks:
                     ctx = HookContext(model_class)
                     if not bypass_validation:
                         engine.run(model_class, VALIDATE_CREATE, [parent_obj], ctx=ctx)
                     engine.run(model_class, BEFORE_CREATE, [parent_obj], ctx=ctx)
-
+                
                 # Use Django's base manager to create the object and get PKs back
                 # This bypasses hooks and the MTI exception
                 field_values = {
                     field.name: getattr(parent_obj, field.name)
                     for field in model_class._meta.local_fields
-                    if hasattr(parent_obj, field.name)
-                    and getattr(parent_obj, field.name) is not None
+                    if hasattr(parent_obj, field.name) and getattr(parent_obj, field.name) is not None
                 }
-                created_obj = model_class._base_manager.using(self.db).create(
-                    **field_values
-                )
-
+                created_obj = model_class._base_manager.using(self.db).create(**field_values)
+                
                 # Update the parent_obj with the created object's PK
                 parent_obj.pk = created_obj.pk
                 parent_obj._state.adding = False
                 parent_obj._state.db = self.db
-
+                
                 # Fire AFTER_CREATE hooks for parent
                 if not bypass_hooks:
                     engine.run(model_class, AFTER_CREATE, [parent_obj], ctx=ctx)
-
+                
                 parent_instances[model_class] = parent_obj
                 current_parent = parent_obj
             parent_objects_map[id(obj)] = parent_instances
@@ -430,10 +436,10 @@ class HookQuerySet(models.QuerySet):
         if all_child_objects:
             # Get the base manager's queryset
             base_qs = child_model._base_manager.using(self.db)
-
+            
             # Use Django's exact approach: call _prepare_for_bulk_create then partition
             base_qs._prepare_for_bulk_create(all_child_objects)
-
+            
             # Implement our own partition since itertools.partition might not be available
             objs_without_pk, objs_with_pk = [], []
             for obj in all_child_objects:
@@ -441,50 +447,44 @@ class HookQuerySet(models.QuerySet):
                     objs_with_pk.append(obj)
                 else:
                     objs_without_pk.append(obj)
-
+            
             # Use Django's internal _batched_insert method
             opts = child_model._meta
             # For child models in MTI, we need to include the foreign key to the parent
             # but exclude the primary key since it's inherited
-
+            
             # Include all local fields except generated ones
             # We need to include the foreign key to the parent (business_ptr)
             fields = [f for f in opts.local_fields if not f.generated]
-
+            
             with transaction.atomic(using=self.db, savepoint=False):
-                if objs_with_pk:
-                    returned_columns = base_qs._batched_insert(
-                        objs_with_pk,
-                        fields,
-                        batch_size=len(objs_with_pk),  # Use actual batch size
-                    )
-                    for obj_with_pk, results in zip(objs_with_pk, returned_columns):
-                        for result, field in zip(results, opts.db_returning_fields):
-                            if field != opts.pk:
-                                setattr(obj_with_pk, field.attname, result)
-                    for obj_with_pk in objs_with_pk:
-                        obj_with_pk._state.adding = False
-                        obj_with_pk._state.db = self.db
-
-                if objs_without_pk:
-                    # For objects without PK, we still need to exclude primary key fields
-                    fields = [
-                        f
-                        for f in fields
-                        if not isinstance(f, AutoField) and not f.primary_key
-                    ]
-                    returned_columns = base_qs._batched_insert(
-                        objs_without_pk,
-                        fields,
-                        batch_size=len(objs_without_pk),  # Use actual batch size
-                    )
-                    for obj_without_pk, results in zip(
-                        objs_without_pk, returned_columns
-                    ):
-                        for result, field in zip(results, opts.db_returning_fields):
-                            setattr(obj_without_pk, field.attname, result)
-                        obj_without_pk._state.adding = False
-                        obj_without_pk._state.db = self.db
+                 if objs_with_pk:
+                     returned_columns = base_qs._batched_insert(
+                         objs_with_pk,
+                         fields,
+                         batch_size=len(objs_with_pk),  # Use actual batch size
+                     )
+                     for obj_with_pk, results in zip(objs_with_pk, returned_columns):
+                         for result, field in zip(results, opts.db_returning_fields):
+                             if field != opts.pk:
+                                 setattr(obj_with_pk, field.attname, result)
+                     for obj_with_pk in objs_with_pk:
+                         obj_with_pk._state.adding = False
+                         obj_with_pk._state.db = self.db
+                 
+                 if objs_without_pk:
+                     # For objects without PK, we still need to exclude primary key fields
+                     fields = [f for f in fields if not isinstance(f, AutoField) and not f.primary_key]
+                     returned_columns = base_qs._batched_insert(
+                         objs_without_pk,
+                         fields,
+                         batch_size=len(objs_without_pk),  # Use actual batch size
+                     )
+                     for obj_without_pk, results in zip(objs_without_pk, returned_columns):
+                         for result, field in zip(results, opts.db_returning_fields):
+                             setattr(obj_without_pk, field.attname, result)
+                         obj_without_pk._state.adding = False
+                         obj_without_pk._state.db = self.db
 
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
@@ -537,19 +537,15 @@ class HookQuerySet(models.QuerySet):
                 value = getattr(source_obj, field.name, None)
                 if value is not None:
                     setattr(child_obj, field.name, value)
-
+        
         # Set parent links for MTI
         for parent_model, parent_instance in parent_instances.items():
             parent_link = child_model._meta.get_ancestor_link(parent_model)
             if parent_link:
                 # Set both the foreign key value (the ID) and the object reference
                 # This follows Django's pattern in _set_pk_val
-                setattr(
-                    child_obj, parent_link.attname, parent_instance.pk
-                )  # Set the foreign key value
-                setattr(
-                    child_obj, parent_link.name, parent_instance
-                )  # Set the object reference
+                setattr(child_obj, parent_link.attname, parent_instance.pk)  # Set the foreign key value
+                setattr(child_obj, parent_link.name, parent_instance)        # Set the object reference
 
         # Handle auto_now_add and auto_now fields like Django does
         for field in child_model._meta.local_fields:
