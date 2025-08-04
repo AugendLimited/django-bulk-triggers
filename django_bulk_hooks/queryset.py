@@ -48,7 +48,7 @@ class HookQuerySet(models.QuerySet):
         for obj in instances:
             for field, value in kwargs.items():
                 setattr(obj, field, value)
-
+            
         # Run BEFORE_UPDATE hooks
         ctx = HookContext(model_cls)
         engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
@@ -120,6 +120,7 @@ class HookQuerySet(models.QuerySet):
         else:
             # For single-table models, use Django's built-in bulk_create
             # but we need to call it on the base manager to avoid recursion
+            
             result = model_cls._base_manager.bulk_create(
                 objs,
                 batch_size=batch_size,
@@ -175,6 +176,7 @@ class HookQuerySet(models.QuerySet):
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
+            
             # Call the base implementation to avoid re-triggering this method
             super().bulk_update(chunk, fields, **kwargs)
 
@@ -282,6 +284,10 @@ class HookQuerySet(models.QuerySet):
         if inheritance_chain is None:
             inheritance_chain = self._get_inheritance_chain()
             
+        # Safety check to prevent infinite recursion
+        if len(inheritance_chain) > 10:  # Arbitrary limit to prevent infinite loops
+            raise ValueError("Inheritance chain too deep - possible infinite recursion detected")
+            
         batch_size = kwargs.get("batch_size") or len(objs)
         created_objects = []
         with transaction.atomic(using=self.db, savepoint=False):
@@ -321,21 +327,31 @@ class HookQuerySet(models.QuerySet):
         # If the child model is still MTI, call our own logic recursively
         if len([p for p in child_model._meta.parents.keys() if not p._meta.proxy]) > 0:
             # Build inheritance chain for the child model
-            inheritance_chain = []
+            child_inheritance_chain = []
             current_model = child_model
             while current_model:
                 if not current_model._meta.proxy:
-                    inheritance_chain.append(current_model)
+                    child_inheritance_chain.append(current_model)
                 parents = [
                     parent
                     for parent in current_model._meta.parents.keys()
                     if not parent._meta.proxy
                 ]
                 current_model = parents[0] if parents else None
-            inheritance_chain.reverse()
-            created = self._mti_bulk_create(child_objects, inheritance_chain, **kwargs)
+            child_inheritance_chain.reverse()
+            
+            # For nested MTI, we can't use bulk operations recursively
+            # because it would create infinite recursion. Instead, we save each child individually.
+            # We use super().save() to avoid triggering hooks that would cause recursion.
+            created = []
+            for child_obj in child_objects:
+                # Use the base model's save method to avoid triggering hooks
+                # This prevents infinite recursion when hooks try to query the database
+                super(child_obj.__class__, child_obj).save()
+                created.append(child_obj)
         else:
             # Single-table, safe to use bulk_create
+            
             child_manager = child_model._base_manager
             child_manager._for_write = True
             created = child_manager.bulk_create(child_objects, **kwargs)
@@ -364,6 +380,14 @@ class HookQuerySet(models.QuerySet):
                 ):
                     setattr(parent_obj, field.name, current_parent)
                     break
+        
+        # Handle auto_now_add and auto_now fields like Django does
+        for field in parent_model._meta.local_fields:
+            if hasattr(field, 'auto_now_add') and field.auto_now_add:
+                field.pre_save(parent_obj, add=True)
+            elif hasattr(field, 'auto_now') and field.auto_now:
+                field.pre_save(parent_obj, add=True)
+        
         return parent_obj
 
     def _create_child_instance(self, source_obj, child_model, parent_instances):
@@ -379,4 +403,12 @@ class HookQuerySet(models.QuerySet):
             parent_link = child_model._meta.get_ancestor_link(parent_model)
             if parent_link:
                 setattr(child_obj, parent_link.name, parent_instance)
+        
+        # Handle auto_now_add and auto_now fields like Django does
+        for field in child_model._meta.local_fields:
+            if hasattr(field, 'auto_now_add') and field.auto_now_add:
+                field.pre_save(child_obj, add=True)
+            elif hasattr(field, 'auto_now') and field.auto_now:
+                field.pre_save(child_obj, add=True)
+        
         return child_obj
