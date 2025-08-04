@@ -113,9 +113,15 @@ class HookQuerySet(models.QuerySet):
         # Fire hooks before DB ops
         if not bypass_hooks:
             print(f"DEBUG: Firing BEFORE_CREATE hooks for {model_cls}")
+            print(f"DEBUG: Number of objects: {len(objs)}")
+            print(f"DEBUG: Object types: {[type(obj) for obj in objs]}")
+            print(f"DEBUG: QuerySet type: {type(self)}")
+            print(f"DEBUG: Is this HookQuerySet? {isinstance(self, HookQuerySet)}")
             ctx = HookContext(model_cls)
             if not bypass_validation:
+                print(f"DEBUG: Running VALIDATE_CREATE hooks")
                 engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
+            print(f"DEBUG: Running BEFORE_CREATE hooks")
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
         else:
             print(f"DEBUG: Skipping hooks due to bypass_hooks=True for {model_cls}")
@@ -156,6 +162,9 @@ class HookQuerySet(models.QuerySet):
         # Fire AFTER_CREATE hooks
         if not bypass_hooks:
             print(f"DEBUG: Firing AFTER_CREATE hooks for {model_cls}")
+            print(f"DEBUG: Number of objects: {len(objs)}")
+            print(f"DEBUG: QuerySet type: {type(self)}")
+            print(f"DEBUG: Is this HookQuerySet? {isinstance(self, HookQuerySet)}")
             engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
         else:
             print(f"DEBUG: Skipping AFTER_CREATE hooks due to bypass_hooks=True for {model_cls}")
@@ -180,6 +189,8 @@ class HookQuerySet(models.QuerySet):
         model_cls = self.model
         print(f"DEBUG: Model class: {model_cls}")
         print(f"DEBUG: bypass_hooks value: {bypass_hooks}")
+        print(f"DEBUG: QuerySet type: {type(self)}")
+        print(f"DEBUG: Is this HookQuerySet? {isinstance(self, HookQuerySet)}")
         
         if not objs:
             return []
@@ -204,7 +215,13 @@ class HookQuerySet(models.QuerySet):
                 engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
 
             # Then run business logic hooks
-            engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+            if not bypass_hooks:
+                print(f"DEBUG: Firing BEFORE_UPDATE hooks for {model_cls}")
+                print(f"DEBUG: Number of objects: {len(objs)}")
+                print(f"DEBUG: Object types: {[type(obj) for obj in objs]}")
+                engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+            else:
+                print(f"DEBUG: Skipping hooks due to bypass_hooks=True for {model_cls}")
 
             # Automatically detect fields that were modified during BEFORE_UPDATE hooks
             modified_fields = self._detect_modified_fields(objs, originals)
@@ -224,6 +241,7 @@ class HookQuerySet(models.QuerySet):
 
         if not bypass_hooks:
             print(f"DEBUG: Firing AFTER_UPDATE hooks for {model_cls}")
+            print(f"DEBUG: Number of objects: {len(objs)}")
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
         else:
             print(f"DEBUG: Skipping AFTER_UPDATE hooks due to bypass_hooks=True for {model_cls}")
