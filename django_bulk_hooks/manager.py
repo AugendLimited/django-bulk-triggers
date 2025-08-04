@@ -17,13 +17,10 @@ class BulkHookManager(models.Manager):
         kwargs = {
             'objs': objs,
             'fields': fields,
+            'bypass_hooks': bypass_hooks,
+            'bypass_validation': bypass_validation,
             **kwargs
         }
-        # Only include custom args if explicitly set to True
-        if bypass_hooks:
-            kwargs['bypass_hooks'] = bypass_hooks
-        if bypass_validation:
-            kwargs['bypass_validation'] = bypass_validation
         return self.get_queryset().bulk_update(**kwargs)
 
     def bulk_create(
@@ -47,12 +44,9 @@ class BulkHookManager(models.Manager):
             'update_conflicts': update_conflicts,
             'update_fields': update_fields,
             'unique_fields': unique_fields,
+            'bypass_hooks': bypass_hooks,
+            'bypass_validation': bypass_validation,
         }
-        # Only include custom args if explicitly set to True
-        if bypass_hooks:
-            kwargs['bypass_hooks'] = bypass_hooks
-        if bypass_validation:
-            kwargs['bypass_validation'] = bypass_validation
         return self.get_queryset().bulk_create(
             objs,
             **kwargs
@@ -68,12 +62,9 @@ class BulkHookManager(models.Manager):
         kwargs = {
             'objs': objs,
             'batch_size': batch_size,
+            'bypass_hooks': bypass_hooks,
+            'bypass_validation': bypass_validation,
         }
-        # Only include custom args if explicitly set to True
-        if bypass_hooks:
-            kwargs['bypass_hooks'] = bypass_hooks
-        if bypass_validation:
-            kwargs['bypass_validation'] = bypass_validation
         return self.get_queryset().bulk_delete(**kwargs)
 
     def update(self, **kwargs):

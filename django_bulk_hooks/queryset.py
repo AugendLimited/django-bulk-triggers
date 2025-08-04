@@ -150,8 +150,7 @@ class HookQuerySet(models.QuerySet):
                 unique_fields=unique_fields,
             )
 
-        if not bypass_hooks:
-            engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
+
 
         return result
 
