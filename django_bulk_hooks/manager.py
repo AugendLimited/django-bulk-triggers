@@ -1,4 +1,4 @@
-from django.db import models, transaction
+from django.db import models, transaction, connections
 from django.db.models import AutoField
 
 from django_bulk_hooks import engine
@@ -95,9 +95,10 @@ class BulkHookManager(models.Manager):
             raise ValueError("Batch size must be a positive integer.")
 
         # Check that the parents share the same concrete model with our model to detect inheritance pattern
+        # (Do NOT raise for MTI, just skip the exception)
         for parent in model_cls._meta.all_parents:
             if parent._meta.concrete_model is not model_cls._meta.concrete_model:
-                # We allow this for MTI, but not for single-table
+                # Do not raise, just continue
                 break
 
         if not objs:
@@ -118,34 +119,68 @@ class BulkHookManager(models.Manager):
                 engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
 
-        # MTI detection: if inheritance chain > 1, use MTI logic
-        inheritance_chain = self._get_inheritance_chain()
-        if len(inheritance_chain) <= 1:
-            # Single-table: use Django's standard bulk_create
-            # Pass through all supported arguments
-            result = super(models.Manager, self).bulk_create(
-                objs,
-                batch_size=batch_size,
-                ignore_conflicts=ignore_conflicts,
-                update_conflicts=update_conflicts,
-                update_fields=update_fields,
-                unique_fields=unique_fields,
-            )
-        else:
-            # Multi-table: use workaround (parent saves, child bulk)
-            # Only batch_size is supported for MTI; others will raise NotImplementedError
-            if ignore_conflicts or update_conflicts or update_fields or unique_fields:
-                raise NotImplementedError(
-                    "bulk_create with ignore_conflicts, update_conflicts, update_fields, or unique_fields is not supported for multi-table inheritance models."
+        opts = model_cls._meta
+        if unique_fields:
+            unique_fields = [
+                model_cls._meta.get_field(opts.pk.name if name == "pk" else name)
+                for name in unique_fields
+            ]
+        if update_fields:
+            update_fields = [model_cls._meta.get_field(name) for name in update_fields]
+        on_conflict = self._check_bulk_create_options(
+            ignore_conflicts,
+            update_conflicts,
+            update_fields,
+            unique_fields,
+        )
+        self._for_write = True
+        fields = [f for f in opts.concrete_fields if not f.generated]
+        objs = list(objs)
+        objs_with_pk, objs_without_pk = self._prepare_for_bulk_create(objs)
+        with transaction.atomic(using=self.db, savepoint=False):
+            self._handle_order_with_respect_to(objs)
+            if objs_with_pk:
+                returned_columns = self._batched_insert(
+                    objs_with_pk,
+                    fields,
+                    batch_size,
+                    on_conflict=on_conflict,
+                    update_fields=update_fields,
+                    unique_fields=unique_fields,
                 )
-            result = self._mti_bulk_create(
-                objs, inheritance_chain, batch_size=batch_size
-            )
+                for obj_with_pk, results in zip(objs_with_pk, returned_columns):
+                    for result, field in zip(results, opts.db_returning_fields):
+                        if field != opts.pk:
+                            setattr(obj_with_pk, field.attname, result)
+                for obj_with_pk in objs_with_pk:
+                    obj_with_pk._state.adding = False
+                    obj_with_pk._state.db = self.db
+            if objs_without_pk:
+                fields_wo_pk = [f for f in fields if not isinstance(f, AutoField)]
+                returned_columns = self._batched_insert(
+                    objs_without_pk,
+                    fields_wo_pk,
+                    batch_size,
+                    on_conflict=on_conflict,
+                    update_fields=update_fields,
+                    unique_fields=unique_fields,
+                )
+                connection = connections[self.db]
+                if (
+                    connection.features.can_return_rows_from_bulk_insert
+                    and on_conflict is None
+                ):
+                    assert len(returned_columns) == len(objs_without_pk)
+                for obj_without_pk, results in zip(objs_without_pk, returned_columns):
+                    for result, field in zip(results, opts.db_returning_fields):
+                        setattr(obj_without_pk, field.attname, result)
+                    obj_without_pk._state.adding = False
+                    obj_without_pk._state.db = self.db
 
         if not bypass_hooks:
-            engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
+            engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
 
-        return result
+        return objs
 
     # --- Private helper methods (moved to bottom for clarity) ---
 
@@ -249,6 +284,8 @@ class BulkHookManager(models.Manager):
                 obj, child_model, parent_objects_map.get(id(obj), {})
             )
             child_objects.append(child_obj)
+        # Handle order_with_respect_to like Django's bulk_create
+        self._handle_order_with_respect_to(child_objects)
         # If the child model is still MTI, call our own logic recursively
         if len([p for p in child_model._meta.parents.keys() if not p._meta.proxy]) > 0:
             # Build inheritance chain for the child model
@@ -362,8 +399,6 @@ class BulkHookManager(models.Manager):
         if not bypass_hooks:
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
 
-        return objs
-
     @transaction.atomic
     def update(self, **kwargs):
         objs = list(self.all())
@@ -393,3 +428,24 @@ class BulkHookManager(models.Manager):
         else:
             self.bulk_create([obj])
         return obj
+
+    def _handle_order_with_respect_to(self, objs):
+        """
+        Set _order fields for models with order_with_respect_to.
+        """
+        for obj in objs:
+            order_with_respect_to = obj.__class__._meta.order_with_respect_to
+            if order_with_respect_to:
+                key = getattr(obj, order_with_respect_to.attname)
+                obj._order = key
+        # Group by the value of order_with_respect_to
+        groups = defaultdict(list)
+        for obj in objs:
+            order_with_respect_to = obj.__class__._meta.order_with_respect_to
+            if order_with_respect_to:
+                key = getattr(obj, order_with_respect_to.attname)
+                groups[key].append(obj)
+        # Enumerate within each group
+        for group_objs in groups.values():
+            for i, obj in enumerate(group_objs):
+                obj._order = i
