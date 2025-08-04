@@ -378,9 +378,16 @@ class HookQuerySet(models.QuerySet):
             # Get the base manager's queryset
             base_qs = child_model._base_manager.using(self.db)
             
-            # Use Django's internal _prepare_for_bulk_create method
-            # This is the same method that Django's bulk_create uses internally
-            objs_with_pk, objs_without_pk = base_qs._prepare_for_bulk_create(all_child_objects)
+            # Use Django's exact approach: call _prepare_for_bulk_create then partition
+            base_qs._prepare_for_bulk_create(all_child_objects)
+            
+            # Implement our own partition since itertools.partition might not be available
+            objs_without_pk, objs_with_pk = [], []
+            for obj in all_child_objects:
+                if obj._is_pk_set():
+                    objs_with_pk.append(obj)
+                else:
+                    objs_without_pk.append(obj)
             
             print(f"DEBUG: Prepared {len(objs_with_pk)} objects with PK, {len(objs_without_pk)} objects without PK")
             
