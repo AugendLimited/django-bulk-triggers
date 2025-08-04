@@ -14,9 +14,17 @@ class BulkHookManager(models.Manager):
         Delegate to QuerySet's bulk_update implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.
         """
-        return self.get_queryset().bulk_update(
-            objs, fields, bypass_hooks=bypass_hooks, bypass_validation=bypass_validation, **kwargs
-        )
+        kwargs = {
+            'objs': objs,
+            'fields': fields,
+            **kwargs
+        }
+        # Only include custom args if explicitly set to True
+        if bypass_hooks:
+            kwargs['bypass_hooks'] = bypass_hooks
+        if bypass_validation:
+            kwargs['bypass_validation'] = bypass_validation
+        return self.get_queryset().bulk_update(**kwargs)
 
     def bulk_create(
         self,
@@ -57,9 +65,16 @@ class BulkHookManager(models.Manager):
         Delegate to QuerySet's bulk_delete implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.
         """
-        return self.get_queryset().bulk_delete(
-            objs, batch_size=batch_size, bypass_hooks=bypass_hooks, bypass_validation=bypass_validation
-        )
+        kwargs = {
+            'objs': objs,
+            'batch_size': batch_size,
+        }
+        # Only include custom args if explicitly set to True
+        if bypass_hooks:
+            kwargs['bypass_hooks'] = bypass_hooks
+        if bypass_validation:
+            kwargs['bypass_validation'] = bypass_validation
+        return self.get_queryset().bulk_delete(**kwargs)
 
     def update(self, **kwargs):
         """
