@@ -325,6 +325,10 @@ class HookQuerySet(models.QuerySet):
         parent_objects_map = {}
 
         # Step 1: Do O(n) normal inserts into parent tables to get primary keys back
+        # Get bypass_hooks from kwargs
+        bypass_hooks = kwargs.get('bypass_hooks', False)
+        bypass_validation = kwargs.get('bypass_validation', False)
+        
         for obj in batch:
             parent_instances = {}
             current_parent = None
@@ -332,6 +336,14 @@ class HookQuerySet(models.QuerySet):
                 parent_obj = self._create_parent_instance(
                     obj, model_class, current_parent
                 )
+                
+                # Fire parent hooks if not bypassed
+                if not bypass_hooks:
+                    ctx = HookContext(model_class)
+                    if not bypass_validation:
+                        engine.run(model_class, VALIDATE_CREATE, [parent_obj], ctx=ctx)
+                    engine.run(model_class, BEFORE_CREATE, [parent_obj], ctx=ctx)
+                
                 # Use Django's base manager to create the object and get PKs back
                 # This bypasses hooks and the MTI exception
                 field_values = {
@@ -340,10 +352,16 @@ class HookQuerySet(models.QuerySet):
                     if hasattr(parent_obj, field.name) and getattr(parent_obj, field.name) is not None
                 }
                 created_obj = model_class._base_manager.using(self.db).create(**field_values)
+                
                 # Update the parent_obj with the created object's PK
                 parent_obj.pk = created_obj.pk
                 parent_obj._state.adding = False
                 parent_obj._state.db = self.db
+                
+                # Fire AFTER_CREATE hooks for parent
+                if not bypass_hooks:
+                    engine.run(model_class, AFTER_CREATE, [parent_obj], ctx=ctx)
+                
                 parent_instances[model_class] = parent_obj
                 current_parent = parent_obj
             parent_objects_map[id(obj)] = parent_instances
