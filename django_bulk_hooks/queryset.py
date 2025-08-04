@@ -24,7 +24,8 @@ class HookQuerySet(models.QuerySet):
         objs = list(self)
         if not objs:
             return 0
-        return self.model.objects.bulk_delete(objs)
+        # Call the base QuerySet implementation to avoid recursion
+        return super().bulk_delete(objs)
 
     @transaction.atomic
     def update(self, **kwargs):
@@ -36,7 +37,8 @@ class HookQuerySet(models.QuerySet):
         pks = [obj.pk for obj in instances]
 
         # Load originals for hook comparison and ensure they match the order of instances
-        original_map = {obj.pk: obj for obj in model_cls.objects.filter(pk__in=pks)}
+        # Use the base manager to avoid recursion
+        original_map = {obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)}
         originals = [original_map.get(obj.pk) for obj in instances]
 
         # Apply field updates to instances
@@ -49,8 +51,8 @@ class HookQuerySet(models.QuerySet):
         engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
 
         # Use Django's built-in update logic directly
-        queryset = self.model.objects.filter(pk__in=pks)
-        update_count = queryset.update(**kwargs)
+        # Call the base QuerySet implementation to avoid recursion
+        update_count = super().update(**kwargs)
 
         # Run AFTER_UPDATE hooks
         engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
@@ -202,9 +204,10 @@ class HookQuerySet(models.QuerySet):
 
         if not bypass_hooks:
             # Load originals for hook comparison and ensure they match the order of new instances
+            # Use the base manager to avoid recursion
             original_map = {
                 obj.pk: obj
-                for obj in model_cls.objects.filter(pk__in=[obj.pk for obj in objs])
+                for obj in model_cls._base_manager.filter(pk__in=[obj.pk for obj in objs])
             }
             originals = [original_map.get(obj.pk) for obj in objs]
 
@@ -274,9 +277,9 @@ class HookQuerySet(models.QuerySet):
 
         pks = [obj.pk for obj in objs if obj.pk is not None]
 
-        # Use base manager for the actual deletion to prevent recursion
+        # Call the base QuerySet implementation to avoid recursion
         # The hooks have already been fired above, so we don't need them again
-        model_cls._base_manager.filter(pk__in=pks).delete()
+        super().bulk_delete(objs, batch_size=batch_size)
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)

@@ -66,7 +66,8 @@ def select_related(*related_fields):
 
             fetched = {}
             if ids_to_fetch:
-                fetched = model_cls.objects.select_related(*related_fields).in_bulk(ids_to_fetch)
+                # Use the base manager to avoid recursion
+                fetched = model_cls._base_manager.select_related(*related_fields).in_bulk(ids_to_fetch)
 
             for obj in new_records:
                 preloaded = fetched.get(obj.pk)
