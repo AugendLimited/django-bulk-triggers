@@ -332,12 +332,18 @@ class HookQuerySet(models.QuerySet):
                 parent_obj = self._create_parent_instance(
                     obj, model_class, current_parent
                 )
-                # Use Django's internal _insert method to get PKs back
+                # Use Django's base manager to create the object and get PKs back
                 # This bypasses hooks and the MTI exception
-                # Get the fields to insert (all local fields except auto fields)
-                fields = [f for f in parent_obj._meta.local_fields if not isinstance(f, AutoField)]
-                # For Django 4.2+, _do_insert requires fields, returning_fields, and raw parameters
-                parent_obj._do_insert(parent_obj._meta, fields, fields, False, using=self.db)
+                field_values = {
+                    field.name: getattr(parent_obj, field.name)
+                    for field in model_class._meta.local_fields
+                    if hasattr(parent_obj, field.name) and getattr(parent_obj, field.name) is not None
+                }
+                created_obj = model_class._base_manager.using(self.db).create(**field_values)
+                # Update the parent_obj with the created object's PK
+                parent_obj.pk = created_obj.pk
+                parent_obj._state.adding = False
+                parent_obj._state.db = self.db
                 parent_instances[model_class] = parent_obj
                 current_parent = parent_obj
             parent_objects_map[id(obj)] = parent_instances
