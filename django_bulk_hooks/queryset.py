@@ -120,13 +120,18 @@ class HookQuerySet(models.QuerySet):
         # For MTI models, we need to handle them specially
         if is_mti:
             # Use our MTI-specific logic
+            # Filter out custom parameters that Django's bulk_create doesn't accept
+            mti_kwargs = {
+                'batch_size': batch_size,
+                'ignore_conflicts': ignore_conflicts,
+                'update_conflicts': update_conflicts,
+                'update_fields': update_fields,
+                'unique_fields': unique_fields,
+            }
+            # Remove custom hook kwargs if present in self.bulk_create signature
             result = self._mti_bulk_create(
                 objs,
-                batch_size=batch_size,
-                ignore_conflicts=ignore_conflicts,
-                update_conflicts=update_conflicts,
-                update_fields=update_fields,
-                unique_fields=unique_fields,
+                **{k: v for k, v in mti_kwargs.items() if k not in ['bypass_hooks', 'bypass_validation']}
             )
         else:
             # For single-table models, use Django's built-in bulk_create
@@ -193,7 +198,9 @@ class HookQuerySet(models.QuerySet):
             chunk = objs[i : i + self.CHUNK_SIZE]
 
             # Call the base implementation to avoid re-triggering this method
-            super().bulk_update(chunk, fields, **kwargs)
+            # Filter out custom parameters that Django's bulk_update doesn't accept
+            django_kwargs = {k: v for k, v in kwargs.items() if k not in ['bypass_hooks', 'bypass_validation']}
+            super().bulk_update(chunk, fields, **django_kwargs)
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
@@ -298,6 +305,8 @@ class HookQuerySet(models.QuerySet):
         then single bulk insert into childmost table.
         Sets auto_now_add/auto_now fields for each model in the chain.
         """
+        # Remove custom hook kwargs before passing to Django internals
+        django_kwargs = {k: v for k, v in kwargs.items() if k not in ['bypass_hooks', 'bypass_validation']}
         if inheritance_chain is None:
             inheritance_chain = self._get_inheritance_chain()
 
@@ -307,13 +316,13 @@ class HookQuerySet(models.QuerySet):
                 "Inheritance chain too deep - possible infinite recursion detected"
             )
 
-        batch_size = kwargs.get("batch_size") or len(objs)
+        batch_size = django_kwargs.get("batch_size") or len(objs)
         created_objects = []
         with transaction.atomic(using=self.db, savepoint=False):
             for i in range(0, len(objs), batch_size):
                 batch = objs[i : i + batch_size]
                 batch_result = self._process_mti_batch(
-                    batch, inheritance_chain, **kwargs
+                    batch, inheritance_chain, **django_kwargs
                 )
                 created_objects.extend(batch_result)
         return created_objects
