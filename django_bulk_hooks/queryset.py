@@ -24,8 +24,23 @@ class HookQuerySet(models.QuerySet):
         objs = list(self)
         if not objs:
             return 0
-        # Call the base QuerySet implementation to avoid recursion
-        return super().bulk_delete(objs)
+        
+        model_cls = self.model
+        ctx = HookContext(model_cls)
+        
+        # Run validation hooks first
+        engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
+        
+        # Then run business logic hooks
+        engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
+        
+        # Use Django's standard delete() method
+        result = super().delete()
+        
+        # Run AFTER_DELETE hooks
+        engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
+        
+        return result
 
     @transaction.atomic
     def update(self, **kwargs):
@@ -225,41 +240,6 @@ class HookQuerySet(models.QuerySet):
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
-
-        return objs
-
-    @transaction.atomic
-    def bulk_delete(
-        self, objs, batch_size=None, bypass_hooks=False, bypass_validation=False
-    ):
-        if not objs:
-            return []
-
-        model_cls = self.model
-
-        if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(
-                f"bulk_delete expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
-            )
-
-        ctx = HookContext(model_cls)
-
-        if not bypass_hooks:
-            # Run validation hooks first
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
-
-            # Then run business logic hooks
-            engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
-
-        pks = [obj.pk for obj in objs if obj.pk is not None]
-
-        # Call the base QuerySet implementation to avoid recursion
-        # The hooks have already been fired above, so we don't need them again
-        super().bulk_delete(objs, batch_size=batch_size)
-
-        if not bypass_hooks:
-            engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
 
         return objs
 
