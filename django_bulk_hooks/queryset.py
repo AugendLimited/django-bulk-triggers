@@ -298,12 +298,13 @@ class HookQuerySet(models.QuerySet):
     def _process_mti_batch(self, batch, inheritance_chain, **kwargs):
         """
         Process a single batch of objects through the inheritance chain.
+        Reuses Django's internal functions as much as possible.
         """
-        # Step 1: Handle parent tables with bulk operations where possible
+        # For MTI, we need to save parent objects first to get PKs
+        # Then we can use Django's bulk_create for the child objects
         parent_objects_map = {}
         
-        # Group parent objects by model class to enable bulk operations
-        parent_objects_by_model = {}
+        # Step 1: Save parent objects (we need their PKs for child objects)
         for obj in batch:
             parent_instances = {}
             current_parent = None
@@ -311,25 +312,13 @@ class HookQuerySet(models.QuerySet):
                 parent_obj = self._create_parent_instance(
                     obj, model_class, current_parent
                 )
+                # Use Django's internal save method to avoid hooks
+                models.Model.save(parent_obj)
                 parent_instances[model_class] = parent_obj
                 current_parent = parent_obj
-                
-                # Group by model class for potential bulk operations
-                if model_class not in parent_objects_by_model:
-                    parent_objects_by_model[model_class] = []
-                parent_objects_by_model[model_class].append(parent_obj)
-            
             parent_objects_map[id(obj)] = parent_instances
         
-        # Save parent objects in bulk where possible
-        for model_class, parent_objs in parent_objects_by_model.items():
-            if len(parent_objs) > 1:
-                # Use bulk_create for multiple objects of the same model
-                model_class._base_manager.bulk_create(parent_objs)
-            else:
-                # Individual save for single objects
-                super(parent_objs[0].__class__, parent_objs[0]).save()
-        # Step 2: Bulk insert for child objects
+        # Step 2: Create and bulk insert child objects
         child_model = inheritance_chain[-1]
         child_objects = []
         for obj in batch:
@@ -337,29 +326,19 @@ class HookQuerySet(models.QuerySet):
                 obj, child_model, parent_objects_map.get(id(obj), {})
             )
             child_objects.append(child_obj)
-        # If the child model is still MTI, we need to handle it specially
-        if len([p for p in child_model._meta.parents.keys() if not p._meta.proxy]) > 0:
-            # For nested MTI, we can't use bulk operations recursively
-            # because it would create infinite recursion. Instead, we save each child individually.
-            # We use super().save() to avoid triggering hooks that would cause recursion.
-            created = []
-            for child_obj in child_objects:
-                # Use the base model's save method to avoid triggering hooks
-                # This prevents infinite recursion when hooks try to query the database
-                super(child_obj.__class__, child_obj).save()
-                created.append(child_obj)
-        else:
-            # Single-table, safe to use bulk_create
-            
-            child_manager = child_model._base_manager
-            child_manager._for_write = True
-            created = child_manager.bulk_create(child_objects, **kwargs)
+        
+        # Use Django's bulk_create for child objects - this handles auto_now_add correctly
+        child_manager = child_model._base_manager
+        child_manager._for_write = True
+        created = child_manager.bulk_create(child_objects, **kwargs)
+        
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
         for orig_obj, child_obj in zip(batch, created):
             setattr(orig_obj, pk_field_name, getattr(child_obj, pk_field_name))
             orig_obj._state.adding = False
             orig_obj._state.db = self.db
+        
         return batch
 
     def _create_parent_instance(self, source_obj, parent_model, current_parent):
@@ -423,3 +402,4 @@ class HookQuerySet(models.QuerySet):
                     field.pre_save(child_obj, add=True)
         
         return child_obj
+
