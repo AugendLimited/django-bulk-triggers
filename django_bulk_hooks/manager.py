@@ -14,14 +14,7 @@ class BulkHookManager(models.Manager):
         Delegate to QuerySet's bulk_update implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.
         """
-        kwargs = {
-            'objs': objs,
-            'fields': fields,
-            'bypass_hooks': bypass_hooks,
-            'bypass_validation': bypass_validation,
-            **kwargs
-        }
-        return self.get_queryset().bulk_update(**kwargs)
+        return self.get_queryset().bulk_update(objs, fields, bypass_hooks, bypass_validation, **kwargs)
 
     def bulk_create(
         self,
@@ -44,11 +37,11 @@ class BulkHookManager(models.Manager):
             'update_conflicts': update_conflicts,
             'update_fields': update_fields,
             'unique_fields': unique_fields,
-            'bypass_hooks': bypass_hooks,
-            'bypass_validation': bypass_validation,
         }
         return self.get_queryset().bulk_create(
             objs,
+            bypass_hooks=bypass_hooks,
+            bypass_validation=bypass_validation,
             **kwargs
         )
 
@@ -60,12 +53,9 @@ class BulkHookManager(models.Manager):
         This follows Django's pattern where Manager methods call QuerySet methods.
         """
         kwargs = {
-            'objs': objs,
             'batch_size': batch_size,
-            'bypass_hooks': bypass_hooks,
-            'bypass_validation': bypass_validation,
         }
-        return self.get_queryset().bulk_delete(**kwargs)
+        return self.get_queryset().bulk_delete(objs, bypass_hooks=bypass_hooks, bypass_validation=bypass_validation, **kwargs)
 
     def update(self, **kwargs):
         """
