@@ -97,10 +97,15 @@ class HookQuerySet(models.QuerySet):
         # MultiTableParent -> ProxyChild. Simply checking self.model._meta.proxy would not
         # identify that case as involving multiple tables.
         is_mti = False
+        print(f"DEBUG: Checking for MTI on {model_cls.__name__}")
+        print(f"DEBUG: All parents: {[p.__name__ for p in model_cls._meta.all_parents]}")
         for parent in model_cls._meta.all_parents:
+            print(f"DEBUG: Checking parent {parent.__name__} (concrete: {parent._meta.concrete_model.__name__}) vs {model_cls.__name__} (concrete: {model_cls._meta.concrete_model.__name__})")
             if parent._meta.concrete_model is not model_cls._meta.concrete_model:
                 is_mti = True
+                print(f"DEBUG: MTI detected! {parent.__name__} and {model_cls.__name__} have different concrete models")
                 break
+        print(f"DEBUG: Final MTI result: {is_mti}")
 
         if not objs:
             return objs
@@ -119,6 +124,7 @@ class HookQuerySet(models.QuerySet):
 
         # For MTI models, we need to handle them specially
         if is_mti:
+            print(f"DEBUG: Using MTI-specific logic for {model_cls.__name__}")
             # Use our MTI-specific logic
             result = self._mti_bulk_create(
                 objs,
@@ -129,6 +135,7 @@ class HookQuerySet(models.QuerySet):
                 unique_fields=unique_fields,
             )
         else:
+            print(f"DEBUG: Using standard bulk_create for {model_cls.__name__}")
             # For single-table models, use Django's built-in bulk_create
             # but we need to call it on the base manager to avoid recursion
 
@@ -325,10 +332,13 @@ class HookQuerySet(models.QuerySet):
         parent_objects_map = {}
 
         # Step 1: Do O(n) normal inserts into parent tables to get primary keys back
+        print(f"DEBUG: Processing batch of {len(batch)} objects")
+        print(f"DEBUG: Inheritance chain: {[m.__name__ for m in inheritance_chain]}")
         for obj in batch:
             parent_instances = {}
             current_parent = None
             for model_class in inheritance_chain[:-1]:
+                print(f"DEBUG: Creating parent instance for {model_class.__name__}")
                 parent_obj = self._create_parent_instance(
                     obj, model_class, current_parent
                 )
@@ -339,7 +349,9 @@ class HookQuerySet(models.QuerySet):
                     for field in model_class._meta.local_fields
                     if hasattr(parent_obj, field.name) and getattr(parent_obj, field.name) is not None
                 }
+                print(f"DEBUG: Creating {model_class.__name__} with field_values: {field_values}")
                 created_obj = model_class._base_manager.using(self.db).create(**field_values)
+                print(f"DEBUG: Created {model_class.__name__} with PK: {created_obj.pk}")
                 # Update the parent_obj with the created object's PK
                 parent_obj.pk = created_obj.pk
                 parent_obj._state.adding = False
@@ -350,25 +362,41 @@ class HookQuerySet(models.QuerySet):
 
         # Step 2: Create all child objects and do single bulk insert into childmost table
         child_model = inheritance_chain[-1]
+        print(f"DEBUG: Creating child objects for {child_model.__name__}")
         all_child_objects = []
         for obj in batch:
             child_obj = self._create_child_instance(
                 obj, child_model, parent_objects_map.get(id(obj), {})
             )
             all_child_objects.append(child_obj)
+        print(f"DEBUG: Created {len(all_child_objects)} child objects")
 
         # Step 2.5: Single bulk insert into childmost table
         if all_child_objects:
-            # Use Django's internal bulk_create to bypass MTI exception
-            child_model._base_manager.bulk_create(all_child_objects)
+            print(f"DEBUG: Attempting to bulk_create {len(all_child_objects)} child objects for {child_model.__name__}")
+            try:
+                # Use Django's internal bulk_create to bypass MTI exception
+                child_model._base_manager.bulk_create(all_child_objects)
+                print(f"DEBUG: Successfully bulk_created child objects")
+            except ValueError as e:
+                print(f"DEBUG: bulk_create failed with error: {e}")
+                print(f"DEBUG: Falling back to individual creates for child objects")
+                # Fall back to individual creates if bulk_create fails
+                for child_obj in all_child_objects:
+                    child_obj.save(using=self.db)
+                print(f"DEBUG: Successfully created child objects individually")
 
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
+        print(f"DEBUG: Updating original objects with PK field: {pk_field_name}")
         for orig_obj, child_obj in zip(batch, all_child_objects):
-            setattr(orig_obj, pk_field_name, getattr(child_obj, pk_field_name))
+            child_pk = getattr(child_obj, pk_field_name)
+            print(f"DEBUG: Setting {orig_obj.__class__.__name__} PK to {child_pk}")
+            setattr(orig_obj, pk_field_name, child_pk)
             orig_obj._state.adding = False
             orig_obj._state.db = self.db
 
+        print(f"DEBUG: Completed processing batch")
         return batch
 
     def _create_parent_instance(self, source_obj, parent_model, current_parent):
