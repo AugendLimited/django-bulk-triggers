@@ -395,8 +395,21 @@ class HookQuerySet(models.QuerySet):
             opts = child_model._meta
             # For child models in MTI, we need to include the foreign key to the parent
             # but exclude the primary key since it's inherited
+            print(f"DEBUG: All local fields: {[f.name for f in opts.local_fields]}")
             fields = [f for f in opts.local_fields if not f.generated and not f.primary_key]
             print(f"DEBUG: Child model fields to insert: {[f.name for f in fields]}")
+            
+            # Debug: Check what fields are actually set on the child objects
+            for i, child_obj in enumerate(all_child_objects[:3]):  # Check first 3 objects
+                print(f"DEBUG: Child object {i} fields: {[f.name for f in child_model._meta.local_fields if hasattr(child_obj, f.name) and getattr(child_obj, f.name) is not None]}")
+                # Debug: Check the actual values
+                for field in child_model._meta.local_fields:
+                    if hasattr(child_obj, field.name) and getattr(child_obj, field.name) is not None:
+                        value = getattr(child_obj, field.name)
+                        if hasattr(value, 'pk'):
+                            print(f"DEBUG: Child object {i} {field.name} = {value} (PK: {value.pk})")
+                        else:
+                            print(f"DEBUG: Child object {i} {field.name} = {value}")
             
             # Debug: Check what fields are actually set on the child objects
             for i, child_obj in enumerate(all_child_objects[:3]):  # Check first 3 objects
