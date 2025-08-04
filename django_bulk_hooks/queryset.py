@@ -299,8 +299,11 @@ class HookQuerySet(models.QuerySet):
         """
         Process a single batch of objects through the inheritance chain.
         """
-        # Step 1: Handle parent tables with individual saves (needed for PKs)
+        # Step 1: Handle parent tables with bulk operations where possible
         parent_objects_map = {}
+        
+        # Group parent objects by model class to enable bulk operations
+        parent_objects_by_model = {}
         for obj in batch:
             parent_instances = {}
             current_parent = None
@@ -308,10 +311,24 @@ class HookQuerySet(models.QuerySet):
                 parent_obj = self._create_parent_instance(
                     obj, model_class, current_parent
                 )
-                parent_obj.save()
                 parent_instances[model_class] = parent_obj
                 current_parent = parent_obj
+                
+                # Group by model class for potential bulk operations
+                if model_class not in parent_objects_by_model:
+                    parent_objects_by_model[model_class] = []
+                parent_objects_by_model[model_class].append(parent_obj)
+            
             parent_objects_map[id(obj)] = parent_instances
+        
+        # Save parent objects in bulk where possible
+        for model_class, parent_objs in parent_objects_by_model.items():
+            if len(parent_objs) > 1:
+                # Use bulk_create for multiple objects of the same model
+                model_class._base_manager.bulk_create(parent_objs)
+            else:
+                # Individual save for single objects
+                super(parent_objs[0].__class__, parent_objs[0]).save()
         # Step 2: Bulk insert for child objects
         child_model = inheritance_chain[-1]
         child_objects = []
@@ -320,22 +337,8 @@ class HookQuerySet(models.QuerySet):
                 obj, child_model, parent_objects_map.get(id(obj), {})
             )
             child_objects.append(child_obj)
-        # If the child model is still MTI, call our own logic recursively
+        # If the child model is still MTI, we need to handle it specially
         if len([p for p in child_model._meta.parents.keys() if not p._meta.proxy]) > 0:
-            # Build inheritance chain for the child model
-            child_inheritance_chain = []
-            current_model = child_model
-            while current_model:
-                if not current_model._meta.proxy:
-                    child_inheritance_chain.append(current_model)
-                parents = [
-                    parent
-                    for parent in current_model._meta.parents.keys()
-                    if not parent._meta.proxy
-                ]
-                current_model = parents[0] if parents else None
-            child_inheritance_chain.reverse()
-            
             # For nested MTI, we can't use bulk operations recursively
             # because it would create infinite recursion. Instead, we save each child individually.
             # We use super().save() to avoid triggering hooks that would cause recursion.
@@ -384,6 +387,12 @@ class HookQuerySet(models.QuerySet):
             elif hasattr(field, 'auto_now') and field.auto_now:
                 field.pre_save(parent_obj, add=True)
         
+        # Ensure auto_now_add fields are explicitly set to prevent null constraint violations
+        for field in parent_model._meta.local_fields:
+            if hasattr(field, 'auto_now_add') and field.auto_now_add:
+                if getattr(parent_obj, field.name) is None:
+                    field.pre_save(parent_obj, add=True)
+        
         return parent_obj
 
     def _create_child_instance(self, source_obj, child_model, parent_instances):
@@ -406,5 +415,11 @@ class HookQuerySet(models.QuerySet):
                 field.pre_save(child_obj, add=True)
             elif hasattr(field, 'auto_now') and field.auto_now:
                 field.pre_save(child_obj, add=True)
+        
+        # Ensure auto_now_add fields are explicitly set to prevent null constraint violations
+        for field in child_model._meta.local_fields:
+            if hasattr(field, 'auto_now_add') and field.auto_now_add:
+                if getattr(child_obj, field.name) is None:
+                    field.pre_save(child_obj, add=True)
         
         return child_obj
