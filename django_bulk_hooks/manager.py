@@ -5,7 +5,10 @@ from django_bulk_hooks.queryset import HookQuerySet
 
 class BulkHookManager(models.Manager):
     def get_queryset(self):
-        return HookQuerySet(self.model, using=self._db)
+        qs = HookQuerySet(self.model, using=self._db)
+        print(f"DEBUG: BulkHookManager.get_queryset() called for {self.model}")
+        print(f"DEBUG: Returning QuerySet type: {type(qs)}")
+        return qs
 
     def bulk_update(
         self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs
@@ -20,6 +23,8 @@ class BulkHookManager(models.Manager):
         print(f"DEBUG: bulk_update method signature: {inspect.signature(method)}")
         print(f"DEBUG: Calling with args: objs={type(objs)}, fields={fields}, bypass_hooks={bypass_hooks}, bypass_validation={bypass_validation}, kwargs={kwargs}")
         print(f"DEBUG: QuerySet class: {type(qs)}")
+        print(f"DEBUG: Manager type: {type(self)}")
+        print(f"DEBUG: Model: {self.model}")
         
         # Check if this is our HookQuerySet or a different QuerySet
         if hasattr(qs, 'bulk_update') and 'bypass_hooks' in inspect.signature(qs.bulk_update).parameters:

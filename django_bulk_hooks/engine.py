@@ -50,9 +50,16 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
             old_records or [None] * len(new_records),
             strict=True,
         ):
+            print(f"DEBUG: Checking condition for {handler_cls.__name__}.{method_name}")
+            print(f"DEBUG:  - new: {type(new)}")
+            print(f"DEBUG:  - original: {type(original)}")
+            print(f"DEBUG:  - condition: {condition}")
             if not condition or condition.check(new, original):
+                print(f"DEBUG:  - condition passed, adding to process list")
                 to_process_new.append(new)
                 to_process_old.append(original)
+            else:
+                print(f"DEBUG:  - condition failed, skipping")
 
         if to_process_new:
             print(f"DEBUG: Executing hook {handler_cls.__name__}.{method_name} with {len(to_process_new)} records")
