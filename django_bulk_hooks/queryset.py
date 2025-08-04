@@ -1,4 +1,3 @@
-
 from django.db import models, transaction
 from django.db.models import AutoField
 
@@ -44,7 +43,7 @@ class HookQuerySet(models.QuerySet):
         for obj in instances:
             for field, value in kwargs.items():
                 setattr(obj, field, value)
-            
+
         # Run BEFORE_UPDATE hooks
         ctx = HookContext(model_cls)
         engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
@@ -77,10 +76,26 @@ class HookQuerySet(models.QuerySet):
         """
         model_cls = self.model
 
+        # When you bulk insert you don't get the primary keys back (if it's an
+        # autoincrement, except if can_return_rows_from_bulk_insert=True), so
+        # you can't insert into the child tables which references this. There
+        # are two workarounds:
+        # 1) This could be implemented if you didn't have an autoincrement pk
+        # 2) You could do it by doing O(n) normal inserts into the parent
+        #    tables to get the primary keys back and then doing a single bulk
+        #    insert into the childmost table.
+        # We currently set the primary keys on the objects when using
+        # PostgreSQL via the RETURNING ID clause. It should be possible for
+        # Oracle as well, but the semantics for extracting the primary keys is
+        # trickier so it's not done yet.
         if batch_size is not None and batch_size <= 0:
             raise ValueError("Batch size must be a positive integer.")
 
         # Check for MTI - if we detect multi-table inheritance, we need special handling
+        # This follows Django's approach: check that the parents share the same concrete model
+        # with our model to detect the inheritance pattern ConcreteGrandParent ->
+        # MultiTableParent -> ProxyChild. Simply checking self.model._meta.proxy would not
+        # identify that case as involving multiple tables.
         is_mti = False
         for parent in model_cls._meta.all_parents:
             if parent._meta.concrete_model is not model_cls._meta.concrete_model:
@@ -116,7 +131,7 @@ class HookQuerySet(models.QuerySet):
         else:
             # For single-table models, use Django's built-in bulk_create
             # but we need to call it on the base manager to avoid recursion
-            
+
             result = model_cls._base_manager.bulk_create(
                 objs,
                 batch_size=batch_size,
@@ -172,7 +187,7 @@ class HookQuerySet(models.QuerySet):
 
         for i in range(0, len(objs), self.CHUNK_SIZE):
             chunk = objs[i : i + self.CHUNK_SIZE]
-            
+
             # Call the base implementation to avoid re-triggering this method
             super().bulk_update(chunk, fields, **kwargs)
 
@@ -182,7 +197,9 @@ class HookQuerySet(models.QuerySet):
         return objs
 
     @transaction.atomic
-    def bulk_delete(self, objs, batch_size=None, bypass_hooks=False, bypass_validation=False):
+    def bulk_delete(
+        self, objs, batch_size=None, bypass_hooks=False, bypass_validation=False
+    ):
         if not objs:
             return []
 
@@ -213,8 +230,6 @@ class HookQuerySet(models.QuerySet):
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
 
         return objs
-
-    # --- Private helper methods ---
 
     def _detect_modified_fields(self, new_instances, original_instances):
         """
@@ -274,16 +289,20 @@ class HookQuerySet(models.QuerySet):
 
     def _mti_bulk_create(self, objs, inheritance_chain=None, **kwargs):
         """
-        Implements workaround: individual saves for parents, bulk create for child.
+        Implements Django's suggested workaround #2 for MTI bulk_create:
+        O(n) normal inserts into parent tables to get primary keys back,
+        then single bulk insert into childmost table.
         Sets auto_now_add/auto_now fields for each model in the chain.
         """
         if inheritance_chain is None:
             inheritance_chain = self._get_inheritance_chain()
-            
+
         # Safety check to prevent infinite recursion
         if len(inheritance_chain) > 10:  # Arbitrary limit to prevent infinite loops
-            raise ValueError("Inheritance chain too deep - possible infinite recursion detected")
-            
+            raise ValueError(
+                "Inheritance chain too deep - possible infinite recursion detected"
+            )
+
         batch_size = kwargs.get("batch_size") or len(objs)
         created_objects = []
         with transaction.atomic(using=self.db, savepoint=False):
@@ -298,13 +317,14 @@ class HookQuerySet(models.QuerySet):
     def _process_mti_batch(self, batch, inheritance_chain, **kwargs):
         """
         Process a single batch of objects through the inheritance chain.
-        Reuses Django's internal functions as much as possible.
+        Implements Django's suggested workaround #2: O(n) normal inserts into parent
+        tables to get primary keys back, then single bulk insert into childmost table.
         """
         # For MTI, we need to save parent objects first to get PKs
         # Then we can use Django's bulk_create for the child objects
         parent_objects_map = {}
-        
-        # Step 1: Save parent objects (we need their PKs for child objects)
+
+        # Step 1: Do O(n) normal inserts into parent tables to get primary keys back
         for obj in batch:
             parent_instances = {}
             current_parent = None
@@ -312,31 +332,34 @@ class HookQuerySet(models.QuerySet):
                 parent_obj = self._create_parent_instance(
                     obj, model_class, current_parent
                 )
-                # Use Django's internal save method to avoid hooks
-                models.Model.save(parent_obj)
+                # Use Django's internal _insert method to get PKs back
+                # This bypasses hooks and the MTI exception
+                parent_obj._do_insert(parent_obj._meta, using=self.db)
                 parent_instances[model_class] = parent_obj
                 current_parent = parent_obj
             parent_objects_map[id(obj)] = parent_instances
-        
-        # Step 2: Create and save child objects
+
+        # Step 2: Create all child objects and do single bulk insert into childmost table
         child_model = inheritance_chain[-1]
-        created = []
+        all_child_objects = []
         for obj in batch:
             child_obj = self._create_child_instance(
                 obj, child_model, parent_objects_map.get(id(obj), {})
             )
-            # Save child object individually since Django's bulk_create doesn't support MTI
-            # Use Django's Model.save() directly to avoid hooks but get proper field handling
-            models.Model.save(child_obj)
-            created.append(child_obj)
-        
+            all_child_objects.append(child_obj)
+
+        # Step 2.5: Single bulk insert into childmost table
+        if all_child_objects:
+            # Use Django's internal bulk_create to bypass MTI exception
+            child_model._base_manager.bulk_create(all_child_objects)
+
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
-        for orig_obj, child_obj in zip(batch, created):
+        for orig_obj, child_obj in zip(batch, all_child_objects):
             setattr(orig_obj, pk_field_name, getattr(child_obj, pk_field_name))
             orig_obj._state.adding = False
             orig_obj._state.db = self.db
-        
+
         return batch
 
     def _create_parent_instance(self, source_obj, parent_model, current_parent):
@@ -356,20 +379,18 @@ class HookQuerySet(models.QuerySet):
                 ):
                     setattr(parent_obj, field.name, current_parent)
                     break
-        
+
         # Handle auto_now_add and auto_now fields like Django does
         for field in parent_model._meta.local_fields:
-            if hasattr(field, 'auto_now_add') and field.auto_now_add:
-                field.pre_save(parent_obj, add=True)
-            elif hasattr(field, 'auto_now') and field.auto_now:
-                field.pre_save(parent_obj, add=True)
-        
-        # Ensure auto_now_add fields are explicitly set to prevent null constraint violations
-        for field in parent_model._meta.local_fields:
-            if hasattr(field, 'auto_now_add') and field.auto_now_add:
+            if hasattr(field, "auto_now_add") and field.auto_now_add:
+                # Ensure auto_now_add fields are properly set
                 if getattr(parent_obj, field.name) is None:
                     field.pre_save(parent_obj, add=True)
-        
+                    # Explicitly set the value to ensure it's not None
+                    setattr(parent_obj, field.name, field.value_from_object(parent_obj))
+            elif hasattr(field, "auto_now") and field.auto_now:
+                field.pre_save(parent_obj, add=True)
+
         return parent_obj
 
     def _create_child_instance(self, source_obj, child_model, parent_instances):
@@ -385,19 +406,16 @@ class HookQuerySet(models.QuerySet):
             parent_link = child_model._meta.get_ancestor_link(parent_model)
             if parent_link:
                 setattr(child_obj, parent_link.name, parent_instance)
-        
+
         # Handle auto_now_add and auto_now fields like Django does
         for field in child_model._meta.local_fields:
-            if hasattr(field, 'auto_now_add') and field.auto_now_add:
-                field.pre_save(child_obj, add=True)
-            elif hasattr(field, 'auto_now') and field.auto_now:
-                field.pre_save(child_obj, add=True)
-        
-        # Ensure auto_now_add fields are explicitly set to prevent null constraint violations
-        for field in child_model._meta.local_fields:
-            if hasattr(field, 'auto_now_add') and field.auto_now_add:
+            if hasattr(field, "auto_now_add") and field.auto_now_add:
+                # Ensure auto_now_add fields are properly set
                 if getattr(child_obj, field.name) is None:
                     field.pre_save(child_obj, add=True)
-        
-        return child_obj
+                    # Explicitly set the value to ensure it's not None
+                    setattr(child_obj, field.name, field.value_from_object(child_obj))
+            elif hasattr(field, "auto_now") and field.auto_now:
+                field.pre_save(child_obj, add=True)
 
+        return child_obj
