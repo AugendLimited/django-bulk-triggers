@@ -97,15 +97,10 @@ class HookQuerySet(models.QuerySet):
         # MultiTableParent -> ProxyChild. Simply checking self.model._meta.proxy would not
         # identify that case as involving multiple tables.
         is_mti = False
-        print(f"DEBUG: Checking for MTI on {model_cls.__name__}")
-        print(f"DEBUG: All parents: {[p.__name__ for p in model_cls._meta.all_parents]}")
         for parent in model_cls._meta.all_parents:
-            print(f"DEBUG: Checking parent {parent.__name__} (concrete: {parent._meta.concrete_model.__name__}) vs {model_cls.__name__} (concrete: {model_cls._meta.concrete_model.__name__})")
             if parent._meta.concrete_model is not model_cls._meta.concrete_model:
                 is_mti = True
-                print(f"DEBUG: MTI detected! {parent.__name__} and {model_cls.__name__} have different concrete models")
                 break
-        print(f"DEBUG: Final MTI result: {is_mti}")
 
         if not objs:
             return objs
@@ -124,7 +119,6 @@ class HookQuerySet(models.QuerySet):
 
         # For MTI models, we need to handle them specially
         if is_mti:
-            print(f"DEBUG: Using MTI-specific logic for {model_cls.__name__}")
             # Use our MTI-specific logic
             result = self._mti_bulk_create(
                 objs,
@@ -135,7 +129,6 @@ class HookQuerySet(models.QuerySet):
                 unique_fields=unique_fields,
             )
         else:
-            print(f"DEBUG: Using standard bulk_create for {model_cls.__name__}")
             # For single-table models, use Django's built-in bulk_create
             # but we need to call it on the base manager to avoid recursion
 
@@ -332,13 +325,10 @@ class HookQuerySet(models.QuerySet):
         parent_objects_map = {}
 
         # Step 1: Do O(n) normal inserts into parent tables to get primary keys back
-        print(f"DEBUG: Processing batch of {len(batch)} objects")
-        print(f"DEBUG: Inheritance chain: {[m.__name__ for m in inheritance_chain]}")
         for obj in batch:
             parent_instances = {}
             current_parent = None
             for model_class in inheritance_chain[:-1]:
-                print(f"DEBUG: Creating parent instance for {model_class.__name__}")
                 parent_obj = self._create_parent_instance(
                     obj, model_class, current_parent
                 )
@@ -349,9 +339,7 @@ class HookQuerySet(models.QuerySet):
                     for field in model_class._meta.local_fields
                     if hasattr(parent_obj, field.name) and getattr(parent_obj, field.name) is not None
                 }
-                print(f"DEBUG: Creating {model_class.__name__} with field_values: {field_values}")
                 created_obj = model_class._base_manager.using(self.db).create(**field_values)
-                print(f"DEBUG: Created {model_class.__name__} with PK: {created_obj.pk}")
                 # Update the parent_obj with the created object's PK
                 parent_obj.pk = created_obj.pk
                 parent_obj._state.adding = False
@@ -362,19 +350,15 @@ class HookQuerySet(models.QuerySet):
 
         # Step 2: Create all child objects and do single bulk insert into childmost table
         child_model = inheritance_chain[-1]
-        print(f"DEBUG: Creating child objects for {child_model.__name__}")
         all_child_objects = []
         for obj in batch:
             child_obj = self._create_child_instance(
                 obj, child_model, parent_objects_map.get(id(obj), {})
             )
             all_child_objects.append(child_obj)
-        print(f"DEBUG: Created {len(all_child_objects)} child objects")
 
         # Step 2.5: Use Django's internal bulk_create infrastructure
         if all_child_objects:
-            print(f"DEBUG: Using Django's internal bulk_create infrastructure for {len(all_child_objects)} child objects")
-            
             # Get the base manager's queryset
             base_qs = child_model._base_manager.using(self.db)
             
@@ -389,38 +373,17 @@ class HookQuerySet(models.QuerySet):
                 else:
                     objs_without_pk.append(obj)
             
-            print(f"DEBUG: Prepared {len(objs_with_pk)} objects with PK, {len(objs_without_pk)} objects without PK")
-            
             # Use Django's internal _batched_insert method
             opts = child_model._meta
             # For child models in MTI, we need to include the foreign key to the parent
             # but exclude the primary key since it's inherited
-            print(f"DEBUG: All local fields: {[f.name for f in opts.local_fields]}")
             
             # Include all local fields except generated ones
             # We need to include the foreign key to the parent (business_ptr)
             fields = [f for f in opts.local_fields if not f.generated]
-            print(f"DEBUG: Child model fields to insert: {[f.name for f in fields]}")
-            
-            # Debug: Check what fields are actually set on the child objects
-            for i, child_obj in enumerate(all_child_objects[:3]):  # Check first 3 objects
-                print(f"DEBUG: Child object {i} fields: {[f.name for f in child_model._meta.local_fields if hasattr(child_obj, f.name) and getattr(child_obj, f.name) is not None]}")
-                # Debug: Check the actual values
-                for field in child_model._meta.local_fields:
-                    if hasattr(child_obj, field.name) and getattr(child_obj, field.name) is not None:
-                        value = getattr(child_obj, field.name)
-                        if hasattr(value, 'pk'):
-                            print(f"DEBUG: Child object {i} {field.name} = {value} (PK: {value.pk})")
-                        else:
-                            print(f"DEBUG: Child object {i} {field.name} = {value}")
-            
-            # Debug: Check what fields are actually set on the child objects
-            for i, child_obj in enumerate(all_child_objects[:3]):  # Check first 3 objects
-                print(f"DEBUG: Child object {i} fields: {[f.name for f in child_model._meta.local_fields if hasattr(child_obj, f.name) and getattr(child_obj, f.name) is not None]}")
             
             with transaction.atomic(using=self.db, savepoint=False):
                  if objs_with_pk:
-                     print(f"DEBUG: Inserting {len(objs_with_pk)} objects with PK")
                      returned_columns = base_qs._batched_insert(
                          objs_with_pk,
                          fields,
@@ -435,7 +398,6 @@ class HookQuerySet(models.QuerySet):
                          obj_with_pk._state.db = self.db
                  
                  if objs_without_pk:
-                     print(f"DEBUG: Inserting {len(objs_without_pk)} objects without PK")
                      # For objects without PK, we still need to exclude primary key fields
                      fields = [f for f in fields if not isinstance(f, AutoField) and not f.primary_key]
                      returned_columns = base_qs._batched_insert(
@@ -448,20 +410,15 @@ class HookQuerySet(models.QuerySet):
                              setattr(obj_without_pk, field.attname, result)
                          obj_without_pk._state.adding = False
                          obj_without_pk._state.db = self.db
-            
-            print(f"DEBUG: Successfully bulk created child objects using Django's internal methods")
 
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
-        print(f"DEBUG: Updating original objects with PK field: {pk_field_name}")
         for orig_obj, child_obj in zip(batch, all_child_objects):
             child_pk = getattr(child_obj, pk_field_name)
-            print(f"DEBUG: Setting {orig_obj.__class__.__name__} PK to {child_pk}")
             setattr(orig_obj, pk_field_name, child_pk)
             orig_obj._state.adding = False
             orig_obj._state.db = self.db
 
-        print(f"DEBUG: Completed processing batch")
         return batch
 
     def _create_parent_instance(self, source_obj, parent_model, current_parent):
@@ -510,12 +467,10 @@ class HookQuerySet(models.QuerySet):
         for parent_model, parent_instance in parent_instances.items():
             parent_link = child_model._meta.get_ancestor_link(parent_model)
             if parent_link:
-                print(f"DEBUG: Parent link: {parent_link.name}, target_field: {parent_link.target_field.name}, attname: {parent_link.target_field.attname}")
-                print(f"DEBUG: Parent link attname: {parent_link.attname}")
-                # Set the foreign key value (the ID) to the parent's PK
-                # Use the parent link field's attname, not the target field's attname
-                setattr(child_obj, parent_link.attname, parent_instance.pk)
-                print(f"DEBUG: Set {parent_link.attname} to {parent_instance.pk}")
+                # Set both the foreign key value (the ID) and the object reference
+                # This follows Django's pattern in _set_pk_val
+                setattr(child_obj, parent_link.attname, parent_instance.pk)  # Set the foreign key value
+                setattr(child_obj, parent_link.name, parent_instance)        # Set the object reference
 
         # Handle auto_now_add and auto_now fields like Django does
         for field in child_model._meta.local_fields:
