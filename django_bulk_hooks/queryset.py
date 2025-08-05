@@ -321,13 +321,13 @@ class HookQuerySet(models.QuerySet):
         with transaction.atomic(using=self.db, savepoint=False):
             for i in range(0, len(objs), batch_size):
                 batch = objs[i : i + batch_size]
-                batch_result = self._process_mti_batch(
+                batch_result = self._process_mti_bulk_create_batch(
                     batch, inheritance_chain, **django_kwargs
                 )
                 created_objects.extend(batch_result)
         return created_objects
 
-    def _process_mti_batch(self, batch, inheritance_chain, **kwargs):
+    def _process_mti_bulk_create_batch(self, batch, inheritance_chain, **kwargs):
         """
         Process a single batch of objects through the inheritance chain.
         Implements Django's suggested workaround #2: O(n) normal inserts into parent
@@ -537,6 +537,19 @@ class HookQuerySet(models.QuerySet):
         model_cls = self.model
         inheritance_chain = self._get_inheritance_chain()
 
+        # Remove custom hook kwargs before passing to Django internals
+        django_kwargs = {
+            k: v
+            for k, v in kwargs.items()
+            if k not in ["bypass_hooks", "bypass_validation"]
+        }
+
+        # Safety check to prevent infinite recursion
+        if len(inheritance_chain) > 10:  # Arbitrary limit to prevent infinite loops
+            raise ValueError(
+                "Inheritance chain too deep - possible infinite recursion detected"
+            )
+
         # Group fields by model in the inheritance chain
         field_groups = {}
         for field_name in fields:
@@ -549,8 +562,28 @@ class HookQuerySet(models.QuerySet):
                     field_groups[model].append(field_name)
                     break
 
-        # Update each table in the inheritance chain
+        # Process in batches
+        batch_size = django_kwargs.get("batch_size") or len(objs)
         total_updated = 0
+        
+        with transaction.atomic(using=self.db, savepoint=False):
+            for i in range(0, len(objs), batch_size):
+                batch = objs[i : i + batch_size]
+                batch_result = self._process_mti_bulk_update_batch(
+                    batch, field_groups, inheritance_chain, **django_kwargs
+                )
+                total_updated += batch_result
+
+        return total_updated
+
+    def _process_mti_bulk_update_batch(self, batch, field_groups, inheritance_chain, **kwargs):
+        """
+        Process a single batch of objects for MTI bulk update.
+        Updates each table in the inheritance chain for the batch.
+        """
+        total_updated = 0
+        
+        # Update each table in the inheritance chain
         for model, model_fields in field_groups.items():
             if not model_fields:
                 continue
@@ -560,7 +593,7 @@ class HookQuerySet(models.QuerySet):
             # Child models use the parent link to reference the root PK
             if model == inheritance_chain[0]:
                 # Root model - use primary keys directly
-                pks = [obj.pk for obj in objs]
+                pks = [obj.pk for obj in batch]
                 filter_field = 'pk'
             else:
                 # Child model - use parent link field
@@ -575,25 +608,25 @@ class HookQuerySet(models.QuerySet):
                     continue
                 
                 # Get the parent link values (these should be the same as the root PKs)
-                pks = [getattr(obj, parent_link.attname) for obj in objs]
+                pks = [getattr(obj, parent_link.attname) for obj in batch]
                 filter_field = parent_link.attname
             
             if pks:
                 base_qs = model._base_manager.using(self.db)
                 
-                # Build CASE statements for each field
+                # Build CASE statements for each field to perform a single bulk update
                 case_statements = {}
                 for field_name in model_fields:
                     field = model._meta.get_field(field_name)
                     when_statements = []
                     
-                    for pk, obj in zip(pks, objs):
+                    for pk, obj in zip(pks, batch):
                         value = getattr(obj, field_name)
                         when_statements.append(When(**{filter_field: pk}, then=Value(value, output_field=field)))
                     
                     case_statements[field_name] = Case(*when_statements, output_field=field)
                 
-                # Execute the update using the appropriate filter field
+                # Execute a single bulk update for all objects in this model
                 updated_count = base_qs.filter(**{f"{filter_field}__in": pks}).update(**case_statements)
                 total_updated += updated_count
 
