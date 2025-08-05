@@ -230,12 +230,12 @@ class HookQuerySetMixin:
         fields_set = set(fields)
         pk_fields = model_cls._meta.pk_fields
         for field in model_cls._meta.local_concrete_fields:
-            if not (
-                field in pk_fields or field.__class__.pre_save is Field.pre_save
-            ):
-                fields_set.add(field.name)
-                if field.name != field.attname:
-                    fields_set.add(field.attname)
+            # Only add auto_now and auto_now_add fields that aren't already in the fields list
+            if (hasattr(field, "auto_now") and field.auto_now) or (hasattr(field, "auto_now_add") and field.auto_now_add):
+                if field.name not in fields_set and field.name not in pk_fields:
+                    fields_set.add(field.name)
+                    if field.name != field.attname:
+                        fields_set.add(field.attname)
         fields = list(fields_set)
 
         # Handle MTI models differently
