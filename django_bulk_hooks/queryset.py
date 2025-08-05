@@ -24,22 +24,22 @@ class HookQuerySet(models.QuerySet):
         objs = list(self)
         if not objs:
             return 0
-        
+
         model_cls = self.model
         ctx = HookContext(model_cls)
-        
+
         # Run validation hooks first
         engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
-        
+
         # Then run business logic hooks
         engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
-        
+
         # Use Django's standard delete() method
         result = super().delete()
-        
+
         # Run AFTER_DELETE hooks
         engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
-        
+
         return result
 
     @transaction.atomic
@@ -110,6 +110,14 @@ class HookQuerySet(models.QuerySet):
         if batch_size is not None and batch_size <= 0:
             raise ValueError("Batch size must be a positive integer.")
 
+        if not objs:
+            return objs
+
+        if any(not isinstance(obj, model_cls) for obj in objs):
+            raise TypeError(
+                f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
+            )
+
         # Check for MTI - if we detect multi-table inheritance, we need special handling
         # This follows Django's approach: check that the parents share the same concrete model
         # with our model to detect the inheritance pattern ConcreteGrandParent ->
@@ -120,14 +128,6 @@ class HookQuerySet(models.QuerySet):
             if parent._meta.concrete_model is not model_cls._meta.concrete_model:
                 is_mti = True
                 break
-
-        if not objs:
-            return objs
-
-        if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(
-                f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
-            )
 
         # Fire hooks before DB ops
         if not bypass_hooks:
@@ -150,22 +150,14 @@ class HookQuerySet(models.QuerySet):
             # Remove custom hook kwargs if present in self.bulk_create signature
             result = self._mti_bulk_create(
                 objs,
-                **{
-                    k: v
-                    for k, v in mti_kwargs.items()
-                    if k not in ["bypass_hooks", "bypass_validation"]
-                },
+                **mti_kwargs,
             )
         else:
             # For single-table models, use Django's built-in bulk_create
             # but we need to call it on the base manager to avoid recursion
             # Filter out custom parameters that Django's bulk_create doesn't accept
 
-            # Use Django's original QuerySet to avoid recursive calls
-            from django.db.models import QuerySet
-
-            original_qs = QuerySet(model_cls, using=self.db)
-            result = original_qs.bulk_create(
+            result = super().bulk_create(
                 objs,
                 batch_size=batch_size,
                 ignore_conflicts=ignore_conflicts,
@@ -185,7 +177,7 @@ class HookQuerySet(models.QuerySet):
         self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs
     ):
         """
-        Bulk update objects in the database.
+        Bulk update objects in the database with MTI support.
         """
         model_cls = self.model
 
@@ -197,9 +189,15 @@ class HookQuerySet(models.QuerySet):
                 f"bulk_update expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
             )
 
+        # Check for MTI
+        is_mti = False
+        for parent in model_cls._meta.all_parents:
+            if parent._meta.concrete_model is not model_cls._meta.concrete_model:
+                is_mti = True
+                break
+
         if not bypass_hooks:
-            # Load originals for hook comparison and ensure they match the order of new instances
-            # Use the base manager to avoid recursion
+            # Load originals for hook comparison
             original_map = {
                 obj.pk: obj
                 for obj in model_cls._base_manager.filter(
@@ -215,33 +213,31 @@ class HookQuerySet(models.QuerySet):
                 engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
 
             # Then run business logic hooks
-            if not bypass_hooks:
-                engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+            engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
 
-            # Automatically detect fields that were modified during BEFORE_UPDATE hooks
+            # Detect modified fields during hooks
             modified_fields = self._detect_modified_fields(objs, originals)
             if modified_fields:
-                # Convert to set for efficient union operation
                 fields_set = set(fields)
                 fields_set.update(modified_fields)
                 fields = list(fields_set)
 
-        for i in range(0, len(objs), self.CHUNK_SIZE):
-            chunk = objs[i : i + self.CHUNK_SIZE]
-
-            # Call the base implementation to avoid re-triggering this method
-            # Filter out custom parameters that Django's bulk_update doesn't accept
+        # Handle MTI models differently
+        if is_mti:
+            result = self._mti_bulk_update(objs, fields, **kwargs)
+        else:
+            # For single-table models, use Django's built-in bulk_update
             django_kwargs = {
                 k: v
                 for k, v in kwargs.items()
                 if k not in ["bypass_hooks", "bypass_validation"]
             }
-            super().bulk_update(chunk, fields, **django_kwargs)
+            result = super().bulk_update(objs, fields, **django_kwargs)
 
         if not bypass_hooks:
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
 
-        return objs
+        return result
 
     def _detect_modified_fields(self, new_instances, original_instances):
         """
@@ -533,3 +529,51 @@ class HookQuerySet(models.QuerySet):
                 field.pre_save(child_obj, add=True)
 
         return child_obj
+
+    def _mti_bulk_update(self, objs, fields, **kwargs):
+        """
+        Custom bulk update implementation for MTI models.
+        Updates each table in the inheritance chain efficiently using Django's batch_size.
+        """
+        model_cls = self.model
+        inheritance_chain = self._get_inheritance_chain()
+        
+        # Group fields by model in the inheritance chain
+        field_groups = {}
+        for field_name in fields:
+            field = model_cls._meta.get_field(field_name)
+            # Find which model in the inheritance chain this field belongs to
+            for model in inheritance_chain:
+                if field in model._meta.local_fields:
+                    if model not in field_groups:
+                        field_groups[model] = []
+                    field_groups[model].append(field_name)
+                    break
+        
+        # Update each table in the inheritance chain
+        total_updated = 0
+        for model, model_fields in field_groups.items():
+            if not model_fields:
+                continue
+                
+            # Get objects that have this model's fields
+            model_objs = []
+            for obj in objs:
+                # Create a temporary object with just this model's fields
+                temp_obj = model()
+                temp_obj.pk = obj.pk  # Set the primary key
+                
+                # Copy only the fields for this model
+                for field_name in model_fields:
+                    if hasattr(obj, field_name):
+                        setattr(temp_obj, field_name, getattr(obj, field_name))
+                
+                model_objs.append(temp_obj)
+            
+            # Use Django's bulk_update for this model's table
+            # This will automatically use batch_size from kwargs
+            base_qs = model._base_manager.using(self.db)
+            updated_count = base_qs.bulk_update(model_objs, model_fields, **kwargs)
+            total_updated += updated_count
+        
+        return total_updated
