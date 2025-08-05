@@ -230,8 +230,9 @@ class HookQuerySetMixin:
         fields_set = set(fields)
         pk_fields = model_cls._meta.pk_fields
         for field in model_cls._meta.local_concrete_fields:
-            # Only add auto_now and auto_now_add fields that aren't already in the fields list
-            if (hasattr(field, "auto_now") and field.auto_now) or (hasattr(field, "auto_now_add") and field.auto_now_add):
+            # Only add auto_now fields (like updated_at) that aren't already in the fields list
+            # Don't include auto_now_add fields (like created_at) as they should only be set on creation
+            if hasattr(field, "auto_now") and field.auto_now:
                 if field.name not in fields_set and field.name not in pk_fields:
                     fields_set.add(field.name)
                     if field.name != field.attname:
