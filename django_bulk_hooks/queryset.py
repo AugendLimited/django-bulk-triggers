@@ -14,7 +14,7 @@ from django_bulk_hooks.constants import (
     VALIDATE_UPDATE,
 )
 from django_bulk_hooks.context import HookContext
-from django.db.models import When, Value, Case
+from django.db.models import When, Value, Case, Field
 
 
 class HookQuerySetMixin:
@@ -225,6 +225,18 @@ class HookQuerySetMixin:
                 fields_set = set(fields)
                 fields_set.update(modified_fields)
                 fields = list(fields_set)
+
+        # Handle auto_now fields like Django's update_or_create does
+        fields_set = set(fields)
+        pk_fields = model_cls._meta.pk_fields
+        for field in model_cls._meta.local_concrete_fields:
+            if not (
+                field in pk_fields or field.__class__.pre_save is Field.pre_save
+            ):
+                fields_set.add(field.name)
+                if field.name != field.attname:
+                    fields_set.add(field.attname)
+        fields = list(fields_set)
 
         # Handle MTI models differently
         if is_mti:
@@ -556,6 +568,12 @@ class HookQuerySetMixin:
             raise ValueError(
                 "Inheritance chain too deep - possible infinite recursion detected"
             )
+
+        # Handle auto_now fields by calling pre_save on objects
+        for obj in objs:
+            for field in model_cls._meta.local_fields:
+                if hasattr(field, "auto_now") and field.auto_now:
+                    field.pre_save(obj, add=False)
 
         # Group fields by model in the inheritance chain
         field_groups = {}
