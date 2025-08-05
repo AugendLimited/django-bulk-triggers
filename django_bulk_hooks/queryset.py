@@ -178,9 +178,17 @@ class HookQuerySet(models.QuerySet):
         """
         Bulk update objects in the database with MTI support.
         """
+        print(f"\n=== BULK UPDATE DEBUG ===")
+        print(f"Model: {self.model.__name__}")
+        print(f"Number of objects: {len(objs)}")
+        print(f"Fields: {fields}")
+        print(f"Bypass hooks: {bypass_hooks}")
+        print(f"Bypass validation: {bypass_validation}")
+        
         model_cls = self.model
 
         if not objs:
+            print("No objects to update")
             return []
 
         if any(not isinstance(obj, model_cls) for obj in objs):
@@ -194,6 +202,11 @@ class HookQuerySet(models.QuerySet):
             if parent._meta.concrete_model is not model_cls._meta.concrete_model:
                 is_mti = True
                 break
+        
+        print(f"Is MTI: {is_mti}")
+        print(f"Model concrete model: {model_cls._meta.concrete_model.__name__}")
+        for parent in model_cls._meta.all_parents:
+            print(f"  Parent {parent.__name__}: concrete_model = {parent._meta.concrete_model.__name__}")
 
         if not bypass_hooks:
             # Load originals for hook comparison
@@ -220,11 +233,14 @@ class HookQuerySet(models.QuerySet):
                 fields_set = set(fields)
                 fields_set.update(modified_fields)
                 fields = list(fields_set)
+                print(f"Modified fields detected: {modified_fields}")
 
         # Handle MTI models differently
         if is_mti:
+            print("Using MTI bulk update logic")
             result = self._mti_bulk_update(objs, fields, **kwargs)
         else:
+            print("Using standard Django bulk_update")
             # For single-table models, use Django's built-in bulk_update
             django_kwargs = {
                 k: v
@@ -236,6 +252,7 @@ class HookQuerySet(models.QuerySet):
         if not bypass_hooks:
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
 
+        print(f"Bulk update result: {result}")
         return result
 
     def _detect_modified_fields(self, new_instances, original_instances):
@@ -280,18 +297,29 @@ class HookQuerySet(models.QuerySet):
         Get the complete inheritance chain from root parent to current model.
         Returns list of model classes in order: [RootParent, Parent, Child]
         """
+        print(f"\n=== GET INHERITANCE CHAIN DEBUG ===")
+        print(f"Current model: {self.model.__name__}")
+        
         chain = []
         current_model = self.model
         while current_model:
+            print(f"Processing model: {current_model.__name__}")
             if not current_model._meta.proxy:
                 chain.append(current_model)
+                print(f"  Added to chain: {current_model.__name__}")
+            else:
+                print(f"  Skipped proxy model: {current_model.__name__}")
+            
             parents = [
                 parent
                 for parent in current_model._meta.parents.keys()
                 if not parent._meta.proxy
             ]
+            print(f"  Parents: {[p.__name__ for p in parents]}")
             current_model = parents[0] if parents else None
+        
         chain.reverse()
+        print(f"Final inheritance chain: {[m.__name__ for m in chain]}")
         return chain
 
     def _mti_bulk_create(self, objs, inheritance_chain=None, **kwargs):
@@ -534,8 +562,14 @@ class HookQuerySet(models.QuerySet):
         Custom bulk update implementation for MTI models.
         Updates each table in the inheritance chain efficiently using Django's batch_size.
         """
+        print(f"\n=== MTI BULK UPDATE DEBUG ===")
+        print(f"Model: {self.model.__name__}")
+        print(f"Number of objects: {len(objs)}")
+        print(f"Fields to update: {fields}")
+        
         model_cls = self.model
         inheritance_chain = self._get_inheritance_chain()
+        print(f"Inheritance chain: {[m.__name__ for m in inheritance_chain]}")
 
         # Remove custom hook kwargs before passing to Django internals
         django_kwargs = {
@@ -560,20 +594,28 @@ class HookQuerySet(models.QuerySet):
                     if model not in field_groups:
                         field_groups[model] = []
                     field_groups[model].append(field_name)
+                    print(f"Field '{field_name}' belongs to model '{model.__name__}'")
                     break
+        
+        print(f"Field groups: {field_groups}")
 
         # Process in batches
         batch_size = django_kwargs.get("batch_size") or len(objs)
         total_updated = 0
         
+        print(f"Processing in batches of size: {batch_size}")
+        
         with transaction.atomic(using=self.db, savepoint=False):
             for i in range(0, len(objs), batch_size):
                 batch = objs[i : i + batch_size]
+                print(f"\n--- Processing batch {i//batch_size + 1} ({len(batch)} objects) ---")
                 batch_result = self._process_mti_bulk_update_batch(
                     batch, field_groups, inheritance_chain, **django_kwargs
                 )
                 total_updated += batch_result
+                print(f"Batch {i//batch_size + 1} updated {batch_result} rows")
 
+        print(f"\n=== TOTAL UPDATED: {total_updated} ===")
         return total_updated
 
     def _process_mti_bulk_update_batch(self, batch, field_groups, inheritance_chain, **kwargs):
@@ -583,18 +625,44 @@ class HookQuerySet(models.QuerySet):
         """
         total_updated = 0
         
+        print(f"Processing batch with {len(batch)} objects")
+        print(f"Field groups: {field_groups}")
+        
+        # For MTI, we need to handle parent links correctly
+        # The root model (first in chain) has its own PK
+        # Child models use the parent link to reference the root PK
+        root_model = inheritance_chain[0]
+        
+        # Get the primary keys from the objects
+        # If objects have pk set but are not loaded from DB, use those PKs
+        root_pks = []
+        for obj in batch:
+            if obj.pk is not None:
+                root_pks.append(obj.pk)
+            else:
+                print(f"WARNING: Object {obj} has no primary key")
+                continue
+        
+        print(f"Root PKs to update: {root_pks}")
+        
+        if not root_pks:
+            print("No valid primary keys found, skipping update")
+            return 0
+        
         # Update each table in the inheritance chain
         for model, model_fields in field_groups.items():
+            print(f"\n--- Updating model: {model.__name__} ---")
+            print(f"Fields to update: {model_fields}")
+            
             if not model_fields:
+                print("No fields to update, skipping")
                 continue
 
-            # For MTI, we need to handle parent links correctly
-            # The root model (first in chain) has its own PK
-            # Child models use the parent link to reference the root PK
             if model == inheritance_chain[0]:
                 # Root model - use primary keys directly
-                pks = [obj.pk for obj in batch]
+                pks = root_pks
                 filter_field = 'pk'
+                print(f"Root model - using PKs: {pks}")
             else:
                 # Child model - use parent link field
                 parent_link = None
@@ -604,15 +672,28 @@ class HookQuerySet(models.QuerySet):
                         break
                 
                 if parent_link is None:
-                    # This shouldn't happen in proper MTI, but handle gracefully
+                    print(f"No parent link found for {model.__name__}, skipping")
                     continue
                 
-                # Get the parent link values (these should be the same as the root PKs)
-                pks = [getattr(obj, parent_link.attname) for obj in batch]
+                print(f"Parent link field: {parent_link.name} ({parent_link.attname})")
+                
+                # For child models, the parent link values should be the same as root PKs
+                pks = root_pks
                 filter_field = parent_link.attname
+                print(f"Child model - using parent link values: {pks}")
             
             if pks:
                 base_qs = model._base_manager.using(self.db)
+                print(f"Filter field: {filter_field}")
+                print(f"PKs to filter by: {pks}")
+                
+                # Check if records exist
+                existing_count = base_qs.filter(**{f"{filter_field}__in": pks}).count()
+                print(f"Existing records with these PKs: {existing_count}")
+                
+                if existing_count == 0:
+                    print("WARNING: No existing records found with these PKs!")
+                    continue
                 
                 # Build CASE statements for each field to perform a single bulk update
                 case_statements = {}
@@ -620,14 +701,29 @@ class HookQuerySet(models.QuerySet):
                     field = model._meta.get_field(field_name)
                     when_statements = []
                     
+                    print(f"Building CASE statement for field: {field_name}")
                     for pk, obj in zip(pks, batch):
+                        if obj.pk is None:
+                            continue
                         value = getattr(obj, field_name)
+                        print(f"  PK {pk}: {field_name} = {value}")
                         when_statements.append(When(**{filter_field: pk}, then=Value(value, output_field=field)))
                     
                     case_statements[field_name] = Case(*when_statements, output_field=field)
                 
+                print(f"Case statements built: {list(case_statements.keys())}")
+                
                 # Execute a single bulk update for all objects in this model
-                updated_count = base_qs.filter(**{f"{filter_field}__in": pks}).update(**case_statements)
-                total_updated += updated_count
+                try:
+                    updated_count = base_qs.filter(**{f"{filter_field}__in": pks}).update(**case_statements)
+                    print(f"UPDATE QUERY EXECUTED - Updated {updated_count} rows")
+                    total_updated += updated_count
+                except Exception as e:
+                    print(f"ERROR during update: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print("No PKs found, skipping update")
 
+        print(f"Batch total updated: {total_updated}")
         return total_updated
