@@ -12,18 +12,36 @@ def inject_bulk_hook_behavior(queryset):
         queryset: Any Django QuerySet instance
         
     Returns:
-        The same queryset instance with bulk hook functionality added
+        A new queryset instance with bulk hook functionality added
     """
-    if not isinstance(queryset, HookQuerySetMixin):
-        # Create a new class that inherits from both HookQuerySetMixin and the queryset's class
-        HookedQuerySetClass = type(
-            "HookedQuerySet",
-            (HookQuerySetMixin, queryset.__class__),
-            {}
-        )
-        # Change the instance's class to the new hybrid class
-        queryset.__class__ = HookedQuerySetClass
-    return queryset
+    if isinstance(queryset, HookQuerySetMixin):
+        # Already has hook functionality, return as-is
+        return queryset
+    
+    # Create a new class that inherits from both HookQuerySetMixin and the queryset's class
+    HookedQuerySetClass = type(
+        "HookedQuerySet",
+        (HookQuerySetMixin, queryset.__class__),
+        {
+            '__module__': 'django_bulk_hooks.queryset',
+            '__doc__': f'Dynamically created queryset with bulk hook functionality for {queryset.__class__.__name__}'
+        }
+    )
+    
+    # Create a new instance with the same parameters
+    new_queryset = HookedQuerySetClass(
+        model=queryset.model,
+        query=queryset.query,
+        using=queryset._db,
+        hints=queryset._hints
+    )
+    
+    # Copy any additional attributes that might be important
+    for attr, value in queryset.__dict__.items():
+        if not hasattr(new_queryset, attr):
+            setattr(new_queryset, attr, value)
+    
+    return new_queryset
 
 
 class BulkHookManager(models.Manager):

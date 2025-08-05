@@ -642,10 +642,16 @@ class HookQuerySetMixin:
         # If objects have pk set but are not loaded from DB, use those PKs
         root_pks = []
         for obj in batch:
-            if obj.pk is not None:
-                root_pks.append(obj.pk)
+            # Check both pk and id attributes
+            pk_value = getattr(obj, 'pk', None)
+            if pk_value is None:
+                pk_value = getattr(obj, 'id', None)
+            
+            if pk_value is not None:
+                root_pks.append(pk_value)
+                print(f"Found PK {pk_value} for object {obj}")
             else:
-                print(f"WARNING: Object {obj} has no primary key")
+                print(f"WARNING: Object {obj} has no primary key (pk={getattr(obj, 'pk', None)}, id={getattr(obj, 'id', None)})")
                 continue
         
         print(f"Root PKs to update: {root_pks}")
@@ -708,7 +714,12 @@ class HookQuerySetMixin:
                     
                     print(f"Building CASE statement for field: {field_name}")
                     for pk, obj in zip(pks, batch):
-                        if obj.pk is None:
+                        # Check both pk and id attributes for the object
+                        obj_pk = getattr(obj, 'pk', None)
+                        if obj_pk is None:
+                            obj_pk = getattr(obj, 'id', None)
+                        
+                        if obj_pk is None:
                             continue
                         value = getattr(obj, field_name)
                         print(f"  PK {pk}: {field_name} = {value}")
