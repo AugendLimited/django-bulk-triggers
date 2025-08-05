@@ -572,11 +572,22 @@ class HookQuerySetMixin:
 
         # Handle auto_now fields by calling pre_save on objects
         # Check all models in the inheritance chain for auto_now fields
+        print(f"DEBUG: Processing {len(objs)} objects for auto_now fields")
+        print(f"DEBUG: Inheritance chain: {[m.__name__ for m in inheritance_chain]}")
+        
         for obj in objs:
+            print(f"DEBUG: Processing object {obj.pk if hasattr(obj, 'pk') else 'No PK'}")
             for model in inheritance_chain:
+                print(f"DEBUG: Checking model {model.__name__} for auto_now fields")
+                auto_now_fields = []
                 for field in model._meta.local_fields:
                     if hasattr(field, "auto_now") and field.auto_now:
+                        auto_now_fields.append(field.name)
+                        print(f"DEBUG: Found auto_now field '{field.name}' on model {model.__name__}")
                         field.pre_save(obj, add=False)
+                
+                if not auto_now_fields:
+                    print(f"DEBUG: No auto_now fields found on model {model.__name__}")
 
         # Group fields by model in the inheritance chain
         field_groups = {}
