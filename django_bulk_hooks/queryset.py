@@ -14,6 +14,7 @@ from django_bulk_hooks.constants import (
     VALIDATE_UPDATE,
 )
 from django_bulk_hooks.context import HookContext
+from django.db.models import When, Value, Case
 
 
 class HookQuerySet(models.QuerySet):
@@ -554,24 +555,46 @@ class HookQuerySet(models.QuerySet):
             if not model_fields:
                 continue
 
-            # Get objects that have this model's fields
-            model_objs = []
-            for obj in objs:
-                # Create a temporary object with just this model's fields
-                temp_obj = model()
-                temp_obj.pk = obj.pk  # Set the primary key
-
-                # Copy only the fields for this model
+            # For MTI, we need to handle parent links correctly
+            # The root model (first in chain) has its own PK
+            # Child models use the parent link to reference the root PK
+            if model == inheritance_chain[0]:
+                # Root model - use primary keys directly
+                pks = [obj.pk for obj in objs]
+                filter_field = 'pk'
+            else:
+                # Child model - use parent link field
+                parent_link = None
+                for parent_model in inheritance_chain:
+                    if parent_model in model._meta.parents:
+                        parent_link = model._meta.parents[parent_model]
+                        break
+                
+                if parent_link is None:
+                    # This shouldn't happen in proper MTI, but handle gracefully
+                    continue
+                
+                # Get the parent link values (these should be the same as the root PKs)
+                pks = [getattr(obj, parent_link.attname) for obj in objs]
+                filter_field = parent_link.attname
+            
+            if pks:
+                base_qs = model._base_manager.using(self.db)
+                
+                # Build CASE statements for each field
+                case_statements = {}
                 for field_name in model_fields:
-                    if hasattr(obj, field_name):
-                        setattr(temp_obj, field_name, getattr(obj, field_name))
-
-                model_objs.append(temp_obj)
-
-            # Use Django's bulk_update for this model's table
-            # This will automatically use batch_size from kwargs
-            base_qs = model._base_manager.using(self.db)
-            updated_count = base_qs.bulk_update(model_objs, model_fields, **kwargs)
-            total_updated += updated_count
+                    field = model._meta.get_field(field_name)
+                    when_statements = []
+                    
+                    for pk, obj in zip(pks, objs):
+                        value = getattr(obj, field_name)
+                        when_statements.append(When(**{filter_field: pk}, then=Value(value, output_field=field)))
+                    
+                    case_statements[field_name] = Case(*when_statements, output_field=field)
+                
+                # Execute the update using the appropriate filter field
+                updated_count = base_qs.filter(**{f"{filter_field}__in": pks}).update(**case_statements)
+                total_updated += updated_count
 
         return total_updated
