@@ -3,55 +3,24 @@ from django.db import models
 from django_bulk_hooks.queryset import HookQuerySet, HookQuerySetMixin
 
 
-def inject_bulk_hook_behavior(queryset):
-    """
-    Dynamically inject bulk hook behavior into any queryset.
-    This follows the industry-standard pattern for cooperative queryset extensions.
-    
-    Args:
-        queryset: Any Django QuerySet instance
-        
-    Returns:
-        A new queryset instance with bulk hook functionality added
-    """
-    if isinstance(queryset, HookQuerySetMixin):
-        # Already has hook functionality, return as-is
-        return queryset
-    
-    # Create a new class that inherits from both HookQuerySetMixin and the queryset's class
-    HookedQuerySetClass = type(
-        "HookedQuerySet",
-        (HookQuerySetMixin, queryset.__class__),
-        {
-            '__module__': 'django_bulk_hooks.queryset',
-            '__doc__': f'Dynamically created queryset with bulk hook functionality for {queryset.__class__.__name__}'
-        }
-    )
-    
-    # Create a new instance with the same parameters
-    new_queryset = HookedQuerySetClass(
-        model=queryset.model,
-        query=queryset.query,
-        using=queryset._db,
-        hints=queryset._hints
-    )
-    
-    # Copy any additional attributes that might be important
-    for attr, value in queryset.__dict__.items():
-        if not hasattr(new_queryset, attr):
-            setattr(new_queryset, attr, value)
-    
-    return new_queryset
-
-
 class BulkHookManager(models.Manager):
     def get_queryset(self):
         # Use super().get_queryset() to let Django and MRO build the queryset
         # This ensures cooperation with other managers
         base_queryset = super().get_queryset()
         
-        # Inject our bulk hook behavior into the queryset
-        return inject_bulk_hook_behavior(base_queryset)
+        # If the base queryset already has hook functionality, return it as-is
+        if isinstance(base_queryset, HookQuerySetMixin):
+            return base_queryset
+        
+        # Otherwise, create a new HookQuerySet with the same parameters
+        # This is much simpler and avoids dynamic class creation issues
+        return HookQuerySet(
+            model=base_queryset.model,
+            query=base_queryset.query,
+            using=base_queryset._db,
+            hints=base_queryset._hints
+        )
 
     def bulk_create(
         self,
