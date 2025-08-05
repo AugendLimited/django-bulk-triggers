@@ -571,10 +571,12 @@ class HookQuerySetMixin:
             )
 
         # Handle auto_now fields by calling pre_save on objects
+        # Check all models in the inheritance chain for auto_now fields
         for obj in objs:
-            for field in model_cls._meta.local_fields:
-                if hasattr(field, "auto_now") and field.auto_now:
-                    field.pre_save(obj, add=False)
+            for model in inheritance_chain:
+                for field in model._meta.local_fields:
+                    if hasattr(field, "auto_now") and field.auto_now:
+                        field.pre_save(obj, add=False)
 
         # Group fields by model in the inheritance chain
         field_groups = {}
