@@ -17,8 +17,6 @@ from django_bulk_hooks.context import HookContext
 
 
 class HookQuerySet(models.QuerySet):
-    CHUNK_SIZE = 200
-
     @transaction.atomic
     def delete(self):
         objs = list(self)
@@ -537,7 +535,7 @@ class HookQuerySet(models.QuerySet):
         """
         model_cls = self.model
         inheritance_chain = self._get_inheritance_chain()
-        
+
         # Group fields by model in the inheritance chain
         field_groups = {}
         for field_name in fields:
@@ -549,31 +547,31 @@ class HookQuerySet(models.QuerySet):
                         field_groups[model] = []
                     field_groups[model].append(field_name)
                     break
-        
+
         # Update each table in the inheritance chain
         total_updated = 0
         for model, model_fields in field_groups.items():
             if not model_fields:
                 continue
-                
+
             # Get objects that have this model's fields
             model_objs = []
             for obj in objs:
                 # Create a temporary object with just this model's fields
                 temp_obj = model()
                 temp_obj.pk = obj.pk  # Set the primary key
-                
+
                 # Copy only the fields for this model
                 for field_name in model_fields:
                     if hasattr(obj, field_name):
                         setattr(temp_obj, field_name, getattr(obj, field_name))
-                
+
                 model_objs.append(temp_obj)
-            
+
             # Use Django's bulk_update for this model's table
             # This will automatically use batch_size from kwargs
             base_qs = model._base_manager.using(self.db)
             updated_count = base_qs.bulk_update(model_objs, model_fields, **kwargs)
             total_updated += updated_count
-        
+
         return total_updated
