@@ -572,25 +572,11 @@ class HookQuerySetMixin:
 
         # Handle auto_now fields by calling pre_save on objects
         # Check all models in the inheritance chain for auto_now fields
-        print(f"DEBUG: Processing {len(objs)} objects for auto_now fields")
-        print(f"DEBUG: Inheritance chain: {[m.__name__ for m in inheritance_chain]}")
-        
         for obj in objs:
-            print(f"DEBUG: Processing object {obj.pk if hasattr(obj, 'pk') else 'No PK'}")
             for model in inheritance_chain:
-                print(f"DEBUG: Checking model {model.__name__} for auto_now fields")
-                auto_now_fields = []
                 for field in model._meta.local_fields:
                     if hasattr(field, "auto_now") and field.auto_now:
-                        auto_now_fields.append(field.name)
-                        print(f"DEBUG: Found auto_now field '{field.name}' on model {model.__name__}")
-                        old_value = getattr(obj, field.name, None)
                         field.pre_save(obj, add=False)
-                        new_value = getattr(obj, field.name, None)
-                        print(f"DEBUG: {field.name} value changed from {old_value} to {new_value}")
-                
-                if not auto_now_fields:
-                    print(f"DEBUG: No auto_now fields found on model {model.__name__}")
 
         # Add auto_now fields to the fields list so they get updated in the database
         auto_now_fields = set()
@@ -601,9 +587,6 @@ class HookQuerySetMixin:
         
         # Combine original fields with auto_now fields
         all_fields = list(fields) + list(auto_now_fields)
-        print(f"DEBUG: Original fields: {fields}")
-        print(f"DEBUG: Auto_now fields found: {auto_now_fields}")
-        print(f"DEBUG: All fields to update: {all_fields}")
         
         # Group fields by model in the inheritance chain
         field_groups = {}
@@ -665,8 +648,6 @@ class HookQuerySetMixin:
             if not model_fields:
                 continue
 
-            print(f"DEBUG: Updating model {model.__name__} with fields: {model_fields}")
-
             if model == inheritance_chain[0]:
                 # Root model - use primary keys directly
                 pks = root_pks
@@ -692,8 +673,6 @@ class HookQuerySetMixin:
                 # Check if records exist
                 existing_count = base_qs.filter(**{f"{filter_field}__in": pks}).count()
                 
-                print(f"DEBUG: Found {existing_count} existing records for model {model.__name__}")
-                
                 if existing_count == 0:
                     continue
                 
@@ -702,8 +681,6 @@ class HookQuerySetMixin:
                 for field_name in model_fields:
                     field = model._meta.get_field(field_name)
                     when_statements = []
-                    
-                    print(f"DEBUG: Processing field '{field_name}' for model {model.__name__}")
                     
                     for pk, obj in zip(pks, batch):
                         # Check both pk and id attributes for the object
@@ -714,7 +691,6 @@ class HookQuerySetMixin:
                         if obj_pk is None:
                             continue
                         value = getattr(obj, field_name)
-                        print(f"DEBUG: Setting {field_name} = {value} for object {obj_pk}")
                         when_statements.append(When(**{filter_field: pk}, then=Value(value, output_field=field)))
                     
                     case_statements[field_name] = Case(*when_statements, output_field=field)
