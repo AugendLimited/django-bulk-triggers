@@ -1,12 +1,39 @@
 from django.db import models
 
-from django_bulk_hooks.queryset import HookQuerySet
+from django_bulk_hooks.queryset import HookQuerySet, HookQuerySetMixin
+
+
+def inject_bulk_hook_behavior(queryset):
+    """
+    Dynamically inject bulk hook behavior into any queryset.
+    This follows the industry-standard pattern for cooperative queryset extensions.
+    
+    Args:
+        queryset: Any Django QuerySet instance
+        
+    Returns:
+        The same queryset instance with bulk hook functionality added
+    """
+    if not isinstance(queryset, HookQuerySetMixin):
+        # Create a new class that inherits from both HookQuerySetMixin and the queryset's class
+        HookedQuerySetClass = type(
+            "HookedQuerySet",
+            (HookQuerySetMixin, queryset.__class__),
+            {}
+        )
+        # Change the instance's class to the new hybrid class
+        queryset.__class__ = HookedQuerySetClass
+    return queryset
 
 
 class BulkHookManager(models.Manager):
     def get_queryset(self):
-        queryset = HookQuerySet(self.model, using=self._db)
-        return queryset
+        # Use super().get_queryset() to let Django and MRO build the queryset
+        # This ensures cooperation with other managers
+        base_queryset = super().get_queryset()
+        
+        # Inject our bulk hook behavior into the queryset
+        return inject_bulk_hook_behavior(base_queryset)
 
     def bulk_create(
         self,

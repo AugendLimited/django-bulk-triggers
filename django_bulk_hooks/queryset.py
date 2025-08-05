@@ -17,7 +17,12 @@ from django_bulk_hooks.context import HookContext
 from django.db.models import When, Value, Case
 
 
-class HookQuerySet(models.QuerySet):
+class HookQuerySetMixin:
+    """
+    A mixin that provides bulk hook functionality to any QuerySet.
+    This can be dynamically injected into querysets from other managers.
+    """
+    
     @transaction.atomic
     def delete(self):
         objs = list(self)
@@ -727,3 +732,11 @@ class HookQuerySet(models.QuerySet):
 
         print(f"Batch total updated: {total_updated}")
         return total_updated
+
+
+class HookQuerySet(HookQuerySetMixin, models.QuerySet):
+    """
+    A QuerySet that provides bulk hook functionality.
+    This is the traditional approach for backward compatibility.
+    """
+    pass

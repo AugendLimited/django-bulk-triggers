@@ -183,14 +183,19 @@ reordered = [account3, account1, account2]  # IDs: 3, 1, 2
 LoanAccount.objects.bulk_update(reordered, ['balance'])
 ```
 
-## 🧩 Integration with Queryable Properties
+## 🧩 Integration with Other Managers
 
-You can extend from `BulkHookManager` to support formula fields or property querying.
+You can extend from `BulkHookManager` to work with other manager classes. The manager uses a cooperative approach that dynamically injects bulk hook functionality into any queryset, ensuring compatibility with other managers.
 
 ```python
+from django_bulk_hooks.manager import BulkHookManager
+from queryable_properties.managers import QueryablePropertiesManager
+
 class MyManager(BulkHookManager, QueryablePropertiesManager):
     pass
 ```
+
+This approach uses the industry-standard injection pattern, similar to how `QueryablePropertiesManager` works, ensuring both functionalities work seamlessly together without any framework-specific knowledge.
 
 ## 📝 License
 
