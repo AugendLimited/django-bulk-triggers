@@ -1,5 +1,8 @@
 from django.db import models, transaction
 from django.db.models import AutoField
+import os
+import time
+from contextlib import contextmanager
 
 from django_bulk_hooks import engine
 from django_bulk_hooks.constants import (
@@ -23,6 +26,36 @@ class HookQuerySetMixin:
     This can be dynamically injected into querysets from other managers.
     """
     
+    # Lightweight, opt-in profiling utilities
+    _PROFILE_ENABLED = bool(
+        int(os.getenv("DJANGO_BULK_HOOKS_PROFILE", os.getenv("BULK_HOOKS_PROFILE", "0")))
+    )
+
+    @classmethod
+    def _profile_enabled(cls):
+        return cls._PROFILE_ENABLED
+
+    @staticmethod
+    def _profile_log(message: str) -> None:
+        # Keep prints extremely lightweight and flush to surface ordering issues quickly
+        print(f"[bulk_hooks.profile] {message}", flush=True)
+
+    @classmethod
+    @contextmanager
+    def _profile_step(cls, label: str, model_cls=None, extra: str | None = None):
+        if not cls._profile_enabled():
+            # Fast path: no overhead when disabled beyond the branch
+            yield
+            return
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+            model_str = f" model={model_cls.__name__}" if model_cls is not None else ""
+            extra_str = f" {extra}" if extra else ""
+            cls._profile_log(f"{label}{model_str}{extra_str} took {elapsed_ms:.2f}ms")
+    
     @transaction.atomic
     def delete(self):
         objs = list(self)
@@ -32,51 +65,63 @@ class HookQuerySetMixin:
         model_cls = self.model
         ctx = HookContext(model_cls)
 
-        # Run validation hooks first
-        engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
+        with self._profile_step("delete.total", model_cls, extra=f"n={len(objs)}"):
+            # Run validation hooks first
+            with self._profile_step("hooks.validate_delete", model_cls, extra=f"n={len(objs)}"):
+                engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
 
-        # Then run business logic hooks
-        engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
+            # Then run business logic hooks
+            with self._profile_step("hooks.before_delete", model_cls, extra=f"n={len(objs)}"):
+                engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
 
-        # Use Django's standard delete() method
-        result = super().delete()
+            # Use Django's standard delete() method
+            with self._profile_step("django.delete", model_cls, extra=f"n={len(objs)}"):
+                result = super().delete()
 
-        # Run AFTER_DELETE hooks
-        engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
+            # Run AFTER_DELETE hooks
+            with self._profile_step("hooks.after_delete", model_cls, extra=f"n={len(objs)}"):
+                engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
 
         return result
 
     @transaction.atomic
     def update(self, **kwargs):
-        instances = list(self)
+        with self._profile_step("update.load_instances", self.model):
+            instances = list(self)
         if not instances:
             return 0
 
         model_cls = self.model
-        pks = [obj.pk for obj in instances]
+        with self._profile_step("update.collect_pks", model_cls, extra=f"n={len(instances)}"):
+            pks = [obj.pk for obj in instances]
 
         # Load originals for hook comparison and ensure they match the order of instances
         # Use the base manager to avoid recursion
-        original_map = {
-            obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
-        }
-        originals = [original_map.get(obj.pk) for obj in instances]
+        with self._profile_step("update.load_originals", model_cls, extra=f"n={len(instances)}"):
+            original_map = {
+                obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
+            }
+            originals = [original_map.get(obj.pk) for obj in instances]
 
         # Apply field updates to instances
-        for obj in instances:
-            for field, value in kwargs.items():
-                setattr(obj, field, value)
+        with self._profile_step("update.apply_in_memory", model_cls, extra=f"fields={list(kwargs.keys())}"):
+            for obj in instances:
+                for field, value in kwargs.items():
+                    setattr(obj, field, value)
 
         # Run BEFORE_UPDATE hooks
         ctx = HookContext(model_cls)
-        engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
+        with self._profile_step("hooks.before_update", model_cls, extra=f"n={len(instances)}"):
+            engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
 
         # Use Django's built-in update logic directly
         # Call the base QuerySet implementation to avoid recursion
-        update_count = super().update(**kwargs)
+        with self._profile_step("django.update", model_cls, extra=f"n={len(instances)}"):
+            update_count = super().update(**kwargs)
 
         # Run AFTER_UPDATE hooks
-        engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
+        with self._profile_step("hooks.after_update", model_cls, extra=f"n={len(instances)}"):
+            engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
 
         return update_count
 
@@ -127,54 +172,60 @@ class HookQuerySetMixin:
         # with our model to detect the inheritance pattern ConcreteGrandParent ->
         # MultiTableParent -> ProxyChild. Simply checking self.model._meta.proxy would not
         # identify that case as involving multiple tables.
-        is_mti = False
-        for parent in model_cls._meta.all_parents:
-            if parent._meta.concrete_model is not model_cls._meta.concrete_model:
-                is_mti = True
-                break
+        with self._profile_step("bulk_create.detect_mti", model_cls):
+            is_mti = False
+            for parent in model_cls._meta.all_parents:
+                if parent._meta.concrete_model is not model_cls._meta.concrete_model:
+                    is_mti = True
+                    break
 
-        # Fire hooks before DB ops
-        if not bypass_hooks:
-            ctx = HookContext(model_cls)
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
-            engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
+        with self._profile_step("bulk_create.total", model_cls, extra=f"n={len(objs)} batch_size={batch_size} mti={is_mti} bypass_hooks={bypass_hooks}"):
+            # Fire hooks before DB ops
+            if not bypass_hooks:
+                ctx = HookContext(model_cls)
+                if not bypass_validation:
+                    with self._profile_step("hooks.validate_create", model_cls, extra=f"n={len(objs)}"):
+                        engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
+                with self._profile_step("hooks.before_create", model_cls, extra=f"n={len(objs)}"):
+                    engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
 
-        # For MTI models, we need to handle them specially
-        if is_mti:
-            # Use our MTI-specific logic
-            # Filter out custom parameters that Django's bulk_create doesn't accept
-            mti_kwargs = {
-                "batch_size": batch_size,
-                "ignore_conflicts": ignore_conflicts,
-                "update_conflicts": update_conflicts,
-                "update_fields": update_fields,
-                "unique_fields": unique_fields,
-            }
-            # Remove custom hook kwargs if present in self.bulk_create signature
-            result = self._mti_bulk_create(
-                objs,
-                **mti_kwargs,
-            )
-        else:
-            # For single-table models, use Django's built-in bulk_create
-            # but we need to call it on the base manager to avoid recursion
-            # Filter out custom parameters that Django's bulk_create doesn't accept
+            # For MTI models, we need to handle them specially
+            if is_mti:
+                # Use our MTI-specific logic
+                # Filter out custom parameters that Django's bulk_create doesn't accept
+                mti_kwargs = {
+                    "batch_size": batch_size,
+                    "ignore_conflicts": ignore_conflicts,
+                    "update_conflicts": update_conflicts,
+                    "update_fields": update_fields,
+                    "unique_fields": unique_fields,
+                }
+                # Remove custom hook kwargs if present in self.bulk_create signature
+                with self._profile_step("bulk_create.mti", model_cls, extra=f"n={len(objs)} batch_size={batch_size}"):
+                    result = self._mti_bulk_create(
+                        objs,
+                        **mti_kwargs,
+                    )
+            else:
+                # For single-table models, use Django's built-in bulk_create
+                # but we need to call it on the base manager to avoid recursion
+                # Filter out custom parameters that Django's bulk_create doesn't accept
+                with self._profile_step("bulk_create.django", model_cls, extra=f"n={len(objs)} batch_size={batch_size}"):
+                    result = super().bulk_create(
+                        objs,
+                        batch_size=batch_size,
+                        ignore_conflicts=ignore_conflicts,
+                        update_conflicts=update_conflicts,
+                        update_fields=update_fields,
+                        unique_fields=unique_fields,
+                    )
 
-            result = super().bulk_create(
-                objs,
-                batch_size=batch_size,
-                ignore_conflicts=ignore_conflicts,
-                update_conflicts=update_conflicts,
-                update_fields=update_fields,
-                unique_fields=unique_fields,
-            )
+            # Fire AFTER_CREATE hooks
+            if not bypass_hooks:
+                with self._profile_step("hooks.after_create", model_cls, extra=f"n={len(objs)}"):
+                    engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
 
-        # Fire AFTER_CREATE hooks
-        if not bypass_hooks:
-            engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
-
-        return result
+            return result
 
     @transaction.atomic
     def bulk_update(
@@ -194,54 +245,62 @@ class HookQuerySetMixin:
             )
 
         # Check for MTI
-        is_mti = False
-        for parent in model_cls._meta.all_parents:
-            if parent._meta.concrete_model is not model_cls._meta.concrete_model:
-                is_mti = True
-                break
+        with self._profile_step("bulk_update.detect_mti", model_cls):
+            is_mti = False
+            for parent in model_cls._meta.all_parents:
+                if parent._meta.concrete_model is not model_cls._meta.concrete_model:
+                    is_mti = True
+                    break
 
-        if not bypass_hooks:
-            # Load originals for hook comparison
-            original_map = {
-                obj.pk: obj
-                for obj in model_cls._base_manager.filter(
-                    pk__in=[obj.pk for obj in objs]
-                )
-            }
-            originals = [original_map.get(obj.pk) for obj in objs]
+        with self._profile_step("bulk_update.total", model_cls, extra=f"n={len(objs)} fields={fields} mti={is_mti} bypass_hooks={bypass_hooks}"):
+            if not bypass_hooks:
+                # Load originals for hook comparison
+                with self._profile_step("bulk_update.load_originals", model_cls, extra=f"n={len(objs)}"):
+                    original_map = {
+                        obj.pk: obj
+                        for obj in model_cls._base_manager.filter(
+                            pk__in=[obj.pk for obj in objs]
+                        )
+                    }
+                    originals = [original_map.get(obj.pk) for obj in objs]
 
-            ctx = HookContext(model_cls)
+                ctx = HookContext(model_cls)
 
-            # Run validation hooks first
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
+                # Run validation hooks first
+                if not bypass_validation:
+                    with self._profile_step("hooks.validate_update", model_cls, extra=f"n={len(objs)}"):
+                        engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
 
-            # Then run business logic hooks
-            engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+                # Then run business logic hooks
+                with self._profile_step("hooks.before_update", model_cls, extra=f"n={len(objs)}"):
+                    engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
 
-            # Detect modified fields during hooks
-            modified_fields = self._detect_modified_fields(objs, originals)
-            if modified_fields:
-                fields_set = set(fields)
-                fields_set.update(modified_fields)
-                fields = list(fields_set)
+                # Detect modified fields during hooks
+                with self._profile_step("bulk_update.detect_modified_fields", model_cls, extra=f"n={len(objs)}"):
+                    modified_fields = self._detect_modified_fields(objs, originals)
+                if modified_fields:
+                    fields_set = set(fields)
+                    fields_set.update(modified_fields)
+                    fields = list(fields_set)
 
         # Handle auto_now fields like Django's update_or_create does
-        fields_set = set(fields)
-        pk_fields = model_cls._meta.pk_fields
-        for field in model_cls._meta.local_concrete_fields:
-            # Only add auto_now fields (like updated_at) that aren't already in the fields list
-            # Don't include auto_now_add fields (like created_at) as they should only be set on creation
-            if hasattr(field, "auto_now") and field.auto_now:
-                if field.name not in fields_set and field.name not in pk_fields:
-                    fields_set.add(field.name)
-                    if field.name != field.attname:
-                        fields_set.add(field.attname)
-        fields = list(fields_set)
+        with self._profile_step("bulk_update.handle_auto_now", model_cls):
+            fields_set = set(fields)
+            pk_fields = model_cls._meta.pk_fields
+            for field in model_cls._meta.local_concrete_fields:
+                # Only add auto_now fields (like updated_at) that aren't already in the fields list
+                # Don't include auto_now_add fields (like created_at) as they should only be set on creation
+                if hasattr(field, "auto_now") and field.auto_now:
+                    if field.name not in fields_set and field.name not in pk_fields:
+                        fields_set.add(field.name)
+                        if field.name != field.attname:
+                            fields_set.add(field.attname)
+            fields = list(fields_set)
 
         # Handle MTI models differently
         if is_mti:
-            result = self._mti_bulk_update(objs, fields, **kwargs)
+            with self._profile_step("bulk_update.mti", model_cls, extra=f"n={len(objs)} fields={fields}"):
+                result = self._mti_bulk_update(objs, fields, **kwargs)
         else:
             # For single-table models, use Django's built-in bulk_update
             django_kwargs = {
@@ -249,10 +308,12 @@ class HookQuerySetMixin:
                 for k, v in kwargs.items()
                 if k not in ["bypass_hooks", "bypass_validation"]
             }
-            result = super().bulk_update(objs, fields, **django_kwargs)
+            with self._profile_step("bulk_update.django", model_cls, extra=f"n={len(objs)} fields={fields}"):
+                result = super().bulk_update(objs, fields, **django_kwargs)
 
         if not bypass_hooks:
-            engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
+            with self._profile_step("hooks.after_update", model_cls, extra=f"n={len(objs)}"):
+                engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
 
         return result
 
@@ -338,13 +399,15 @@ class HookQuerySetMixin:
 
         batch_size = django_kwargs.get("batch_size") or len(objs)
         created_objects = []
-        with transaction.atomic(using=self.db, savepoint=False):
-            for i in range(0, len(objs), batch_size):
-                batch = objs[i : i + batch_size]
-                batch_result = self._process_mti_bulk_create_batch(
-                    batch, inheritance_chain, **django_kwargs
-                )
-                created_objects.extend(batch_result)
+        with self._profile_step("mti_bulk_create.total", self.model, extra=f"n={len(objs)} batch_size={batch_size} chain={','.join([m.__name__ for m in inheritance_chain])}"):
+            with transaction.atomic(using=self.db, savepoint=False):
+                for i in range(0, len(objs), batch_size):
+                    batch = objs[i : i + batch_size]
+                    with self._profile_step("mti_bulk_create.batch", self.model, extra=f"batch_n={len(batch)}"):
+                        batch_result = self._process_mti_bulk_create_batch(
+                            batch, inheritance_chain, **django_kwargs
+                        )
+                        created_objects.extend(batch_result)
         return created_objects
 
     def _process_mti_bulk_create_batch(self, batch, inheritance_chain, **kwargs):
@@ -362,45 +425,50 @@ class HookQuerySetMixin:
         bypass_hooks = kwargs.get("bypass_hooks", False)
         bypass_validation = kwargs.get("bypass_validation", False)
 
-        for obj in batch:
-            parent_instances = {}
-            current_parent = None
-            for model_class in inheritance_chain[:-1]:
-                parent_obj = self._create_parent_instance(
-                    obj, model_class, current_parent
-                )
+        with self._profile_step("mti_bulk_create.parents_normal_inserts", self.model, extra=f"batch_n={len(batch)}"):
+            for obj in batch:
+                parent_instances = {}
+                current_parent = None
+                for model_class in inheritance_chain[:-1]:
+                    parent_obj = self._create_parent_instance(
+                        obj, model_class, current_parent
+                    )
 
-                # Fire parent hooks if not bypassed
-                if not bypass_hooks:
-                    ctx = HookContext(model_class)
-                    if not bypass_validation:
-                        engine.run(model_class, VALIDATE_CREATE, [parent_obj], ctx=ctx)
-                    engine.run(model_class, BEFORE_CREATE, [parent_obj], ctx=ctx)
+                    # Fire parent hooks if not bypassed
+                    if not bypass_hooks:
+                        ctx = HookContext(model_class)
+                        if not bypass_validation:
+                            with self._profile_step("hooks.validate_create.parent", model_class):
+                                engine.run(model_class, VALIDATE_CREATE, [parent_obj], ctx=ctx)
+                        with self._profile_step("hooks.before_create.parent", model_class):
+                            engine.run(model_class, BEFORE_CREATE, [parent_obj], ctx=ctx)
 
-                # Use Django's base manager to create the object and get PKs back
-                # This bypasses hooks and the MTI exception
-                field_values = {
-                    field.name: getattr(parent_obj, field.name)
-                    for field in model_class._meta.local_fields
-                    if hasattr(parent_obj, field.name)
-                    and getattr(parent_obj, field.name) is not None
-                }
-                created_obj = model_class._base_manager.using(self.db).create(
-                    **field_values
-                )
+                    # Use Django's base manager to create the object and get PKs back
+                    # This bypasses hooks and the MTI exception
+                    field_values = {
+                        field.name: getattr(parent_obj, field.name)
+                        for field in model_class._meta.local_fields
+                        if hasattr(parent_obj, field.name)
+                        and getattr(parent_obj, field.name) is not None
+                    }
+                    with self._profile_step("django.create.parent", model_class):
+                        created_obj = model_class._base_manager.using(self.db).create(
+                            **field_values
+                        )
 
-                # Update the parent_obj with the created object's PK
-                parent_obj.pk = created_obj.pk
-                parent_obj._state.adding = False
-                parent_obj._state.db = self.db
+                    # Update the parent_obj with the created object's PK
+                    parent_obj.pk = created_obj.pk
+                    parent_obj._state.adding = False
+                    parent_obj._state.db = self.db
 
-                # Fire AFTER_CREATE hooks for parent
-                if not bypass_hooks:
-                    engine.run(model_class, AFTER_CREATE, [parent_obj], ctx=ctx)
+                    # Fire AFTER_CREATE hooks for parent
+                    if not bypass_hooks:
+                        with self._profile_step("hooks.after_create.parent", model_class):
+                            engine.run(model_class, AFTER_CREATE, [parent_obj], ctx=ctx)
 
-                parent_instances[model_class] = parent_obj
-                current_parent = parent_obj
-            parent_objects_map[id(obj)] = parent_instances
+                    parent_instances[model_class] = parent_obj
+                    current_parent = parent_obj
+                parent_objects_map[id(obj)] = parent_instances
 
         # Step 2: Create all child objects and do single bulk insert into childmost table
         child_model = inheritance_chain[-1]
@@ -438,11 +506,12 @@ class HookQuerySetMixin:
 
             with transaction.atomic(using=self.db, savepoint=False):
                 if objs_with_pk:
-                    returned_columns = base_qs._batched_insert(
-                        objs_with_pk,
-                        fields,
-                        batch_size=len(objs_with_pk),  # Use actual batch size
-                    )
+                    with self._profile_step("mti_bulk_create.child_batched_insert.with_pk", child_model, extra=f"n={len(objs_with_pk)}"):
+                        returned_columns = base_qs._batched_insert(
+                            objs_with_pk,
+                            fields,
+                            batch_size=len(objs_with_pk),  # Use actual batch size
+                        )
                     for obj_with_pk, results in zip(objs_with_pk, returned_columns):
                         for result, field in zip(results, opts.db_returning_fields):
                             if field != opts.pk:
@@ -458,11 +527,12 @@ class HookQuerySetMixin:
                         for f in fields
                         if not isinstance(f, AutoField) and not f.primary_key
                     ]
-                    returned_columns = base_qs._batched_insert(
-                        objs_without_pk,
-                        fields,
-                        batch_size=len(objs_without_pk),  # Use actual batch size
-                    )
+                    with self._profile_step("mti_bulk_create.child_batched_insert.without_pk", child_model, extra=f"n={len(objs_without_pk)}"):
+                        returned_columns = base_qs._batched_insert(
+                            objs_without_pk,
+                            fields,
+                            batch_size=len(objs_without_pk),  # Use actual batch size
+                        )
                     for obj_without_pk, results in zip(
                         objs_without_pk, returned_columns
                     ):
@@ -473,11 +543,12 @@ class HookQuerySetMixin:
 
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
-        for orig_obj, child_obj in zip(batch, all_child_objects):
-            child_pk = getattr(child_obj, pk_field_name)
-            setattr(orig_obj, pk_field_name, child_pk)
-            orig_obj._state.adding = False
-            orig_obj._state.db = self.db
+        with self._profile_step("mti_bulk_create.update_originals", child_model, extra=f"n={len(all_child_objects)}"):
+            for orig_obj, child_obj in zip(batch, all_child_objects):
+                child_pk = getattr(child_obj, pk_field_name)
+                setattr(orig_obj, pk_field_name, child_pk)
+                orig_obj._state.adding = False
+                orig_obj._state.db = self.db
 
         return batch
 
@@ -603,14 +674,15 @@ class HookQuerySetMixin:
         # Process in batches
         batch_size = django_kwargs.get("batch_size") or len(objs)
         total_updated = 0
-        
-        with transaction.atomic(using=self.db, savepoint=False):
-            for i in range(0, len(objs), batch_size):
-                batch = objs[i : i + batch_size]
-                batch_result = self._process_mti_bulk_update_batch(
-                    batch, field_groups, inheritance_chain, **django_kwargs
-                )
-                total_updated += batch_result
+        with self._profile_step("mti_bulk_update.total", self.model, extra=f"n={len(objs)} batch_size={batch_size} chain={','.join([m.__name__ for m in inheritance_chain])}"):
+            with transaction.atomic(using=self.db, savepoint=False):
+                for i in range(0, len(objs), batch_size):
+                    batch = objs[i : i + batch_size]
+                    with self._profile_step("mti_bulk_update.batch", self.model, extra=f"batch_n={len(batch)}"):
+                        batch_result = self._process_mti_bulk_update_batch(
+                            batch, field_groups, inheritance_chain, **django_kwargs
+                        )
+                        total_updated += batch_result
 
         return total_updated
 
@@ -629,16 +701,17 @@ class HookQuerySetMixin:
         # Get the primary keys from the objects
         # If objects have pk set but are not loaded from DB, use those PKs
         root_pks = []
-        for obj in batch:
-            # Check both pk and id attributes
-            pk_value = getattr(obj, 'pk', None)
-            if pk_value is None:
-                pk_value = getattr(obj, 'id', None)
-            
-            if pk_value is not None:
-                root_pks.append(pk_value)
-            else:
-                continue
+        with self._profile_step("mti_bulk_update.collect_root_pks", root_model, extra=f"batch_n={len(batch)}"):
+            for obj in batch:
+                # Check both pk and id attributes
+                pk_value = getattr(obj, 'pk', None)
+                if pk_value is None:
+                    pk_value = getattr(obj, 'id', None)
+                
+                if pk_value is not None:
+                    root_pks.append(pk_value)
+                else:
+                    continue
         
         if not root_pks:
             return 0
@@ -671,33 +744,36 @@ class HookQuerySetMixin:
                 base_qs = model._base_manager.using(self.db)
                 
                 # Check if records exist
-                existing_count = base_qs.filter(**{f"{filter_field}__in": pks}).count()
+                with self._profile_step("mti_bulk_update.exists_check", model, extra=f"n={len(pks)}"):
+                    existing_count = base_qs.filter(**{f"{filter_field}__in": pks}).count()
                 
                 if existing_count == 0:
                     continue
                 
                 # Build CASE statements for each field to perform a single bulk update
-                case_statements = {}
-                for field_name in model_fields:
-                    field = model._meta.get_field(field_name)
-                    when_statements = []
-                    
-                    for pk, obj in zip(pks, batch):
-                        # Check both pk and id attributes for the object
-                        obj_pk = getattr(obj, 'pk', None)
-                        if obj_pk is None:
-                            obj_pk = getattr(obj, 'id', None)
+                with self._profile_step("mti_bulk_update.build_case", model, extra=f"fields={len(model_fields)}"):
+                    case_statements = {}
+                    for field_name in model_fields:
+                        field = model._meta.get_field(field_name)
+                        when_statements = []
                         
-                        if obj_pk is None:
-                            continue
-                        value = getattr(obj, field_name)
-                        when_statements.append(When(**{filter_field: pk}, then=Value(value, output_field=field)))
-                    
-                    case_statements[field_name] = Case(*when_statements, output_field=field)
+                        for pk, obj in zip(pks, batch):
+                            # Check both pk and id attributes for the object
+                            obj_pk = getattr(obj, 'pk', None)
+                            if obj_pk is None:
+                                obj_pk = getattr(obj, 'id', None)
+                            
+                            if obj_pk is None:
+                                continue
+                            value = getattr(obj, field_name)
+                            when_statements.append(When(**{filter_field: pk}, then=Value(value, output_field=field)))
+                        
+                        case_statements[field_name] = Case(*when_statements, output_field=field)
                 
                 # Execute a single bulk update for all objects in this model
                 try:
-                    updated_count = base_qs.filter(**{f"{filter_field}__in": pks}).update(**case_statements)
+                    with self._profile_step("mti_bulk_update.update", model, extra=f"n={len(pks)} fields={len(model_fields)}"):
+                        updated_count = base_qs.filter(**{f"{filter_field}__in": pks}).update(**case_statements)
                     total_updated += updated_count
                 except Exception as e:
                     import traceback
