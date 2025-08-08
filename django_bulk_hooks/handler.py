@@ -1,7 +1,6 @@
 import logging
 import threading
 from collections import deque
-from itertools import zip_longest
 
 from django.db import transaction
 
@@ -30,13 +29,6 @@ def get_hook_queue():
     if not hasattr(_hook_context, "queue"):
         _hook_context.queue = deque()
     return _hook_context.queue
-
-
-def get_handler_cache():
-    """Thread-local cache for handler instances, scoped per outermost run."""
-    if not hasattr(_hook_context, "handler_cache"):
-        _hook_context.handler_cache = {}
-    return _hook_context.handler_cache
 
 
 class HookContextState:
@@ -112,8 +104,6 @@ class Hook(metaclass=HookMeta):
             return  # nested call, will be processed by outermost
 
         # only outermost handle will process the queue
-        # initialize a fresh handler cache for this run
-        _hook_context.handler_cache = {}
         while queue:
             cls_, event_, model_, new_, old_, kw_ = queue.popleft()
             cls_._process(event_, model_, new_, old_, **kw_)
@@ -133,56 +123,29 @@ class Hook(metaclass=HookMeta):
         hook_vars.event = event
         hook_vars.model = model
 
-        # Hooks are already kept sorted by priority in the registry
-        hooks = get_hooks(model, event)
+        hooks = sorted(get_hooks(model, event), key=lambda x: x[3])
 
         def _execute():
             new_local = new_records or []
             old_local = old_records or []
-            cache = get_handler_cache()
+            if len(old_local) < len(new_local):
+                old_local += [None] * (len(new_local) - len(old_local))
 
             for handler_cls, method_name, condition, priority in hooks:
-                # If there's no condition, pass through all records fast
-                if condition is None:
-                    handler = cache.get(handler_cls)
-                    if handler is None:
-                        handler = handler_cls()
-                        cache[handler_cls] = handler
-                    method = getattr(handler, method_name)
-                    try:
-                        method(
-                            new_records=new_local,
-                            old_records=old_local,
-                            **kwargs,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "Error in hook %s.%s", handler_cls.__name__, method_name
-                        )
-                    continue
-
-                # Filter matching records without allocating full boolean list
-                to_process_new = []
-                to_process_old = []
-                for n, o in zip_longest(new_local, old_local, fillvalue=None):
-                    if n is None:
+                if condition is not None:
+                    checks = [
+                        condition.check(n, o) for n, o in zip(new_local, old_local)
+                    ]
+                    if not any(checks):
                         continue
-                    if condition.check(n, o):
-                        to_process_new.append(n)
-                        to_process_old.append(o)
 
-                if not to_process_new:
-                    continue
-
-                handler = cache.get(handler_cls)
-                if handler is None:
-                    handler = handler_cls()
-                    cache[handler_cls] = handler
+                handler = handler_cls()
                 method = getattr(handler, method_name)
+
                 try:
                     method(
-                        new_records=to_process_new,
-                        old_records=to_process_old,
+                        new_records=new_local,
+                        old_records=old_local,
                         **kwargs,
                     )
                 except Exception:
@@ -202,7 +165,3 @@ class Hook(metaclass=HookMeta):
             hook_vars.event = None
             hook_vars.model = None
             hook_vars.depth -= 1
-            # Clear cache only when queue is empty (outermost completion)
-            if not get_hook_queue():
-                if hasattr(_hook_context, "handler_cache"):
-                    _hook_context.handler_cache.clear()
