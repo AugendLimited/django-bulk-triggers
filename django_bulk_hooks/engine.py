@@ -92,7 +92,6 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
         for new, original in zip(
             new_records,
             old_records if old_records is not None else repeat(None),
-            strict=True,
         ):
             if condition.check(new, original):
                 to_process_new.append(new)
