@@ -321,35 +321,34 @@ class HookQuerySetMixin:
         """
         Detect fields that were modified during BEFORE_UPDATE hooks by comparing
         new instances with their original values.
+        Optimized to avoid dereferencing related objects which can trigger queries.
         """
         if not original_instances:
             return set()
 
         modified_fields = set()
 
-        # Since original_instances is now ordered to match new_instances, we can zip them directly
+        # Since original_instances is ordered to match new_instances, we can zip them directly
         for new_instance, original in zip(new_instances, original_instances):
-            if new_instance.pk is None or original is None:
+            if new_instance is None or original is None:
                 continue
 
-            # Compare all fields to detect changes
-            for field in new_instance._meta.fields:
-                if field.name == "id":
+            # Only check local concrete fields; skip PK and many-to-many
+            for field in new_instance._meta.local_concrete_fields:
+                if field.primary_key:
                     continue
 
-                new_value = getattr(new_instance, field.name)
-                original_value = getattr(original, field.name)
-
-                # Handle different field types appropriately
-                if field.is_relation:
-                    # For foreign keys, compare the pk values
-                    new_pk = new_value.pk if new_value else None
-                    original_pk = original_value.pk if original_value else None
-                    if new_pk != original_pk:
+                if getattr(field, "remote_field", None):
+                    # ForeignKey/OneToOne: compare the raw id values via attname to avoid fetching related objects
+                    new_id = getattr(new_instance, field.attname, None)
+                    old_id = getattr(original, field.attname, None)
+                    if new_id != old_id:
                         modified_fields.add(field.name)
                 else:
-                    # For regular fields, use direct comparison
-                    if new_value != original_value:
+                    # Regular value fields
+                    new_value = getattr(new_instance, field.attname if hasattr(field, "attname") else field.name)
+                    old_value = getattr(original, field.attname if hasattr(field, "attname") else field.name)
+                    if new_value != old_value:
                         modified_fields.add(field.name)
 
         return modified_fields
