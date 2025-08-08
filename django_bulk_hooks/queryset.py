@@ -30,6 +30,8 @@ class HookQuerySetMixin:
     _PROFILE_ENABLED = bool(
         int(os.getenv("DJANGO_BULK_HOOKS_PROFILE", os.getenv("BULK_HOOKS_PROFILE", "0")))
     )
+    _PROFILE_MIN_MS = float(os.getenv("DJANGO_BULK_HOOKS_PROFILE_MIN_MS", "0"))
+    _DEFAULT_BATCH_SIZE = int(os.getenv("DJANGO_BULK_HOOKS_DEFAULT_BATCH_SIZE", "0")) or None
 
     @classmethod
     def _profile_enabled(cls):
@@ -54,7 +56,8 @@ class HookQuerySetMixin:
             elapsed_ms = (time.perf_counter() - start) * 1000.0
             model_str = f" model={model_cls.__name__}" if model_cls is not None else ""
             extra_str = f" {extra}" if extra else ""
-            cls._profile_log(f"{label}{model_str}{extra_str} took {elapsed_ms:.2f}ms")
+            if elapsed_ms >= cls._PROFILE_MIN_MS:
+                cls._profile_log(f"{label}{model_str}{extra_str} took {elapsed_ms:.2f}ms")
     
     @transaction.atomic
     def delete(self):
@@ -156,6 +159,10 @@ class HookQuerySetMixin:
         # PostgreSQL via the RETURNING ID clause. It should be possible for
         # Oracle as well, but the semantics for extracting the primary keys is
         # trickier so it's not done yet.
+        # Apply default batch size from env if not provided
+        if batch_size is None and self._DEFAULT_BATCH_SIZE:
+            batch_size = self._DEFAULT_BATCH_SIZE
+
         if batch_size is not None and batch_size <= 0:
             raise ValueError("Batch size must be a positive integer.")
 
@@ -186,6 +193,8 @@ class HookQuerySetMixin:
                 if not bypass_validation:
                     with self._profile_step("hooks.validate_create", model_cls, extra=f"n={len(objs)}"):
                         engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
+                    # Skip model.clean in BEFORE_* since we just validated above
+                    setattr(ctx, "skip_model_clean", True)
                 with self._profile_step("hooks.before_create", model_cls, extra=f"n={len(objs)}"):
                     engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
 
@@ -270,6 +279,8 @@ class HookQuerySetMixin:
                 if not bypass_validation:
                     with self._profile_step("hooks.validate_update", model_cls, extra=f"n={len(objs)}"):
                         engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
+                    # Skip model.clean in BEFORE_* since we just validated above
+                    setattr(ctx, "skip_model_clean", True)
 
                 # Then run business logic hooks
                 with self._profile_step("hooks.before_update", model_cls, extra=f"n={len(objs)}"):
@@ -308,6 +319,9 @@ class HookQuerySetMixin:
                 for k, v in kwargs.items()
                 if k not in ["bypass_hooks", "bypass_validation"]
             }
+            # Apply default batch size if not provided
+            if "batch_size" not in django_kwargs and self._DEFAULT_BATCH_SIZE:
+                django_kwargs["batch_size"] = self._DEFAULT_BATCH_SIZE
             with self._profile_step("bulk_update.django", model_cls, extra=f"n={len(objs)} fields={fields}"):
                 result = super().bulk_update(objs, fields, **django_kwargs)
 
