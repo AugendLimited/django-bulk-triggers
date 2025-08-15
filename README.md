@@ -113,6 +113,46 @@ Account.objects.update(balance=0.00)
 Account.objects.delete()
 ```
 
+### Subquery Support in Updates
+
+When using `Subquery` objects in update operations, the computed values are automatically available in hooks. The system efficiently refreshes all instances in bulk for optimal performance:
+
+```python
+from django.db.models import Subquery, OuterRef, Sum
+
+def aggregate_revenue_by_ids(self, ids: Iterable[int]) -> int:
+    return self.find_by_ids(ids).update(
+        revenue=Subquery(
+            FinancialTransaction.objects.filter(daily_financial_aggregate_id=OuterRef("pk"))
+            .filter(is_revenue=True)
+            .values("daily_financial_aggregate_id")
+            .annotate(revenue_sum=Sum("amount"))
+            .values("revenue_sum")[:1],
+        ),
+    )
+
+# In your hooks, you can now access the computed revenue value:
+class FinancialAggregateHooks(Hook):
+    @hook(AFTER_UPDATE, model=DailyFinancialAggregate)
+    def log_revenue_update(self, new_records, old_records):
+        for new_record in new_records:
+            # This will now contain the computed value, not the Subquery object
+            print(f"Updated revenue: {new_record.revenue}")
+
+# Bulk operations are optimized for performance:
+def bulk_aggregate_revenue(self, ids: Iterable[int]) -> int:
+    # This will efficiently refresh all instances in a single query
+    return self.filter(id__in=ids).update(
+        revenue=Subquery(
+            FinancialTransaction.objects.filter(daily_financial_aggregate_id=OuterRef("pk"))
+            .filter(is_revenue=True)
+            .values("daily_financial_aggregate_id")
+            .annotate(revenue_sum=Sum("amount"))
+            .values("revenue_sum")[:1],
+        ),
+    )
+```
+
 ## 🧠 Why?
 
 Django's `bulk_` methods bypass signals and `save()`. This package fills that gap with:

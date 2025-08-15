@@ -1,5 +1,5 @@
 from django.db import models, transaction
-from django.db.models import AutoField
+from django.db.models import AutoField, Case, Field, Value, When
 
 from django_bulk_hooks import engine
 from django_bulk_hooks.constants import (
@@ -14,7 +14,6 @@ from django_bulk_hooks.constants import (
     VALIDATE_UPDATE,
 )
 from django_bulk_hooks.context import HookContext
-from django.db.models import When, Value, Case, Field
 
 
 class HookQuerySetMixin:
@@ -22,7 +21,7 @@ class HookQuerySetMixin:
     A mixin that provides bulk hook functionality to any QuerySet.
     This can be dynamically injected into querysets from other managers.
     """
-    
+
     @transaction.atomic
     def delete(self):
         objs = list(self)
@@ -62,6 +61,12 @@ class HookQuerySetMixin:
         }
         originals = [original_map.get(obj.pk) for obj in instances]
 
+        # Check if any of the update values are Subquery objects
+        has_subquery = any(
+            hasattr(value, "query") and hasattr(value, "resolve_expression")
+            for value in kwargs.values()
+        )
+
         # Apply field updates to instances
         for obj in instances:
             for field, value in kwargs.items():
@@ -74,6 +79,27 @@ class HookQuerySetMixin:
         # Use Django's built-in update logic directly
         # Call the base QuerySet implementation to avoid recursion
         update_count = super().update(**kwargs)
+
+        # If we used Subquery objects, refresh the instances to get computed values
+        if has_subquery and instances:
+            # Simple refresh of model fields without fetching related objects
+            # Subquery updates only affect the model's own fields, not relationships
+            refreshed_instances = {
+                obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
+            }
+
+            # Bulk update all instances in memory
+            for instance in instances:
+                if instance.pk in refreshed_instances:
+                    refreshed_instance = refreshed_instances[instance.pk]
+                    # Update all fields except primary key
+                    for field in model_cls._meta.fields:
+                        if field.name != "id":
+                            setattr(
+                                instance,
+                                field.name,
+                                getattr(refreshed_instance, field.name),
+                            )
 
         # Run AFTER_UPDATE hooks
         engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
@@ -303,14 +329,14 @@ class HookQuerySetMixin:
         while current_model:
             if not current_model._meta.proxy:
                 chain.append(current_model)
-            
+
             parents = [
                 parent
                 for parent in current_model._meta.parents.keys()
                 if not parent._meta.proxy
             ]
             current_model = parents[0] if parents else None
-        
+
         chain.reverse()
         return chain
 
@@ -584,10 +610,10 @@ class HookQuerySetMixin:
             for field in model._meta.local_fields:
                 if hasattr(field, "auto_now") and field.auto_now:
                     auto_now_fields.add(field.name)
-        
+
         # Combine original fields with auto_now fields
         all_fields = list(fields) + list(auto_now_fields)
-        
+
         # Group fields by model in the inheritance chain
         field_groups = {}
         for field_name in all_fields:
@@ -603,7 +629,7 @@ class HookQuerySetMixin:
         # Process in batches
         batch_size = django_kwargs.get("batch_size") or len(objs)
         total_updated = 0
-        
+
         with transaction.atomic(using=self.db, savepoint=False):
             for i in range(0, len(objs), batch_size):
                 batch = objs[i : i + batch_size]
@@ -614,35 +640,37 @@ class HookQuerySetMixin:
 
         return total_updated
 
-    def _process_mti_bulk_update_batch(self, batch, field_groups, inheritance_chain, **kwargs):
+    def _process_mti_bulk_update_batch(
+        self, batch, field_groups, inheritance_chain, **kwargs
+    ):
         """
         Process a single batch of objects for MTI bulk update.
         Updates each table in the inheritance chain for the batch.
         """
         total_updated = 0
-        
+
         # For MTI, we need to handle parent links correctly
         # The root model (first in chain) has its own PK
         # Child models use the parent link to reference the root PK
         root_model = inheritance_chain[0]
-        
+
         # Get the primary keys from the objects
         # If objects have pk set but are not loaded from DB, use those PKs
         root_pks = []
         for obj in batch:
             # Check both pk and id attributes
-            pk_value = getattr(obj, 'pk', None)
+            pk_value = getattr(obj, "pk", None)
             if pk_value is None:
-                pk_value = getattr(obj, 'id', None)
-            
+                pk_value = getattr(obj, "id", None)
+
             if pk_value is not None:
                 root_pks.append(pk_value)
             else:
                 continue
-        
+
         if not root_pks:
             return 0
-        
+
         # Update each table in the inheritance chain
         for model, model_fields in field_groups.items():
             if not model_fields:
@@ -651,7 +679,7 @@ class HookQuerySetMixin:
             if model == inheritance_chain[0]:
                 # Root model - use primary keys directly
                 pks = root_pks
-                filter_field = 'pk'
+                filter_field = "pk"
             else:
                 # Child model - use parent link field
                 parent_link = None
@@ -659,48 +687,58 @@ class HookQuerySetMixin:
                     if parent_model in model._meta.parents:
                         parent_link = model._meta.parents[parent_model]
                         break
-                
+
                 if parent_link is None:
                     continue
-                
+
                 # For child models, the parent link values should be the same as root PKs
                 pks = root_pks
                 filter_field = parent_link.attname
-            
+
             if pks:
                 base_qs = model._base_manager.using(self.db)
-                
+
                 # Check if records exist
                 existing_count = base_qs.filter(**{f"{filter_field}__in": pks}).count()
-                
+
                 if existing_count == 0:
                     continue
-                
+
                 # Build CASE statements for each field to perform a single bulk update
                 case_statements = {}
                 for field_name in model_fields:
                     field = model._meta.get_field(field_name)
                     when_statements = []
-                    
+
                     for pk, obj in zip(pks, batch):
                         # Check both pk and id attributes for the object
-                        obj_pk = getattr(obj, 'pk', None)
+                        obj_pk = getattr(obj, "pk", None)
                         if obj_pk is None:
-                            obj_pk = getattr(obj, 'id', None)
-                        
+                            obj_pk = getattr(obj, "id", None)
+
                         if obj_pk is None:
                             continue
                         value = getattr(obj, field_name)
-                        when_statements.append(When(**{filter_field: pk}, then=Value(value, output_field=field)))
-                    
-                    case_statements[field_name] = Case(*when_statements, output_field=field)
-                
+                        when_statements.append(
+                            When(
+                                **{filter_field: pk},
+                                then=Value(value, output_field=field),
+                            )
+                        )
+
+                    case_statements[field_name] = Case(
+                        *when_statements, output_field=field
+                    )
+
                 # Execute a single bulk update for all objects in this model
                 try:
-                    updated_count = base_qs.filter(**{f"{filter_field}__in": pks}).update(**case_statements)
+                    updated_count = base_qs.filter(
+                        **{f"{filter_field}__in": pks}
+                    ).update(**case_statements)
                     total_updated += updated_count
                 except Exception as e:
                     import traceback
+
                     traceback.print_exc()
 
         return total_updated
@@ -711,4 +749,5 @@ class HookQuerySet(HookQuerySetMixin, models.QuerySet):
     A QuerySet that provides bulk hook functionality.
     This is the traditional approach for backward compatibility.
     """
+
     pass
