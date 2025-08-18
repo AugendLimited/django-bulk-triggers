@@ -20,9 +20,15 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
     if not hooks:
         return
 
+    import traceback
+
+    stack = traceback.format_stack()
     print(
         f"DEBUG: engine.run called for {model_cls.__name__}.{event} with {len(new_records)} records"
     )
+    print(f"DEBUG: Call stack (last 3 frames):")
+    for line in stack[-4:-1]:  # Show last 3 frames before this one
+        print(f"  {line.strip()}")
 
     # For BEFORE_* events, run model.clean() first for validation
     if event.startswith("before_"):

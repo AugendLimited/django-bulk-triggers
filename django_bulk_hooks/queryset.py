@@ -245,8 +245,6 @@ class HookQuerySetMixin:
 
             # Then run business logic hooks
             engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
-        else:
-            print(f"DEBUG: bypass_hooks=True, skipping hooks for {len(objs)} objects")
 
             # Detect modified fields during hooks
             modified_fields = self._detect_modified_fields(objs, originals)
@@ -254,6 +252,8 @@ class HookQuerySetMixin:
                 fields_set = set(fields)
                 fields_set.update(modified_fields)
                 fields = list(fields_set)
+        else:
+            print(f"DEBUG: bypass_hooks=True, skipping hooks for {len(objs)} objects")
 
         # Handle auto_now fields like Django's update_or_create does
         fields_set = set(fields)
