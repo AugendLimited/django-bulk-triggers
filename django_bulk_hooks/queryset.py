@@ -227,6 +227,7 @@ class HookQuerySetMixin:
                 break
 
         if not bypass_hooks:
+            print(f"DEBUG: bypass_hooks=False, running hooks for {len(objs)} objects")
             # Load originals for hook comparison
             original_map = {
                 obj.pk: obj
@@ -244,6 +245,8 @@ class HookQuerySetMixin:
 
             # Then run business logic hooks
             engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+        else:
+            print(f"DEBUG: bypass_hooks=True, skipping hooks for {len(objs)} objects")
 
             # Detect modified fields during hooks
             modified_fields = self._detect_modified_fields(objs, originals)
@@ -278,7 +281,14 @@ class HookQuerySetMixin:
             result = super().bulk_update(objs, fields, **django_kwargs)
 
         if not bypass_hooks:
+            print(
+                f"DEBUG: bypass_hooks=False, running AFTER_UPDATE hooks for {len(objs)} objects"
+            )
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
+        else:
+            print(
+                f"DEBUG: bypass_hooks=True, skipping AFTER_UPDATE hooks for {len(objs)} objects"
+            )
 
         return result
 

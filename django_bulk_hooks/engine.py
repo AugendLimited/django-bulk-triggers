@@ -20,6 +20,10 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
     if not hooks:
         return
 
+    print(
+        f"DEBUG: engine.run called for {model_cls.__name__}.{event} with {len(new_records)} records"
+    )
+
     # For BEFORE_* events, run model.clean() first for validation
     if event.startswith("before_"):
         for instance in new_records:
@@ -47,6 +51,9 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                 to_process_old.append(original)
 
         if to_process_new:
+            print(
+                f"DEBUG: Executing hook {handler_cls.__name__}.{method_name} for {len(to_process_new)} records"
+            )
             try:
                 func(
                     new_records=to_process_new,
