@@ -278,7 +278,10 @@ class HookQuerySetMixin:
                 for k, v in kwargs.items()
                 if k not in ["bypass_hooks", "bypass_validation"]
             }
-            result = super().bulk_update(objs, fields, **django_kwargs)
+            # Call Django's bulk_update with hook suspension to prevent double execution
+            # Django's bulk_update internally calls .update() which would trigger our hooks again
+            with Hook.suspend():
+                result = super().bulk_update(objs, fields, **django_kwargs)
 
         if not bypass_hooks:
             print(
