@@ -256,12 +256,9 @@ class HookQuerySetMixin:
                 )
             }
             originals = [original_map.get(obj.pk) for obj in objs]
-
             ctx = HookContext(model_cls, bypass_hooks=False)
-
             # Run validation hooks first
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
+            engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
 
             # Then run business logic hooks
             engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
@@ -276,7 +273,7 @@ class HookQuerySetMixin:
             print(f"DEBUG: bulk_update skipping hooks and setting bulk context to prevent double execution")
             ctx = HookContext(model_cls, bypass_hooks=True)
             print(f"DEBUG: Set thread-local bypass_hooks=True to prevent nested update() calls from running hooks")
-            originals = [None] * len(objs) # Ensure originals is defined for after_update call
+            originals = [None] * len(objs)  # Ensure originals is defined for after_update call
 
         # Handle auto_now fields like Django's update_or_create does
         fields_set = set(fields)
