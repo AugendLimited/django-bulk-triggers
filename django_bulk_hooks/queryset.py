@@ -78,12 +78,14 @@ class HookQuerySetMixin:
         
         # If we're in a bulk operation context, skip hooks to prevent double execution
         if current_bypass_hooks:
-            print(f"DEBUG: update method skipping hooks due to bulk operation context")
+            print(f"DEBUG: update skipping hooks (bulk context)")
             ctx = HookContext(model_cls, bypass_hooks=True)
         else:
-            print(f"DEBUG: update method running hooks (standalone update)")
+            print(f"DEBUG: update running hooks (standalone)")
             ctx = HookContext(model_cls, bypass_hooks=False)
-            # Run BEFORE_UPDATE hooks only for standalone updates
+            # Run validation hooks first
+            engine.run(model_cls, VALIDATE_UPDATE, instances, originals, ctx=ctx)
+            # Then run BEFORE_UPDATE hooks
             engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
 
         # Use Django's built-in update logic directly
@@ -113,10 +115,10 @@ class HookQuerySetMixin:
 
         # Run AFTER_UPDATE hooks only for standalone updates
         if not current_bypass_hooks:
-            print(f"DEBUG: update method running AFTER_UPDATE hooks")
+            print(f"DEBUG: update running AFTER_UPDATE")
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
         else:
-            print(f"DEBUG: update method skipping AFTER_UPDATE hooks due to bulk operation context")
+            print(f"DEBUG: update skipping AFTER_UPDATE (bulk context)")
 
         return update_count
 
@@ -181,7 +183,7 @@ class HookQuerySetMixin:
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
         else:
             ctx = HookContext(model_cls, bypass_hooks=True) # Pass bypass_hooks
-            print(f"DEBUG: Set thread-local bypass_hooks=True for nested calls in bulk_create")
+            print(f"DEBUG: bulk_create bypassed hooks")
 
         # For MTI models, we need to handle them specially
         if is_mti:
@@ -236,9 +238,7 @@ class HookQuerySetMixin:
                 f"bulk_update expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
             )
 
-        print(f"DEBUG: bulk_update called with bypass_hooks={bypass_hooks} (type: {type(bypass_hooks)}), bypass_validation={bypass_validation}")
-        print(f"DEBUG: bulk_update for model {model_cls.__name__} with {len(objs)} objects")
-        print(f"DEBUG: kwargs: {kwargs}")
+        print(f"DEBUG: bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)}")
 
         # Check for MTI
         is_mti = False
@@ -248,31 +248,12 @@ class HookQuerySetMixin:
                 break
 
         if not bypass_hooks:
-            print(f"DEBUG: bulk_update running hooks for {len(objs)} objects")
-            original_map = {
-                obj.pk: obj
-                for obj in model_cls._base_manager.filter(
-                    pk__in=[obj.pk for obj in objs]
-                )
-            }
-            originals = [original_map.get(obj.pk) for obj in objs]
+            print(f"DEBUG: bulk_update setting bypass_hooks=False (hooks will run in update())")
             ctx = HookContext(model_cls, bypass_hooks=False)
-            # Run validation hooks first
-            engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=ctx)
-
-            # Then run business logic hooks
-            engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
-
-            # Detect modified fields during hooks
-            modified_fields = self._detect_modified_fields(objs, originals)
-            if modified_fields:
-                fields_set = set(fields)
-                fields_set.update(modified_fields)
-                fields = list(fields_set)
+            originals = [None] * len(objs)  # Placeholder for after_update call
         else:
-            print(f"DEBUG: bulk_update skipping hooks and setting bulk context to prevent double execution")
+            print(f"DEBUG: bulk_update setting bypass_hooks=True (no hooks)")
             ctx = HookContext(model_cls, bypass_hooks=True)
-            print(f"DEBUG: Set thread-local bypass_hooks=True to prevent nested update() calls from running hooks")
             originals = [None] * len(objs)  # Ensure originals is defined for after_update call
 
         # Handle auto_now fields like Django's update_or_create does
@@ -298,22 +279,16 @@ class HookQuerySetMixin:
                 for k, v in kwargs.items()
                 if k not in ["bypass_hooks", "bypass_validation"]
             }
-            print(f"DEBUG: Calling Django's bulk_update with kwargs: {django_kwargs}")
-            # Call Django's bulk_update with hook suspension to prevent double execution
-            # Django's bulk_update internally calls .update() which would trigger our hooks again
-            print(f"DEBUG: About to call Django's bulk_update")
+            print(f"DEBUG: Calling Django bulk_update")
             result = super().bulk_update(objs, fields, **django_kwargs)
-            print(f"DEBUG: Django's bulk_update completed, result: {result}")
+            print(f"DEBUG: Django bulk_update done: {result}")
 
+        # Note: We don't run AFTER_UPDATE hooks here to prevent double execution
+        # The update() method will handle all hook execution based on thread-local state
         if not bypass_hooks:
-            print(
-                f"DEBUG: bypass_hooks=False, running AFTER_UPDATE hooks for {len(objs)} objects"
-            )
-            engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
+            print(f"DEBUG: bulk_update skipping AFTER_UPDATE (update() will handle)")
         else:
-            print(
-                f"DEBUG: bypass_hooks=True, skipping AFTER_UPDATE hooks for {len(objs)} objects"
-            )
+            print(f"DEBUG: bulk_update bypassed hooks")
 
         return result
 

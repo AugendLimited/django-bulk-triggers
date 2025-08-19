@@ -77,13 +77,8 @@ class HasChanged(HookCondition):
         previous = resolve_dotted_attr(original_instance, self.field)
         
         # Add more detailed debugging
-        print(f"DEBUG: Field '{self.field}' - current value: {current} (type: {type(current)})")
-        print(f"DEBUG: Field '{self.field}' - previous value: {previous} (type: {type(previous)})")
-        print(f"DEBUG: Values are equal: {current == previous}")
-        
         result = (current != previous) == self.has_changed
-        print(f"DEBUG: HasChanged result: current={current}, previous={previous}, has_changed={self.has_changed}, result={result}")
-        
+        print(f"DEBUG: HasChanged {self.field} result={result}")
         return result
 
 
