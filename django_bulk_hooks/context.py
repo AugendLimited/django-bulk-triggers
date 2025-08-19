@@ -12,9 +12,22 @@ def get_hook_queue():
     return _hook_context.queue
 
 
+def set_bypass_hooks(bypass_hooks):
+    """Set the current bypass_hooks state for the current thread."""
+    _hook_context.bypass_hooks = bypass_hooks
+
+
+def get_bypass_hooks():
+    """Get the current bypass_hooks state for the current thread."""
+    return getattr(_hook_context, 'bypass_hooks', False)
+
+
 class HookContext:
-    def __init__(self, model):
+    def __init__(self, model, bypass_hooks=False):
         self.model = model
+        self.bypass_hooks = bypass_hooks
+        # Set the thread-local bypass state when creating a context
+        set_bypass_hooks(bypass_hooks)
 
     @property
     def is_executing(self):

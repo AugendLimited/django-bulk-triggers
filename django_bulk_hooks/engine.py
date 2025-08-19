@@ -20,6 +20,16 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
     if not hooks:
         return
 
+    import traceback
+
+    stack = traceback.format_stack()
+    logger.debug(f"engine.run {model_cls.__name__}.{event} {len(new_records)} records")
+    
+    # Check if we're in a bypass context
+    if ctx and hasattr(ctx, 'bypass_hooks') and ctx.bypass_hooks:
+        logger.debug("engine.run bypassed")
+        return
+
     # For BEFORE_* events, run model.clean() first for validation
     if event.startswith("before_"):
         for instance in new_records:
@@ -31,6 +41,7 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
 
     # Process hooks
     for handler_cls, method_name, condition, priority in hooks:
+        logger.debug(f"Processing {handler_cls.__name__}.{method_name}")
         handler_instance = handler_cls()
         func = getattr(handler_instance, method_name)
 
@@ -42,15 +53,22 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
             old_records or [None] * len(new_records),
             strict=True,
         ):
-            if not condition or condition.check(new, original):
+            if not condition:
                 to_process_new.append(new)
                 to_process_old.append(original)
+            else:
+                condition_result = condition.check(new, original)
+                if condition_result:
+                    to_process_new.append(new)
+                    to_process_old.append(original)
 
         if to_process_new:
+            logger.debug(f"Executing {handler_cls.__name__}.{method_name} for {len(to_process_new)} records")
             try:
                 func(
                     new_records=to_process_new,
                     old_records=to_process_old if any(to_process_old) else None,
                 )
             except Exception as e:
+                logger.debug(f"Hook execution failed: {e}")
                 raise
