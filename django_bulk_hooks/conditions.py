@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def resolve_dotted_attr(instance, dotted_path):
     """
     Recursively resolve a dotted attribute path, e.g., "type.category".
@@ -66,11 +71,11 @@ class HasChanged(HookCondition):
         self.has_changed = has_changed
 
     def check(self, instance, original_instance=None):
-        print(f"DEBUG: HasChanged.check called for field '{self.field}' on instance {getattr(instance, 'pk', 'No PK')}")
-        print(f"DEBUG: Original instance: {getattr(original_instance, 'pk', 'No PK') if original_instance else 'None'}")
+        logger.debug(f"HasChanged.check called for field '{self.field}' on instance {getattr(instance, 'pk', 'No PK')}")
+        logger.debug(f"Original instance: {getattr(original_instance, 'pk', 'No PK') if original_instance else 'None'}")
         
         if not original_instance:
-            print(f"DEBUG: No original instance, returning False")
+            logger.debug("No original instance, returning False")
             return False
         
         current = resolve_dotted_attr(instance, self.field)
@@ -78,7 +83,7 @@ class HasChanged(HookCondition):
         
         # Add more detailed debugging
         result = (current != previous) == self.has_changed
-        print(f"DEBUG: HasChanged {self.field} result={result}")
+        logger.debug(f"HasChanged {self.field} result={result}")
         return result
 
 

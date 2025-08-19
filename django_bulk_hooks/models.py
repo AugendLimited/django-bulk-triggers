@@ -1,3 +1,4 @@
+import logging
 from django.db import models
 
 from django_bulk_hooks.constants import (
@@ -14,6 +15,8 @@ from django_bulk_hooks.constants import (
 from django_bulk_hooks.context import HookContext
 from django_bulk_hooks.engine import run
 from django_bulk_hooks.manager import BulkHookManager
+
+logger = logging.getLogger(__name__)
 
 
 class HookModelMixin(models.Model):
@@ -56,15 +59,13 @@ class HookModelMixin(models.Model):
     def save(self, *args, bypass_hooks=False, **kwargs):
         # If bypass_hooks is True, use base manager to avoid triggering hooks
         if bypass_hooks:
-            print(
-                f"DEBUG: save() called with bypass_hooks=True for {self.__class__.__name__} pk={self.pk}"
-            )
+            logger.debug(f"save() called with bypass_hooks=True for {self.__class__.__name__} pk={self.pk}")
             return self._base_manager.save(self, *args, **kwargs)
 
         is_create = self.pk is None
 
         if is_create:
-            print(f"DEBUG: save() creating new {self.__class__.__name__} instance")
+            logger.debug(f"save() creating new {self.__class__.__name__} instance")
             # For create operations, we don't have old records
             ctx = HookContext(self.__class__)
             run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
@@ -73,9 +74,7 @@ class HookModelMixin(models.Model):
 
             run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
         else:
-            print(
-                f"DEBUG: save() updating existing {self.__class__.__name__} instance pk={self.pk}"
-            )
+            logger.debug(f"save() updating existing {self.__class__.__name__} instance pk={self.pk}")
             # For update operations, we need to get the old record
             try:
                 # Use _base_manager to avoid triggering hooks recursively
