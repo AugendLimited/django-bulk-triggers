@@ -71,19 +71,16 @@ class HasChanged(HookCondition):
         self.has_changed = has_changed
 
     def check(self, instance, original_instance=None):
-        logger.debug(f"HasChanged.check called for field '{self.field}' on instance {getattr(instance, 'pk', 'No PK')}")
-        logger.debug(f"Original instance: {getattr(original_instance, 'pk', 'No PK') if original_instance else 'None'}")
-        
         if not original_instance:
-            logger.debug("No original instance, returning False")
             return False
         
         current = resolve_dotted_attr(instance, self.field)
         previous = resolve_dotted_attr(original_instance, self.field)
         
-        # Add more detailed debugging
         result = (current != previous) == self.has_changed
-        logger.debug(f"HasChanged {self.field} result={result}")
+        # Only log when there's an actual change to reduce noise
+        if result:
+            logger.debug(f"HasChanged {self.field} detected change on instance {getattr(instance, 'pk', 'No PK')}")
         return result
 
 

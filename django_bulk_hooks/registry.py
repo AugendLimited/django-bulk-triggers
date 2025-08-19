@@ -23,7 +23,9 @@ def register_hook(
 def get_hooks(model, event):
     key = (model, event)
     hooks = _hooks.get(key, [])
-    logger.debug(f"get_hooks {model.__name__}.{event} found {len(hooks)} hooks")
+    # Only log when hooks are found or for specific events to reduce noise
+    if hooks or event in ['after_update', 'before_update', 'after_create', 'before_create']:
+        logger.debug(f"get_hooks {model.__name__}.{event} found {len(hooks)} hooks")
     return hooks
 
 

@@ -81,10 +81,10 @@ class HookQuerySetMixin:
         
         # If we're in a bulk operation context, skip hooks to prevent double execution
         if current_bypass_hooks:
-            logger.debug("update skipping hooks (bulk context)")
+            logger.debug("update: skipping hooks (bulk context)")
             ctx = HookContext(model_cls, bypass_hooks=True)
         else:
-            logger.debug("update running hooks (standalone)")
+            logger.debug("update: running hooks (standalone)")
             ctx = HookContext(model_cls, bypass_hooks=False)
             # Run validation hooks first
             engine.run(model_cls, VALIDATE_UPDATE, instances, originals, ctx=ctx)
@@ -118,10 +118,10 @@ class HookQuerySetMixin:
 
         # Run AFTER_UPDATE hooks only for standalone updates
         if not current_bypass_hooks:
-            logger.debug("update running AFTER_UPDATE")
+            logger.debug("update: running AFTER_UPDATE")
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
         else:
-            logger.debug("update skipping AFTER_UPDATE (bulk context)")
+            logger.debug("update: skipping AFTER_UPDATE (bulk context)")
 
         return update_count
 
@@ -251,11 +251,11 @@ class HookQuerySetMixin:
                 break
 
         if not bypass_hooks:
-            logger.debug("bulk_update setting bypass_hooks=False (hooks will run in update())")
+            logger.debug("bulk_update: hooks will run in update()")
             ctx = HookContext(model_cls, bypass_hooks=False)
             originals = [None] * len(objs)  # Placeholder for after_update call
         else:
-            logger.debug("bulk_update setting bypass_hooks=True (no hooks)")
+            logger.debug("bulk_update: hooks bypassed")
             ctx = HookContext(model_cls, bypass_hooks=True)
             originals = [None] * len(objs)  # Ensure originals is defined for after_update call
 
@@ -289,9 +289,9 @@ class HookQuerySetMixin:
         # Note: We don't run AFTER_UPDATE hooks here to prevent double execution
         # The update() method will handle all hook execution based on thread-local state
         if not bypass_hooks:
-            logger.debug("bulk_update skipping AFTER_UPDATE (update() will handle)")
+            logger.debug("bulk_update: skipping AFTER_UPDATE (update() will handle)")
         else:
-            logger.debug("bulk_update bypassed hooks")
+            logger.debug("bulk_update: hooks bypassed")
 
         return result
 
