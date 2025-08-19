@@ -13,8 +13,9 @@ def get_hook_queue():
 
 
 class HookContext:
-    def __init__(self, model):
+    def __init__(self, model, bypass_hooks=False):
         self.model = model
+        self.bypass_hooks = bypass_hooks
 
     @property
     def is_executing(self):

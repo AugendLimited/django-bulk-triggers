@@ -66,11 +66,25 @@ class HasChanged(HookCondition):
         self.has_changed = has_changed
 
     def check(self, instance, original_instance=None):
+        print(f"DEBUG: HasChanged.check called for field '{self.field}' on instance {getattr(instance, 'pk', 'No PK')}")
+        print(f"DEBUG: Original instance: {getattr(original_instance, 'pk', 'No PK') if original_instance else 'None'}")
+        
         if not original_instance:
+            print(f"DEBUG: No original instance, returning False")
             return False
+        
         current = resolve_dotted_attr(instance, self.field)
         previous = resolve_dotted_attr(original_instance, self.field)
-        return (current != previous) == self.has_changed
+        
+        # Add more detailed debugging
+        print(f"DEBUG: Field '{self.field}' - current value: {current} (type: {type(current)})")
+        print(f"DEBUG: Field '{self.field}' - previous value: {previous} (type: {type(previous)})")
+        print(f"DEBUG: Values are equal: {current == previous}")
+        
+        result = (current != previous) == self.has_changed
+        print(f"DEBUG: HasChanged result: current={current}, previous={previous}, has_changed={self.has_changed}, result={result}")
+        
+        return result
 
 
 class WasEqual(HookCondition):

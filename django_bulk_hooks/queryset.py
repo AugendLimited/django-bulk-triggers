@@ -161,10 +161,12 @@ class HookQuerySetMixin:
 
         # Fire hooks before DB ops
         if not bypass_hooks:
-            ctx = HookContext(model_cls)
+            ctx = HookContext(model_cls, bypass_hooks=False)
             if not bypass_validation:
                 engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
+        else:
+            ctx = HookContext(model_cls, bypass_hooks=True)
 
         # For MTI models, we need to handle them specially
         if is_mti:
@@ -219,6 +221,10 @@ class HookQuerySetMixin:
                 f"bulk_update expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
             )
 
+        print(f"DEBUG: bulk_update called with bypass_hooks={bypass_hooks} (type: {type(bypass_hooks)}), bypass_validation={bypass_validation}")
+        print(f"DEBUG: bulk_update for model {model_cls.__name__} with {len(objs)} objects")
+        print(f"DEBUG: kwargs: {kwargs}")
+
         # Check for MTI
         is_mti = False
         for parent in model_cls._meta.all_parents:
@@ -237,7 +243,7 @@ class HookQuerySetMixin:
             }
             originals = [original_map.get(obj.pk) for obj in objs]
 
-            ctx = HookContext(model_cls)
+            ctx = HookContext(model_cls, bypass_hooks=False)
 
             # Run validation hooks first
             if not bypass_validation:
@@ -254,6 +260,7 @@ class HookQuerySetMixin:
                 fields = list(fields_set)
         else:
             print(f"DEBUG: bypass_hooks=True, skipping hooks for {len(objs)} objects")
+            ctx = HookContext(model_cls, bypass_hooks=True)
 
         # Handle auto_now fields like Django's update_or_create does
         fields_set = set(fields)
@@ -278,10 +285,12 @@ class HookQuerySetMixin:
                 for k, v in kwargs.items()
                 if k not in ["bypass_hooks", "bypass_validation"]
             }
+            print(f"DEBUG: Calling Django's bulk_update with kwargs: {django_kwargs}")
             # Call Django's bulk_update with hook suspension to prevent double execution
             # Django's bulk_update internally calls .update() which would trigger our hooks again
-            with Hook.suspend():
-                result = super().bulk_update(objs, fields, **django_kwargs)
+            print(f"DEBUG: About to call Django's bulk_update")
+            result = super().bulk_update(objs, fields, **django_kwargs)
+            print(f"DEBUG: Django's bulk_update completed, result: {result}")
 
         if not bypass_hooks:
             print(
