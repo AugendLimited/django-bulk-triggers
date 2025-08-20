@@ -2,36 +2,13 @@
 Test to verify that Subquery objects in update operations work correctly with hooks.
 """
 
-from django.db import models
 from django.db.models import OuterRef, Subquery, Sum
 from django.test import TestCase
 
-from django_bulk_hooks import AFTER_UPDATE, Hook, hook
-from django_bulk_hooks.models import HookModelMixin
-
-
-class User(models.Model):
-    """Test user model for foreign key testing."""
-
-    username = models.CharField(max_length=100)
-
-
-class TestModel(HookModelMixin):
-    """Test model for Subquery hook testing."""
-
-    name = models.CharField(max_length=100)
-    value = models.IntegerField(default=0)
-    computed_value = models.IntegerField(default=0)
-    created_by = models.ForeignKey(
-        User, on_delete=models.CASCADE, null=True, blank=True
-    )
-
-
-class RelatedModel(models.Model):
-    """Related model for Subquery testing."""
-
-    test_model = models.ForeignKey(TestModel, on_delete=models.CASCADE)
-    amount = models.IntegerField()
+from django_bulk_hooks import Hook
+from django_bulk_hooks.constants import AFTER_UPDATE
+from django_bulk_hooks.decorators import hook
+from tests.models import RelatedModel, TestModel, User
 
 
 class SubqueryHookTest(Hook):

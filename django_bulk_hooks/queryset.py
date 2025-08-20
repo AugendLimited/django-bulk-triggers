@@ -837,6 +837,48 @@ class HookQuerySetMixin:
 
         return total_updated
 
+    @transaction.atomic
+    def bulk_delete(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
+        """
+        Bulk delete objects in the database.
+        """
+        model_cls = self.model
+
+        if not objs:
+            return 0
+
+        if any(not isinstance(obj, model_cls) for obj in objs):
+            raise TypeError(
+                f"bulk_delete expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
+            )
+
+        logger.debug(
+            f"bulk_delete {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)}"
+        )
+
+        # Fire hooks before DB ops
+        if not bypass_hooks:
+            ctx = HookContext(model_cls, bypass_hooks=False)
+            if not bypass_validation:
+                engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
+            engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
+        else:
+            ctx = HookContext(model_cls, bypass_hooks=True)
+            logger.debug("bulk_delete bypassed hooks")
+
+        # Use Django's standard delete() method on the queryset
+        pks = [obj.pk for obj in objs if obj.pk is not None]
+        if pks:
+            result = self.filter(pk__in=pks).delete()[0]
+        else:
+            result = 0
+
+        # Fire AFTER_DELETE hooks
+        if not bypass_hooks:
+            engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
+
+        return result
+
 
 class HookQuerySet(HookQuerySetMixin, models.QuerySet):
     """
