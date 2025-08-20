@@ -2,6 +2,7 @@ import inspect
 from functools import wraps
 
 from django.core.exceptions import FieldDoesNotExist
+
 from django_bulk_hooks.enums import DEFAULT_PRIORITY
 from django_bulk_hooks.registry import register_hook
 
@@ -61,13 +62,35 @@ def select_related(*related_fields):
                     continue
                 # if any related field is not already cached on the instance,
                 # mark it for fetching
-                if any(field not in obj._state.fields_cache for field in related_fields):
+                if any(
+                    field not in obj._state.fields_cache for field in related_fields
+                ):
                     ids_to_fetch.append(obj.pk)
 
             fetched = {}
             if ids_to_fetch:
-                # Use the base manager to avoid recursion
-                fetched = model_cls._base_manager.select_related(*related_fields).in_bulk(ids_to_fetch)
+                # Validate fields before passing to select_related
+                validated_fields = []
+                for field in related_fields:
+                    if "." in field:
+                        raise ValueError(
+                            f"@select_related does not support nested fields like '{field}'"
+                        )
+                    try:
+                        f = model_cls._meta.get_field(field)
+                        if not (
+                            f.is_relation and not f.many_to_many and not f.one_to_many
+                        ):
+                            continue
+                        validated_fields.append(field)
+                    except FieldDoesNotExist:
+                        continue
+
+                if validated_fields:
+                    # Use the base manager to avoid recursion
+                    fetched = model_cls._base_manager.select_related(
+                        *validated_fields
+                    ).in_bulk(ids_to_fetch)
 
             for obj in new_records:
                 preloaded = fetched.get(obj.pk)
@@ -78,9 +101,8 @@ def select_related(*related_fields):
                         # don't override values that were explicitly set or already loaded
                         continue
                     if "." in field:
-                        raise ValueError(
-                            f"@preload_related does not support nested fields like '{field}'"
-                        )
+                        # This should have been caught earlier, but just in case
+                        continue
 
                     try:
                         f = model_cls._meta.get_field(field)
@@ -108,30 +130,32 @@ def select_related(*related_fields):
 def bulk_hook(model_cls, event, when=None, priority=None):
     """
     Decorator to register a bulk hook for a model.
-    
+
     Args:
         model_cls: The model class to hook into
         event: The event to hook into (e.g., BEFORE_UPDATE, AFTER_UPDATE)
         when: Optional condition for when the hook should run
         priority: Optional priority for hook execution order
     """
+
     def decorator(func):
         # Create a simple handler class for the function
         class FunctionHandler:
             def __init__(self):
                 self.func = func
-            
+
             def handle(self, new_instances, original_instances):
                 return self.func(new_instances, original_instances)
-        
+
         # Register the hook using the registry
         register_hook(
             model=model_cls,
             event=event,
             handler_cls=FunctionHandler,
-            method_name='handle',
+            method_name="handle",
             condition=when,
             priority=priority or DEFAULT_PRIORITY,
         )
         return func
+
     return decorator

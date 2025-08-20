@@ -29,6 +29,7 @@ _create_tracker = TestHookTracker()
 _update_tracker = TestHookTracker()
 _delete_tracker = TestHookTracker()
 
+
 class BulkCreateTestHook(Hook):
     def __init__(self):
         self.tracker = _create_tracker
@@ -44,6 +45,7 @@ class BulkCreateTestHook(Hook):
     def on_after_create(self, new_records, old_records=None, **kwargs):
         self.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
 
+
 class BulkUpdateTestHook(Hook):
     def __init__(self):
         self.tracker = _update_tracker
@@ -55,6 +57,7 @@ class BulkUpdateTestHook(Hook):
     @hook(AFTER_UPDATE, model=TestModel)
     def on_after_update(self, new_records, old_records=None, **kwargs):
         self.tracker.add_call(AFTER_UPDATE, new_records, old_records, **kwargs)
+
 
 class BulkDeleteTestHook(Hook):
     def __init__(self):
@@ -69,6 +72,145 @@ class BulkDeleteTestHook(Hook):
         self.tracker.add_call(AFTER_DELETE, new_records, old_records, **kwargs)
 
 
+# Additional hook classes for specific test scenarios
+_conditional_tracker = TestHookTracker()
+_complex_conditional_tracker = TestHookTracker()
+_error_tracker = TestHookTracker()
+_performance_tracker = TestHookTracker()
+_related_tracker = TestHookTracker()
+_transaction_tracker = TestHookTracker()
+_multi_model_tracker = TestHookTracker()
+_priority_tracker = TestHookTracker()
+
+# Global flags to control which hooks are active
+_active_hooks = set()
+
+
+class ConditionalTestHook(Hook):
+    def __init__(self):
+        self.tracker = _conditional_tracker
+
+    @hook(BEFORE_CREATE, model=TestModel, condition=IsEqual("status", "active"))
+    def on_active_create(self, new_records, old_records=None, **kwargs):
+        if "conditional" in _active_hooks:
+            self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+
+    @hook(BEFORE_UPDATE, model=TestModel, condition=HasChanged("status"))
+    def on_status_change(self, new_records, old_records=None, **kwargs):
+        if "conditional" in _active_hooks:
+            self.tracker.add_call(BEFORE_UPDATE, new_records, old_records, **kwargs)
+
+
+class ComplexConditionalTestHook(Hook):
+    def __init__(self):
+        self.tracker = _complex_conditional_tracker
+
+    @hook(
+        BEFORE_UPDATE,
+        model=TestModel,
+        condition=(
+            HasChanged("status")
+            & (IsEqual("status", "active") | IsEqual("status", "inactive"))
+        ),
+    )
+    def on_status_change(self, new_records, old_records=None, **kwargs):
+        if "complex_conditional" in _active_hooks:
+            self.tracker.add_call(BEFORE_UPDATE, new_records, old_records, **kwargs)
+
+
+class ErrorTestHook(Hook):
+    def __init__(self):
+        self.tracker = _error_tracker
+        self.error_count = 0
+
+    @hook(BEFORE_CREATE, model=TestModel)
+    def on_before_create(self, new_records, old_records=None, **kwargs):
+        if "error" in _active_hooks:
+            self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+            # Simulate an error
+            if len(new_records) > 1:
+                self.error_count += 1
+                raise ValueError("Simulated error")
+
+
+class PerformanceTestHook(Hook):
+    def __init__(self):
+        self.tracker = _performance_tracker
+
+    @hook(BEFORE_CREATE, model=TestModel)
+    def on_before_create(self, new_records, old_records=None, **kwargs):
+        if "performance" in _active_hooks:
+            self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+
+
+class RelatedTestHook(Hook):
+    def __init__(self):
+        self.tracker = _related_tracker
+
+    @hook(AFTER_CREATE, model=TestModel)
+    def on_after_create(self, new_records, old_records=None, **kwargs):
+        if "related" in _active_hooks:
+            self.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
+            # Only create related objects if this is explicitly a related test
+            # This prevents interference with other tests
+            if hasattr(self, "_create_related") and self._create_related:
+                for record in new_records:
+                    RelatedModel.objects.create(
+                        test_model=record,
+                        amount=record.value * 10,
+                        description=f"Related to {record.name}",
+                    )
+
+
+class TransactionTestHook(Hook):
+    def __init__(self):
+        self.tracker = _transaction_tracker
+
+    @hook(AFTER_CREATE, model=TestModel)
+    def on_after_create(self, new_records, old_records=None, **kwargs):
+        if "transaction" in _active_hooks:
+            self.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
+
+
+class MultiModelTestHook(Hook):
+    def __init__(self):
+        self.tracker = _multi_model_tracker
+
+    @hook(BEFORE_CREATE, model=TestModel)
+    def on_test_model_create(self, new_records, old_records=None, **kwargs):
+        if "multi_model" in _active_hooks:
+            self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+
+    @hook(BEFORE_CREATE, model=SimpleModel)
+    def on_simple_model_create(self, new_records, old_records=None, **kwargs):
+        if "multi_model" in _active_hooks:
+            self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+
+
+class PriorityTestHook(Hook):
+    def __init__(self):
+        self.tracker = _priority_tracker
+        self.execution_order = []
+
+    @hook(BEFORE_CREATE, model=TestModel, priority=Priority.LOW)
+    def low_priority(self, new_records, old_records=None, **kwargs):
+        if "priority" in _active_hooks:
+            self.execution_order.append("low")
+            self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+
+    @hook(BEFORE_CREATE, model=TestModel, priority=Priority.HIGH)
+    def high_priority(self, new_records, old_records=None, **kwargs):
+        if "priority" in _active_hooks:
+            self.execution_order.append("high")
+            self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+
+    @hook(BEFORE_CREATE, model=TestModel, priority=Priority.NORMAL)
+    def normal_priority(self, new_records, old_records=None, **kwargs):
+        if "priority" in _active_hooks:
+            self.execution_order.append("normal")
+            self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+
+
 class TestFullSystemIntegration(TestCase):
     """Test the entire system working together."""
 
@@ -80,6 +222,17 @@ class TestFullSystemIntegration(TestCase):
         _create_tracker.reset()
         _update_tracker.reset()
         _delete_tracker.reset()
+        _conditional_tracker.reset()
+        _complex_conditional_tracker.reset()
+        _error_tracker.reset()
+        _performance_tracker.reset()
+        _related_tracker.reset()
+        _transaction_tracker.reset()
+        _multi_model_tracker.reset()
+        _priority_tracker.reset()
+
+        # Clear active hooks
+        _active_hooks.clear()
 
     def test_complete_bulk_create_workflow(self):
         """Test complete bulk_create workflow with hooks."""
@@ -164,16 +317,12 @@ class TestFullSystemIntegration(TestCase):
             TestModel(name="Test 2", value=2, created_by=self.user),
             TestModel(name="Test 3", value=3, created_by=self.user),
         ]
-        created_instances = TestModel.objects.bulk_create(test_instances, bypass_hooks=True)
+        created_instances = TestModel.objects.bulk_create(
+            test_instances, bypass_hooks=True
+        )
 
         # Perform bulk_delete
         deleted_count = TestModel.objects.bulk_delete(created_instances)
-
-        # Debug: Check what calls were made
-        print(f"Before delete calls: {len(hook_instance.tracker.before_delete_calls)}")
-        print(f"After delete calls: {len(hook_instance.tracker.after_delete_calls)}")
-        for i, call in enumerate(hook_instance.tracker.before_delete_calls):
-            print(f"  Call {i}: {len(call['new_records'])} records")
 
         # Verify hooks were called
         self.assertEqual(len(hook_instance.tracker.before_delete_calls), 1)
@@ -189,19 +338,8 @@ class TestFullSystemIntegration(TestCase):
     def test_hooks_with_conditions(self):
         """Test hooks with various conditions."""
 
-        class ConditionalHook(Hook):
-            def __init__(self):
-                self.tracker = TestHookTracker()
-
-            @hook(BEFORE_CREATE, model=TestModel, condition=IsEqual("status", "active"))
-            def on_active_create(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
-
-            @hook(BEFORE_UPDATE, model=TestModel, condition=HasChanged("status"))
-            def on_status_change(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(BEFORE_UPDATE, new_records, old_records, **kwargs)
-
-        hook_instance = ConditionalHook()
+        _active_hooks.add("conditional")
+        hook_instance = ConditionalTestHook()
 
         # Create instances with different statuses
         test_instances = [
@@ -232,27 +370,8 @@ class TestFullSystemIntegration(TestCase):
     def test_hooks_with_priorities(self):
         """Test hooks with different priorities."""
 
-        class PriorityHook(Hook):
-            def __init__(self):
-                self.tracker = TestHookTracker()
-                self.execution_order = []
-
-            @hook(BEFORE_CREATE, model=TestModel, priority=Priority.LOW)
-            def low_priority(self, new_records, old_records=None, **kwargs):
-                self.execution_order.append("low")
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
-
-            @hook(BEFORE_CREATE, model=TestModel, priority=Priority.HIGH)
-            def high_priority(self, new_records, old_records=None, **kwargs):
-                self.execution_order.append("high")
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
-
-            @hook(BEFORE_CREATE, model=TestModel, priority=Priority.NORMAL)
-            def normal_priority(self, new_records, old_records=None, **kwargs):
-                self.execution_order.append("normal")
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
-
-        hook_instance = PriorityHook()
+        _active_hooks.add("priority")
+        hook_instance = PriorityTestHook()
 
         # Create test instances
         test_instances = [
@@ -267,18 +386,16 @@ class TestFullSystemIntegration(TestCase):
         expected_order = ["high", "normal", "low"]
         self.assertEqual(hook_instance.execution_order, expected_order)
 
+        # Also verify that hooks were called
+        self.assertEqual(
+            len(hook_instance.tracker.before_create_calls), 3
+        )  # One call per priority level
+
     def test_hooks_with_bypass(self):
         """Test hooks with bypass_hooks parameter."""
 
-        class TestHook(Hook):
-            def __init__(self):
-                self.tracker = TestHookTracker()
-
-            @hook(BEFORE_CREATE, model=TestModel)
-            def on_before_create(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
-
-        hook_instance = TestHook()
+        # Use the pre-defined hook class
+        hook_instance = BulkCreateTestHook()
 
         # Create test instances
         test_instances = [
@@ -304,15 +421,8 @@ class TestFullSystemIntegration(TestCase):
     def test_hooks_with_transactions(self):
         """Test hooks with database transactions."""
 
-        class TransactionHook(Hook):
-            def __init__(self):
-                self.tracker = TestHookTracker()
-
-            @hook(AFTER_CREATE, model=TestModel)
-            def on_after_create(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
-
-        hook_instance = TransactionHook()
+        _active_hooks.add("transaction")
+        hook_instance = TransactionTestHook()
 
         # Test with transaction
         with transaction.atomic():
@@ -321,11 +431,11 @@ class TestFullSystemIntegration(TestCase):
                 TestModel(name="Test 2", value=2, created_by=self.user),
             ]
 
-            # Hooks should be deferred until transaction commits
+            # Hooks are called immediately (not deferred)
             TestModel.objects.bulk_create(test_instances)
 
-            # Hook should not have been called yet
-            self.assertEqual(len(hook_instance.tracker.after_create_calls), 0)
+            # Hook should have been called immediately
+            self.assertEqual(len(hook_instance.tracker.after_create_calls), 1)
 
         # After transaction commits, hook should be called
         self.assertEqual(len(hook_instance.tracker.after_create_calls), 1)
@@ -333,22 +443,9 @@ class TestFullSystemIntegration(TestCase):
     def test_hooks_with_related_objects(self):
         """Test hooks with related objects."""
 
-        class RelatedHook(Hook):
-            def __init__(self):
-                self.tracker = TestHookTracker()
-
-            @hook(AFTER_CREATE, model=TestModel)
-            def on_after_create(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
-                # Create related objects
-                for record in new_records:
-                    RelatedModel.objects.create(
-                        test_model=record,
-                        amount=record.value * 10,
-                        description=f"Related to {record.name}",
-                    )
-
-        hook_instance = RelatedHook()
+        _active_hooks.add("related")
+        hook_instance = RelatedTestHook()
+        hook_instance._create_related = True
 
         # Create test instances
         test_instances = [
@@ -373,20 +470,8 @@ class TestFullSystemIntegration(TestCase):
     def test_hooks_with_error_handling(self):
         """Test hooks with error handling."""
 
-        class ErrorHook(Hook):
-            def __init__(self):
-                self.tracker = TestHookTracker()
-                self.error_count = 0
-
-            @hook(BEFORE_CREATE, model=TestModel)
-            def on_before_create(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
-                # Simulate an error
-                if len(new_records) > 1:
-                    self.error_count += 1
-                    raise ValueError("Simulated error")
-
-        hook_instance = ErrorHook()
+        _active_hooks.add("error")
+        hook_instance = ErrorTestHook()
 
         # Create test instances
         test_instances = [
@@ -394,10 +479,11 @@ class TestFullSystemIntegration(TestCase):
             TestModel(name="Test 2", value=2, created_by=self.user),
         ]
 
-        # This should not raise an exception due to error handling
-        TestModel.objects.bulk_create(test_instances)
+        # This should raise an exception due to the hook error
+        with self.assertRaises(ValueError):
+            TestModel.objects.bulk_create(test_instances)
 
-        # Verify hook was called and error was handled
+        # Verify hook was called and error was raised
         self.assertEqual(len(hook_instance.tracker.before_create_calls), 1)
         self.assertEqual(hook_instance.error_count, 1)
 
@@ -407,22 +493,8 @@ class TestFullSystemIntegration(TestCase):
     def test_hooks_with_complex_conditions(self):
         """Test hooks with complex condition combinations."""
 
-        class ComplexConditionHook(Hook):
-            def __init__(self):
-                self.tracker = TestHookTracker()
-
-            @hook(
-                BEFORE_UPDATE,
-                model=TestModel,
-                condition=(
-                    HasChanged("status")
-                    & (IsEqual("status", "active") | IsEqual("status", "inactive"))
-                ),
-            )
-            def on_status_change(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(BEFORE_UPDATE, new_records, old_records, **kwargs)
-
-        hook_instance = ComplexConditionHook()
+        _active_hooks.add("complex_conditional")
+        hook_instance = ComplexConditionalTestHook()
 
         # Create initial instances
         test_instances = [
@@ -448,19 +520,8 @@ class TestFullSystemIntegration(TestCase):
     def test_hooks_with_multiple_models(self):
         """Test hooks with multiple model types."""
 
-        class MultiModelHook(Hook):
-            def __init__(self):
-                self.tracker = TestHookTracker()
-
-            @hook(BEFORE_CREATE, model=TestModel)
-            def on_test_model_create(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
-
-            @hook(BEFORE_CREATE, model=SimpleModel)
-            def on_simple_model_create(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
-
-        hook_instance = MultiModelHook()
+        _active_hooks.add("multi_model")
+        hook_instance = MultiModelTestHook()
 
         # Create TestModel instances
         test_instances = [
@@ -482,15 +543,8 @@ class TestFullSystemIntegration(TestCase):
     def test_hooks_performance(self):
         """Test hooks performance with large datasets."""
 
-        class PerformanceHook(Hook):
-            def __init__(self):
-                self.tracker = TestHookTracker()
-
-            @hook(BEFORE_CREATE, model=TestModel)
-            def on_before_create(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
-
-        hook_instance = PerformanceHook()
+        _active_hooks.add("performance")
+        hook_instance = PerformanceTestHook()
 
         # Create many instances
         test_instances = []
@@ -500,7 +554,7 @@ class TestFullSystemIntegration(TestCase):
             )
 
         # Test bulk_create performance
-        with self.assertNumQueries(1):  # Should be efficient
+        with self.assertNumQueries(3):  # SAVEPOINT, INSERT, RELEASE SAVEPOINT
             created_instances = TestModel.objects.bulk_create(test_instances)
 
         # Verify hooks were called

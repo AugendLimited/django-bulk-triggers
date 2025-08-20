@@ -869,7 +869,8 @@ class HookQuerySetMixin:
         # Use Django's standard delete() method on the queryset
         pks = [obj.pk for obj in objs if obj.pk is not None]
         if pks:
-            result = self.filter(pk__in=pks).delete()[0]
+            # Use the base manager to avoid recursion
+            result = self.model._base_manager.filter(pk__in=pks).delete()[0]
         else:
             result = 0
 

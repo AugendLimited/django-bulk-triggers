@@ -16,7 +16,14 @@ from django_bulk_hooks.constants import (
     BEFORE_DELETE,
     BEFORE_UPDATE,
 )
-from django_bulk_hooks.handler import Hook, HookContextState, get_hook_queue, hook_vars
+from django_bulk_hooks.decorators import hook
+from django_bulk_hooks.handler import (
+    Hook,
+    HookContextState,
+    _hook_context,
+    get_hook_queue,
+    hook_vars,
+)
 from tests.models import SimpleModel, TestModel
 from tests.utils import TestHookTracker, assert_hook_called, create_test_instances
 
@@ -82,9 +89,9 @@ class TestHookQueue(TestCase):
 
     def test_get_hook_queue_creates_new_queue(self):
         """Test that get_hook_queue creates a new queue if none exists."""
-        # Clear any existing queue
-        if hasattr(get_hook_queue.__closure__[0].cell_contents, "queue"):
-            delattr(get_hook_queue.__closure__[0].cell_contents, "queue")
+        # Clear any existing queue by accessing the thread local directly
+        if hasattr(_hook_context, "queue"):
+            delattr(_hook_context, "queue")
 
         queue = get_hook_queue()
         self.assertIsNotNone(queue)
@@ -278,9 +285,7 @@ class TestHookIntegration(TestCase):
             def __init__(self):
                 self.tracker = TestHookTracker()
 
-            @hook(
-                BEFORE_CREATE, model=TestModel, condition=IsEqual("status", "active")
-            )
+            @hook(BEFORE_CREATE, model=TestModel, condition=IsEqual("status", "active"))
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 

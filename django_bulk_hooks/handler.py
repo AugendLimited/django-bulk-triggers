@@ -100,12 +100,15 @@ class Hook(metaclass=HookMeta):
         queue = get_hook_queue()
         queue.append((cls, event, model, new_records, old_records, kwargs))
 
-        if len(queue) > 1:
-            return  # nested call, will be processed by outermost
+        # If we're already processing hooks (depth > 0), don't process the queue
+        # The outermost call will process the entire queue
+        if hook_vars.depth > 0:
+            return
 
-        # only outermost handle will process the queue
+        # Process the entire queue
         while queue:
-            cls_, event_, model_, new_, old_, kw_ = queue.popleft()
+            item = queue.popleft()
+            cls_, event_, model_, new_, old_, kw_ = item
             cls_._process(event_, model_, new_, old_, **kw_)
 
     @classmethod
