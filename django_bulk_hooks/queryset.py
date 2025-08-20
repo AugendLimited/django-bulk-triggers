@@ -1,4 +1,5 @@
 import logging
+
 from django.db import models, transaction
 from django.db.models import AutoField, Case, Field, Value, When
 
@@ -16,7 +17,11 @@ from django_bulk_hooks.constants import (
     VALIDATE_DELETE,
     VALIDATE_UPDATE,
 )
-from django_bulk_hooks.context import HookContext
+from django_bulk_hooks.context import (
+    HookContext,
+    get_bulk_update_value_map,
+    set_bulk_update_value_map,
+)
 
 
 class HookQuerySetMixin:
@@ -71,14 +76,21 @@ class HookQuerySetMixin:
         )
 
         # Apply field updates to instances
+        # If a per-object value map exists (from bulk_update), prefer it over kwargs
+        per_object_values = get_bulk_update_value_map()
         for obj in instances:
-            for field, value in kwargs.items():
-                setattr(obj, field, value)
+            if per_object_values and obj.pk in per_object_values:
+                for field, value in per_object_values[obj.pk].items():
+                    setattr(obj, field, value)
+            else:
+                for field, value in kwargs.items():
+                    setattr(obj, field, value)
 
         # Check if we're in a bulk operation context to prevent double hook execution
         from django_bulk_hooks.context import get_bypass_hooks
+
         current_bypass_hooks = get_bypass_hooks()
-        
+
         # If we're in a bulk operation context, skip hooks to prevent double execution
         if current_bypass_hooks:
             logger.debug("update: skipping hooks (bulk context)")
@@ -90,6 +102,53 @@ class HookQuerySetMixin:
             engine.run(model_cls, VALIDATE_UPDATE, instances, originals, ctx=ctx)
             # Then run BEFORE_UPDATE hooks
             engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
+
+            # Persist any additional field mutations made by BEFORE_UPDATE hooks.
+            # Build CASE statements per modified field not already present in kwargs.
+            modified_fields = self._detect_modified_fields(instances, originals)
+            extra_fields = [f for f in modified_fields if f not in kwargs]
+            if extra_fields:
+                case_statements = {}
+                for field_name in extra_fields:
+                    try:
+                        field_obj = model_cls._meta.get_field(field_name)
+                    except Exception:
+                        # Skip unknown fields
+                        continue
+
+                    when_statements = []
+                    for obj in instances:
+                        obj_pk = getattr(obj, "pk", None)
+                        if obj_pk is None:
+                            continue
+
+                        # Determine value and output field
+                        if getattr(field_obj, "is_relation", False):
+                            # For FK fields, store the raw id and target field output type
+                            value = getattr(obj, field_obj.attname, None)
+                            output_field = field_obj.target_field
+                            target_name = (
+                                field_obj.attname
+                            )  # use column name (e.g., fk_id)
+                        else:
+                            value = getattr(obj, field_name)
+                            output_field = field_obj
+                            target_name = field_name
+
+                        when_statements.append(
+                            When(
+                                pk=obj_pk, then=Value(value, output_field=output_field)
+                            )
+                        )
+
+                    if when_statements:
+                        case_statements[target_name] = Case(
+                            *when_statements, output_field=output_field
+                        )
+
+                # Merge extra CASE updates into kwargs for DB update
+                if case_statements:
+                    kwargs = {**kwargs, **case_statements}
 
         # Use Django's built-in update logic directly
         # Call the base QuerySet implementation to avoid recursion
@@ -180,12 +239,12 @@ class HookQuerySetMixin:
 
         # Fire hooks before DB ops
         if not bypass_hooks:
-            ctx = HookContext(model_cls, bypass_hooks=False) # Pass bypass_hooks
+            ctx = HookContext(model_cls, bypass_hooks=False)  # Pass bypass_hooks
             if not bypass_validation:
                 engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
             engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
         else:
-            ctx = HookContext(model_cls, bypass_hooks=True) # Pass bypass_hooks
+            ctx = HookContext(model_cls, bypass_hooks=True)  # Pass bypass_hooks
             logger.debug("bulk_create bypassed hooks")
 
         # For MTI models, we need to handle them specially
@@ -241,7 +300,9 @@ class HookQuerySetMixin:
                 f"bulk_update expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
             )
 
-        logger.debug(f"bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)}")
+        logger.debug(
+            f"bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)}"
+        )
 
         # Check for MTI
         is_mti = False
@@ -257,7 +318,9 @@ class HookQuerySetMixin:
         else:
             logger.debug("bulk_update: hooks bypassed")
             ctx = HookContext(model_cls, bypass_hooks=True)
-            originals = [None] * len(objs)  # Ensure originals is defined for after_update call
+            originals = [None] * len(
+                objs
+            )  # Ensure originals is defined for after_update call
 
         # Handle auto_now fields like Django's update_or_create does
         fields_set = set(fields)
@@ -283,7 +346,27 @@ class HookQuerySetMixin:
                 if k not in ["bypass_hooks", "bypass_validation"]
             }
             logger.debug("Calling Django bulk_update")
-            result = super().bulk_update(objs, fields, **django_kwargs)
+            # Build a per-object concrete value map to avoid leaking expressions into hooks
+            value_map = {}
+            for obj in objs:
+                if obj.pk is None:
+                    continue
+                field_values = {}
+                for field_name in fields:
+                    # Capture raw values assigned on the object (not expressions)
+                    field_values[field_name] = getattr(obj, field_name)
+                if field_values:
+                    value_map[obj.pk] = field_values
+
+            # Make the value map available to the subsequent update() call
+            if value_map:
+                set_bulk_update_value_map(value_map)
+
+            try:
+                result = super().bulk_update(objs, fields, **django_kwargs)
+            finally:
+                # Always clear after the internal update() path finishes
+                set_bulk_update_value_map(None)
             logger.debug(f"Django bulk_update done: {result}")
 
         # Note: We don't run AFTER_UPDATE hooks here to prevent double execution
@@ -315,18 +398,16 @@ class HookQuerySetMixin:
                 if field.name == "id":
                     continue
 
-                new_value = getattr(new_instance, field.name)
-                original_value = getattr(original, field.name)
-
                 # Handle different field types appropriately
                 if field.is_relation:
-                    # For foreign keys, compare the pk values
-                    new_pk = new_value.pk if new_value else None
-                    original_pk = original_value.pk if original_value else None
+                    # Compare by raw id values to catch cases where only <fk>_id was set
+                    new_pk = getattr(new_instance, field.attname, None)
+                    original_pk = getattr(original, field.attname, None)
                     if new_pk != original_pk:
                         modified_fields.add(field.name)
                 else:
-                    # For regular fields, use direct comparison
+                    new_value = getattr(new_instance, field.name)
+                    original_value = getattr(original, field.name)
                     if new_value != original_value:
                         modified_fields.add(field.name)
 
