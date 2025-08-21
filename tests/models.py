@@ -8,7 +8,7 @@ from django_bulk_hooks.manager import BulkHookManager
 from django_bulk_hooks.models import HookModelMixin
 
 
-class TestUserModel(models.Model):
+class UserModel(models.Model):
     """Test user model for foreign key testing."""
 
     username = models.CharField(max_length=100)
@@ -44,7 +44,7 @@ class HookModel(HookModelMixin):
         Category, on_delete=models.CASCADE, null=True, blank=True
     )
     created_by = models.ForeignKey(
-        TestUserModel, on_delete=models.CASCADE, null=True, blank=True
+        UserModel, on_delete=models.CASCADE, null=True, blank=True
     )
     computed_value = models.IntegerField(default=0)
 

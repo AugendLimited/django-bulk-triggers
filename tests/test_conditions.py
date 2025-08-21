@@ -18,14 +18,14 @@ from django_bulk_hooks.conditions import (
     WasEqual,
     resolve_dotted_attr,
 )
-from tests.models import Category, HookModel, TestUserModel
+from tests.models import Category, HookModel, UserModel
 
 
 class TestResolveDottedAttr(TestCase):
     """Test the resolve_dotted_attr function."""
 
     def setUp(self):
-        self.user = TestUserModel(username="testuser", email="test@example.com")
+        self.user = UserModel(username="testuser", email="test@example.com")
         self.category = Category(name="Test Category", description="Test Description")
         self.test_model = HookModel(
             name="Test Model",
@@ -150,7 +150,7 @@ class TestIsEqual(TestCase):
 
     def test_is_equal_nested_field(self):
         """Test IsEqual with nested field."""
-        user = TestUserModel(username="testuser")
+        user = UserModel(username="testuser")
         test_model = HookModel(name="Test", created_by=user)
         condition = IsEqual("created_by.username", "testuser")
 
@@ -232,8 +232,8 @@ class TestHasChanged(TestCase):
 
     def test_has_changed_nested_field(self):
         """Test HasChanged with nested field."""
-        user1 = TestUserModel(username="user1")
-        user2 = TestUserModel(username="user2")
+        user1 = UserModel(username="user1")
+        user2 = UserModel(username="user2")
         test_model = HookModel(name="Test", created_by=user1)
         old_model = HookModel(name="Test", created_by=user2)
 

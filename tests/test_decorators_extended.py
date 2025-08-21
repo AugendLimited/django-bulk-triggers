@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from django.test import TestCase
 from django_bulk_hooks.decorators import bulk_hook, select_related
 from django_bulk_hooks.constants import BEFORE_CREATE, AFTER_CREATE
-from tests.models import HookModel, TestUserModel, Category, RelatedModel
+from tests.models import HookModel, UserModel, Category, RelatedModel
 from tests.utils import HookTracker
 
 
@@ -15,7 +15,7 @@ class TestBulkHookDecoratorExtended(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
+        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
         self.instances = []
         for i in range(3):
             instance = HookModel.objects.create(
@@ -33,7 +33,7 @@ class TestBulkHookDecoratorExtended(TestCase):
     def tearDown(self):
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        TestUserModel.objects.all().delete()
+        UserModel.objects.all().delete()
         from django_bulk_hooks.registry import clear_hooks
         clear_hooks()
     
@@ -141,7 +141,7 @@ class TestSelectRelatedDecoratorExtended(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
+        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
         self.instances = []
         for i in range(3):
             instance = HookModel.objects.create(
@@ -164,7 +164,7 @@ class TestSelectRelatedDecoratorExtended(TestCase):
         RelatedModel.objects.all().delete()
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        TestUserModel.objects.all().delete()
+        UserModel.objects.all().delete()
     
     def test_select_related_with_valid_fields(self):
         """Test select_related decorator with valid field names."""

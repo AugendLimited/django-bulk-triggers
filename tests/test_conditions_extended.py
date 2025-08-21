@@ -9,7 +9,7 @@ from django_bulk_hooks.conditions import (
     WasEqual, ChangesTo, IsGreaterThan, IsGreaterThanOrEqual, 
     IsLessThan, IsLessThanOrEqual, AndCondition, OrCondition, NotCondition
 )
-from tests.models import HookModel, Category, TestUserModel
+from tests.models import HookModel, Category, UserModel
 
 
 class TestHookConditionBase(TestCase):
@@ -17,7 +17,7 @@ class TestHookConditionBase(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
+        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
         self.instance = HookModel.objects.create(
             name="Test Instance",
             value=42,
@@ -36,7 +36,7 @@ class TestHookConditionBase(TestCase):
     def tearDown(self):
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        TestUserModel.objects.all().delete()
+        UserModel.objects.all().delete()
 
 
 class TestHookCondition(TestHookConditionBase):

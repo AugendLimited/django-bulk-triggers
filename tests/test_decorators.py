@@ -3,15 +3,21 @@ Tests for the decorators module.
 """
 
 from unittest.mock import Mock, patch
+
 import pytest
 
-from django_bulk_hooks.decorators import hook, select_related
-from django_bulk_hooks.constants import (
-    BEFORE_CREATE, AFTER_CREATE, BEFORE_UPDATE, AFTER_UPDATE, BEFORE_DELETE, AFTER_DELETE
-)
-from django_bulk_hooks.priority import Priority
 from django_bulk_hooks.conditions import IsEqual
-from tests.models import HookModel, Category, TestUserModel
+from django_bulk_hooks.constants import (
+    AFTER_CREATE,
+    AFTER_DELETE,
+    AFTER_UPDATE,
+    BEFORE_CREATE,
+    BEFORE_DELETE,
+    BEFORE_UPDATE,
+)
+from django_bulk_hooks.decorators import hook, select_related
+from django_bulk_hooks.priority import Priority
+from tests.models import Category, HookModel, UserModel
 from tests.utils import HookTracker
 
 
@@ -21,9 +27,10 @@ class TestHookDecorator:
 
     def setup_method(self):
         self.tracker = HookTracker()
-        
+
         # Clear the registry to prevent interference between tests
         from django_bulk_hooks.registry import clear_hooks
+
         clear_hooks()
 
     def test_hook_decorator_basic(self):
@@ -82,7 +89,7 @@ class TestHookDecorator:
         """Test hooks on different models."""
 
         @hook(BEFORE_CREATE, model=HookModel)
-        @hook(BEFORE_CREATE, model=TestUserModel)
+        @hook(BEFORE_CREATE, model=UserModel)
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
@@ -90,7 +97,7 @@ class TestHookDecorator:
 
         models = [hook_info[0] for hook_info in test_hook.hooks_hooks]
         assert HookModel in models
-        assert TestUserModel in models
+        assert UserModel in models
 
     def test_hook_decorator_with_all_events(self):
         """Test hook decorator with all event types."""
@@ -116,16 +123,17 @@ class TestHookDecorator:
         """Test hook decorator with User model."""
         from django.apps import apps
 
-        @hook(BEFORE_CREATE, model=TestUserModel)
+        @hook(BEFORE_CREATE, model=UserModel)
         def test_hook(new_records, old_records=None, **kwargs):
             pass
 
         # Verify the hook was registered
         models = apps.get_app_config("tests").get_models()
-        assert TestUserModel in models
+        assert UserModel in models
 
         # Clear hooks for other tests
         from django_bulk_hooks.registry import clear_hooks
+
         clear_hooks()
 
 
@@ -135,7 +143,9 @@ class TestSelectRelatedDecorator:
 
     def setup_method(self):
         # Create test data
-        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
+        self.user = UserModel.objects.create(
+            username="testuser", email="test@example.com"
+        )
         self.category = Category.objects.create(name="Test Category")
 
         # Create test instances with foreign keys
@@ -147,9 +157,10 @@ class TestSelectRelatedDecorator:
         # Save instances to get PKs
         for instance in self.test_instances:
             instance.save()
-            
+
         # Clear the registry to prevent interference between tests
         from django_bulk_hooks.registry import clear_hooks
+
         clear_hooks()
 
     def test_select_related_basic(self):
@@ -161,7 +172,7 @@ class TestSelectRelatedDecorator:
             for record in new_records:
                 assert record.created_by is not None
                 assert record.category is not None
-                assert isinstance(record.created_by, TestUserModel)
+                assert isinstance(record.created_by, UserModel)
                 assert isinstance(record.category, Category)
 
         test_function(new_records=self.test_instances)
@@ -267,8 +278,9 @@ class TestSelectRelatedDecorator:
         # The test instances already have their related fields loaded
         # so no additional queries should be needed
         from django.test.utils import override_settings
-        
+
         with override_settings(DEBUG=True):
+
             @select_related("created_by", "category")
             def test_function(new_records, old_records=None, **kwargs):
                 for record in new_records:
@@ -291,8 +303,10 @@ class TestSelectRelatedDecorator:
     def test_select_related_with_username_field(self):
         """Test select_related with username field access."""
         # Create a user with a username
-        self.user = TestUserModel.objects.create(username="testuser2", email="test2@example.com")
-        
+        self.user = UserModel.objects.create(
+            username="testuser2", email="test2@example.com"
+        )
+
         # Create test instances
         test_instances = [
             HookModel(name="Test 1", created_by=self.user),
@@ -331,11 +345,14 @@ class TestDecoratorIntegration:
 
     def setup_method(self):
         self.tracker = HookTracker()
-        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
+        self.user = UserModel.objects.create(
+            username="testuser", email="test@example.com"
+        )
         self.category = Category.objects.create(name="Test Category")
-        
+
         # Clear the registry to prevent interference between tests
         from django_bulk_hooks.registry import clear_hooks
+
         clear_hooks()
 
     def test_hook_with_select_related(self):
@@ -349,7 +366,7 @@ class TestDecoratorIntegration:
             # Verify related fields are loaded
             for record in new_records:
                 if record.created_by:
-                    assert isinstance(record.created_by, TestUserModel)
+                    assert isinstance(record.created_by, UserModel)
                 if record.category:
                     assert isinstance(record.category, Category)
 

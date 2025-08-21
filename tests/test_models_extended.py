@@ -11,7 +11,7 @@ from django_bulk_hooks.constants import (
     BEFORE_CREATE, BEFORE_UPDATE, BEFORE_DELETE,
     AFTER_CREATE, AFTER_UPDATE, AFTER_DELETE
 )
-from tests.models import HookModel, TestUserModel, Category
+from tests.models import HookModel, UserModel, Category
 from tests.utils import HookTracker
 
 
@@ -20,7 +20,7 @@ class TestHookModelMixinExtended(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
+        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
         self.instance = HookModel.objects.create(
             name="Test Instance",
             value=42,
@@ -39,7 +39,7 @@ class TestHookModelMixinExtended(TestCase):
     def tearDown(self):
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        TestUserModel.objects.all().delete()
+        UserModel.objects.all().delete()
     
     @patch('django_bulk_hooks.models.run')
     def test_clean_create_operation(self, mock_run):
@@ -175,12 +175,12 @@ class TestHookModelMixinEdgeCases(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
+        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
     
     def tearDown(self):
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        TestUserModel.objects.all().delete()
+        UserModel.objects.all().delete()
     
     @patch('django_bulk_hooks.models.run')
     def test_clean_with_none_pk(self, mock_run):

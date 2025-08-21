@@ -15,7 +15,7 @@ from django_bulk_hooks.constants import (
 )
 from django_bulk_hooks.conditions import HasChanged, IsEqual, IsNotEqual, WasEqual
 from django_bulk_hooks.priority import Priority
-from tests.models import HookModel, TestUserModel, SimpleModel, ComplexModel, Category, RelatedModel
+from tests.models import HookModel, UserModel, SimpleModel, ComplexModel, Category, RelatedModel
 from tests.utils import HookTracker, create_test_instances
 
 # Define hook classes at module level to ensure registration
@@ -296,7 +296,7 @@ class TestFullSystemIntegration(TestCase):
 
     def setUp(self):
         self.tracker = HookTracker()
-        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
+        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
         self.category = Category.objects.create(name="Test Category")
         
         # Reset the trackers for each test
@@ -676,7 +676,7 @@ class TestRealWorldScenarios(TestCase):
     """Test real-world usage scenarios."""
 
     def setUp(self):
-        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
+        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
         self.category = Category.objects.create(name="Test Category")
         
         # Reset hook class variables
