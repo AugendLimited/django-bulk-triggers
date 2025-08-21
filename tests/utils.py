@@ -419,9 +419,17 @@ def re_register_test_hooks():
     )
     
     # UserRegistrationHook
-    from tests.models import User
+    from tests.models import SimpleModel
     register_hook(
-        model=User,
+        model=SimpleModel,
+        event=BEFORE_CREATE,
+        handler_cls=UserRegistrationHook,
+        method_name="validate_user",
+        condition=None,
+        priority=Priority.NORMAL,
+    )
+    register_hook(
+        model=SimpleModel,
         event=AFTER_CREATE,
         handler_cls=UserRegistrationHook,
         method_name="send_welcome_email",
