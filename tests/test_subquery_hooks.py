@@ -21,6 +21,13 @@ class SubqueryHookTest(HookClass):
     def __init__(self):
         pass  # No need to initialize instance variables
 
+    @classmethod
+    def reset(cls):
+        """Reset the hook state for testing."""
+        cls.after_update_called = False
+        cls.computed_values.clear()
+        cls.foreign_key_values.clear()
+
     @hook(AFTER_UPDATE, model=TestModel)
     def test_subquery_access(self, new_records, old_records):
         SubqueryHookTest.after_update_called = True  # Use class variable
@@ -35,6 +42,10 @@ class SubqueryHooksTestCase(TestCase):
     """Test case for Subquery hook functionality."""
 
     def setUp(self):
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
+        
         # Create test data
         self.user = User.objects.create(username="testuser")
         self.test_model = TestModel.objects.create(
@@ -47,8 +58,22 @@ class SubqueryHooksTestCase(TestCase):
             test_model=self.test_model, amount=15
         )
 
-        # Create hook instance
+        # Create hook instance and manually register it
         self.hook = SubqueryHookTest()
+        
+        # Manually register the hook since the metaclass registration was cleared
+        from django_bulk_hooks.registry import register_hook
+        register_hook(
+            model=TestModel,
+            event=AFTER_UPDATE,
+            handler_cls=SubqueryHookTest,
+            method_name="test_subquery_access",
+            condition=None,
+            priority=50
+        )
+        
+        # Reset hook state before each test
+        self.hook.reset()
 
     def test_subquery_in_hooks(self):
         """Test that Subquery computed values are accessible in hooks."""

@@ -175,8 +175,15 @@ class HookQuerySetMixin:
                                 getattr(refreshed_instance, field.name),
                             )
 
-        # Run AFTER_UPDATE hooks only for standalone updates
-        if not current_bypass_hooks:
+        # Run AFTER_UPDATE hooks for standalone updates or subquery operations
+        # For subquery operations, we need to run hooks even if we're in a bulk context
+        # because subqueries bypass the normal object-level update flow
+        should_run_hooks = (
+            not current_bypass_hooks or 
+            has_subquery  # Always run hooks for subquery operations
+        )
+        
+        if should_run_hooks:
             logger.debug("update: running AFTER_UPDATE")
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
         else:
