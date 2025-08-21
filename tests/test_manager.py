@@ -6,11 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.test import TestCase
-from django.contrib.auth.models import User
 
 from django_bulk_hooks.manager import BulkHookManager
 from django_bulk_hooks.registry import clear_hooks
-from tests.models import HookModel, SimpleModel, ComplexModel
+from tests.models import HookModel, SimpleModel, ComplexModel, TestUserModel
 from tests.utils import HookTracker, create_test_instances
 
 
@@ -182,7 +181,7 @@ class TestBulkHookManagerIntegration(TestCase):
 
     def setUp(self):
         self.tracker = HookTracker()
-        self.user = User.objects.create(username="testuser", email="test@example.com")
+        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
         
         # Clear the registry to prevent interference between tests
         clear_hooks()
@@ -277,11 +276,11 @@ class TestBulkHookManagerIntegration(TestCase):
 
         # Test with User
         user_instances = [
-            User(username="user1", email="user1@example.com"),
-            User(username="user2", email="user2@example.com"),
+            TestUserModel(username="user1", email="user1@example.com"),
+            TestUserModel(username="user2", email="user2@example.com"),
         ]
 
-        created_users = User.objects.bulk_create(user_instances)
+        created_users = TestUserModel.objects.bulk_create(user_instances)
         self.assertEqual(len(created_users), 2)
 
     def test_manager_error_handling(self):

@@ -3,13 +3,12 @@ Test models for django-bulk-hooks testing.
 """
 
 from django.db import models
-from django.contrib.auth.models import User
 
 from django_bulk_hooks.manager import BulkHookManager
 from django_bulk_hooks.models import HookModelMixin
 
 
-class TestUser(models.Model):
+class TestUserModel(models.Model):
     """Test user model for foreign key testing."""
 
     username = models.CharField(max_length=100)
@@ -45,7 +44,7 @@ class HookModel(HookModelMixin):
         Category, on_delete=models.CASCADE, null=True, blank=True
     )
     created_by = models.ForeignKey(
-        User, on_delete=models.CASCADE, null=True, blank=True
+        TestUserModel, on_delete=models.CASCADE, null=True, blank=True
     )
     computed_value = models.IntegerField(default=0)
 

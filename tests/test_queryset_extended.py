@@ -82,10 +82,6 @@ class HookQuerySetExtendedTestCase(TestCase):
             Mock(name='created_at', auto_now_add=True)
         ]
         
-        # Mock _base_manager
-        self.queryset.model._base_manager = Mock()
-        self.queryset.model._base_manager.filter.return_value = self.instances
-        
     def tearDown(self):
         set_bulk_update_value_map(None)
 
@@ -184,13 +180,14 @@ class TestQuerysetEdgeCases(HookQuerySetExtendedTestCase):
         
         # Mock _base_manager.filter to return refreshed instances
         refreshed_instances = create_test_instances(HookModel, 3)
-        self.queryset.model._base_manager.filter.return_value = refreshed_instances
-        
-        result = self.queryset.update(name=mock_subquery)
-        
-        # Check that hooks were called
-        self.assertEqual(mock_run.call_count, 3)
-        self.assertEqual(result, 3)
+        with patch.object(self.queryset.model, '_base_manager') as mock_base_manager:
+            mock_base_manager.filter.return_value = refreshed_instances
+            
+            result = self.queryset.update(name=mock_subquery)
+            
+            # Check that hooks were called
+            self.assertEqual(mock_run.call_count, 3)
+            self.assertEqual(result, 3)
     
     @patch('django_bulk_hooks.queryset.engine.run')
     def test_update_with_subquery_in_bypass_context(self, mock_run):
@@ -258,11 +255,10 @@ class TestQuerysetEdgeCases(HookQuerySetExtendedTestCase):
         mock_parent = Mock()
         mock_parent._meta.proxy = False
         
-        self.queryset.model._meta.parents = {mock_parent: None}
-        self.queryset.model._meta.proxy = False
-        
-        chain = self.queryset._get_inheritance_chain()
-        self.assertIsInstance(chain, list)
+        with patch.object(self.queryset.model._meta, 'parents', {mock_parent: None}):
+            with patch.object(self.queryset.model._meta, 'proxy', False):
+                chain = self.queryset._get_inheritance_chain()
+                self.assertIsInstance(chain, list)
     
     def test_get_inheritance_chain_with_proxy_parents(self):
         """Test _get_inheritance_chain with proxy parents."""
@@ -270,11 +266,10 @@ class TestQuerysetEdgeCases(HookQuerySetExtendedTestCase):
         mock_proxy_parent = Mock()
         mock_proxy_parent._meta.proxy = True
         
-        self.queryset.model._meta.parents = {mock_proxy_parent: None}
-        
-        chain = self.queryset._get_inheritance_chain()
-        # Proxy parents should be excluded
-        self.assertEqual(len(chain), 1)  # Only the current model
+        with patch.object(self.queryset.model._meta, 'parents', {mock_proxy_parent: None}):
+            chain = self.queryset._get_inheritance_chain()
+            # Proxy parents should be excluded
+            self.assertEqual(len(chain), 1)  # Only the current model
     
     def test_get_inheritance_chain_deep_inheritance(self):
         """Test _get_inheritance_chain with deep inheritance."""
@@ -285,10 +280,9 @@ class TestQuerysetEdgeCases(HookQuerySetExtendedTestCase):
             mock_parent._meta.proxy = False
             mock_parents.append(mock_parent)
         
-        self.queryset.model._meta.parents = {mock_parents[0]: None}
-        
-        with self.assertRaises(ValueError):
-            self.queryset._get_inheritance_chain()
+        with patch.object(self.queryset.model._meta, 'parents', {mock_parents[0]: None}):
+            with self.assertRaises(ValueError):
+                self.queryset._get_inheritance_chain()
 
 
 class TestMTIBulkOperations(HookQuerySetExtendedTestCase):

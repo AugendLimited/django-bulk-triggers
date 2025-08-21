@@ -4,14 +4,8 @@ Extended tests for the conditions module to increase coverage.
 
 from unittest.mock import Mock, patch
 from django.test import TestCase
-from django.contrib.auth.models import User
-
-from django_bulk_hooks.conditions import (
-    HookCondition, IsEqual, IsNotEqual, HasChanged,
-    WasEqual, ChangesTo, IsGreaterThan, IsGreaterThanOrEqual, 
-    IsLessThan, IsLessThanOrEqual, AndCondition, OrCondition, NotCondition
-)
-from tests.models import HookModel, Category
+from django_bulk_hooks.conditions import HookCondition
+from tests.models import HookModel, TestUserModel
 
 
 class TestHookConditionBase(TestCase):
@@ -19,7 +13,7 @@ class TestHookConditionBase(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = User.objects.create_user(username="testuser", email="test@example.com")
+        self.user = TestUserModel.objects.create_user(username="testuser", email="test@example.com")
         self.instance = HookModel.objects.create(
             name="Test Instance",
             value=42,
@@ -38,7 +32,7 @@ class TestHookConditionBase(TestCase):
     def tearDown(self):
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        User.objects.all().delete()
+        TestUserModel.objects.all().delete()
 
 
 class TestHookCondition(TestHookConditionBase):

@@ -60,7 +60,7 @@ class HookModelMixin(models.Model):
         # If bypass_hooks is True, use base manager to avoid triggering hooks
         if bypass_hooks:
             logger.debug(f"save() called with bypass_hooks=True for {self.__class__.__name__} pk={self.pk}")
-            return self._base_manager.save(self, *args, **kwargs)
+            return self.__class__._base_manager.save(self, *args, **kwargs)
 
         is_create = self.pk is None
 
@@ -99,7 +99,7 @@ class HookModelMixin(models.Model):
     def delete(self, *args, bypass_hooks=False, **kwargs):
         # If bypass_hooks is True, use base manager to avoid triggering hooks
         if bypass_hooks:
-            return self._base_manager.delete(self, *args, **kwargs)
+            return self.__class__._base_manager.delete(self, *args, **kwargs)
 
         ctx = HookContext(self.__class__)
 

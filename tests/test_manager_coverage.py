@@ -1,0 +1,149 @@
+"""
+Additional tests for manager module to increase coverage.
+"""
+
+from unittest.mock import Mock, patch
+from django.test import TestCase
+from django_bulk_hooks.manager import BulkHookManager
+from tests.models import HookModel
+
+
+class TestManagerCoverage(TestCase):
+    """Test uncovered functionality in manager module."""
+    
+    def setUp(self):
+        self.manager = BulkHookManager()
+        self.manager.model = HookModel
+    
+    def test_get_queryset_with_existing_hook_queryset(self):
+        """Test get_queryset when base queryset already has hook functionality."""
+        # Mock base queryset that already has hook functionality
+        mock_base_qs = Mock()
+        mock_base_qs.model = HookModel
+        
+        # Mock the base queryset to appear as if it has hook functionality
+        with patch.object(self.manager, 'get_queryset') as mock_get_qs:
+            mock_get_qs.return_value = mock_base_qs
+            
+            # Mock isinstance check to return True
+            with patch('django_bulk_hooks.manager.HookQuerySetMixin', return_value=True):
+                with patch('isinstance', return_value=True):
+                    result = self.manager.get_queryset()
+                    
+                    # Should return the base queryset as-is
+                    self.assertEqual(result, mock_base_qs)
+    
+    def test_save_with_existing_pk(self):
+        """Test save method with existing object."""
+        # Create a mock object with existing PK
+        mock_obj = Mock()
+        mock_obj.pk = 1
+        
+        # Mock the bulk_update method
+        with patch.object(self.manager, 'bulk_update') as mock_bulk_update:
+            mock_bulk_update.return_value = 1
+            
+            result = self.manager.save(mock_obj)
+            
+            # Should call bulk_update
+            mock_bulk_update.assert_called_once()
+            self.assertEqual(result, 1)
+    
+    def test_save_with_new_object(self):
+        """Test save method with new object."""
+        # Create a mock object without PK
+        mock_obj = Mock()
+        mock_obj.pk = None
+        
+        # Mock the bulk_create method
+        with patch.object(self.manager, 'bulk_create') as mock_bulk_create:
+            mock_bulk_create.return_value = [mock_obj]
+            
+            result = self.manager.save(mock_obj)
+            
+            # Should call bulk_create
+            mock_bulk_create.assert_called_once()
+            self.assertEqual(result, 1)
+    
+    def test_save_with_error_handling(self):
+        """Test save method error handling."""
+        # Create a mock object
+        mock_obj = Mock()
+        mock_obj.pk = None
+        
+        # Mock bulk_create to raise an exception
+        with patch.object(self.manager, 'bulk_create', side_effect=Exception("Save failed")):
+            with self.assertRaises(Exception):
+                self.manager.save(mock_obj)
+    
+    def test_bulk_create_delegation(self):
+        """Test bulk_create delegates to queryset."""
+        objs = [Mock(), Mock()]
+        
+        with patch.object(self.manager, 'get_queryset') as mock_get_qs:
+            mock_qs = Mock()
+            mock_qs.bulk_create.return_value = objs
+            mock_get_qs.return_value = mock_qs
+            
+            result = self.manager.bulk_create(objs, batch_size=100)
+            
+            # Should delegate to queryset
+            mock_qs.bulk_create.assert_called_once()
+            self.assertEqual(result, objs)
+    
+    def test_bulk_update_delegation(self):
+        """Test bulk_update delegates to queryset."""
+        objs = [Mock(), Mock()]
+        fields = ['name', 'value']
+        
+        with patch.object(self.manager, 'get_queryset') as mock_get_qs:
+            mock_qs = Mock()
+            mock_qs.bulk_update.return_value = 2
+            mock_get_qs.return_value = mock_qs
+            
+            result = self.manager.bulk_update(objs, fields)
+            
+            # Should delegate to queryset
+            mock_qs.bulk_update.assert_called_once()
+            self.assertEqual(result, 2)
+    
+    def test_bulk_delete_delegation(self):
+        """Test bulk_delete delegates to queryset."""
+        objs = [Mock(), Mock()]
+        
+        with patch.object(self.manager, 'get_queryset') as mock_get_qs:
+            mock_qs = Mock()
+            mock_qs.bulk_delete.return_value = 2
+            mock_get_qs.return_value = mock_qs
+            
+            result = self.manager.bulk_delete(objs)
+            
+            # Should delegate to queryset
+            mock_qs.bulk_delete.assert_called_once()
+            self.assertEqual(result, 2)
+    
+    def test_delete_delegation(self):
+        """Test delete delegates to queryset."""
+        with patch.object(self.manager, 'get_queryset') as mock_get_qs:
+            mock_qs = Mock()
+            mock_qs.delete.return_value = (2, {'tests.HookModel': 2})
+            mock_get_qs.return_value = mock_qs
+            
+            result = self.manager.delete()
+            
+            # Should delegate to queryset
+            mock_qs.delete.assert_called_once()
+            self.assertEqual(result, (2, {'tests.HookModel': 2}))
+    
+    def test_update_delegation(self):
+        """Test update delegates to queryset."""
+        with patch.object(self.manager, 'get_queryset') as mock_get_qs:
+            mock_qs = Mock()
+            mock_qs.update.return_value = 2
+            mock_get_qs.return_value = mock_qs
+            
+            result = self.manager.update(name="Updated")
+            
+            # Should delegate to queryset
+            mock_qs.update.assert_called_once_with(name="Updated")
+            self.assertEqual(result, 2)

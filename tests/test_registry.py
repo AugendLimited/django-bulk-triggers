@@ -18,7 +18,7 @@ from django_bulk_hooks.constants import (
 )
 from django_bulk_hooks.priority import Priority
 from django_bulk_hooks.registry import get_hooks, list_all_hooks, register_hook
-from tests.models import SimpleModel, HookModel, User
+from tests.models import SimpleModel, HookModel, TestUserModel
 
 
 class TestRegisterHook(TestCase):
@@ -137,7 +137,7 @@ class TestRegisterHook(TestCase):
 
         # Register hook for User
         register_hook(
-            model=User,
+            model=TestUserModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -150,7 +150,7 @@ class TestRegisterHook(TestCase):
         self.assertEqual(len(test_model_hooks), 1)
 
         # Check User hooks
-        user_hooks = get_hooks(User, BEFORE_CREATE)
+        user_hooks = get_hooks(TestUserModel, BEFORE_CREATE)
         self.assertEqual(len(user_hooks), 1)
 
         # Check that they're separate
@@ -160,11 +160,11 @@ class TestRegisterHook(TestCase):
         
         # Check that HookModel and User have separate entries
         self.assertIn((HookModel, BEFORE_CREATE), all_hooks)
-        self.assertIn((User, BEFORE_CREATE), all_hooks)
+        self.assertIn((TestUserModel, BEFORE_CREATE), all_hooks)
         
         # Verify they have different keys in the registry
         test_model_key = (HookModel, BEFORE_CREATE)
-        user_key = (User, BEFORE_CREATE)
+        user_key = (TestUserModel, BEFORE_CREATE)
         self.assertNotEqual(test_model_key, user_key)
 
     def test_register_hook_different_events(self):
@@ -345,7 +345,7 @@ class TestGetHooks(TestCase):
         )
 
         # Try to get hooks for different model
-        hooks = get_hooks(User, BEFORE_CREATE)
+        hooks = get_hooks(TestUserModel, BEFORE_CREATE)
         self.assertEqual(hooks, [])
 
     def test_get_hooks_all_events(self):
@@ -437,7 +437,7 @@ class TestListAllHooks(TestCase):
         )
 
         register_hook(
-            model=User,
+            model=TestUserModel,
             event=AFTER_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -449,13 +449,13 @@ class TestListAllHooks(TestCase):
 
         # Should have entries for both models
         self.assertIn((HookModel, BEFORE_CREATE), hooks)
-        self.assertIn((User, AFTER_CREATE), hooks)
+        self.assertIn((TestUserModel, AFTER_CREATE), hooks)
 
         # Check the content
         test_model_hooks = hooks[(HookModel, BEFORE_CREATE)]
         self.assertEqual(len(test_model_hooks), 1)
 
-        user_hooks = hooks[(User, AFTER_CREATE)]
+        user_hooks = hooks[(TestUserModel, AFTER_CREATE)]
         self.assertEqual(len(user_hooks), 1)
 
     def test_list_all_hooks_structure(self):
