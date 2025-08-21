@@ -25,8 +25,8 @@ from django_bulk_hooks.handler import (
     hook_vars,
 )
 from django_bulk_hooks import HookClass
-from tests.models import SimpleModel, TestModel
-from tests.utils import TestHookTracker, assert_hook_called, create_test_instances
+from tests.models import SimpleModel, HookModel
+from tests.utils import HookTracker, assert_hook_called, create_test_instances
 
 
 class TestHookContextState(TestCase):
@@ -73,20 +73,20 @@ class TestHookContextState(TestCase):
 
     def test_new_property(self):
         """Test new property."""
-        test_records = [TestModel(name="Test")]
+        test_records = [HookModel(name="Test")]
         hook_vars.new = test_records
         self.assertEqual(self.hook_state.new, test_records)
 
     def test_old_property(self):
         """Test old property."""
-        test_records = [TestModel(name="Test")]
+        test_records = [HookModel(name="Test")]
         hook_vars.old = test_records
         self.assertEqual(self.hook_state.old, test_records)
 
     def test_model_property(self):
         """Test model property."""
-        hook_vars.model = TestModel
-        self.assertEqual(self.hook_state.model, TestModel)
+        hook_vars.model = HookModel
+        self.assertEqual(self.hook_state.model, HookModel)
 
 
 class TestHookQueue(TestCase):
@@ -123,20 +123,20 @@ class TestHookMeta(TestCase):
 
     def test_hook_registration_via_metaclass(self):
         """Test that hooks are registered via metaclass."""
-        tracker = TestHookTracker()
+        tracker = HookTracker()
 
         class TestHookClass(Hook):
             def __init__(self):
                 self.tracker = tracker
 
-            @hook(BEFORE_CREATE, model=TestModel)
+            @hook(BEFORE_CREATE, model=HookModel)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
         # Verify the hook was registered
         from django_bulk_hooks.registry import get_hooks
 
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertGreater(len(hooks), 0)
 
         # Find our hook
@@ -152,8 +152,8 @@ class TestHookHandle(TestCase):
     """Test HookClass.handle method."""
 
     def setUp(self):
-        self.tracker = TestHookTracker()
-        self.test_instances = create_test_instances(TestModel, 2)
+        self.tracker = HookTracker()
+        self.test_instances = create_test_instances(HookModel, 2)
         
         # Clear the registry to prevent interference between tests
         from django_bulk_hooks.registry import clear_hooks
@@ -164,7 +164,7 @@ class TestHookHandle(TestCase):
         queue = get_hook_queue()
         initial_length = len(queue)
 
-        HookClass.handle(BEFORE_CREATE, TestModel, new_records=self.test_instances)
+        HookClass.handle(BEFORE_CREATE, HookModel, new_records=self.test_instances)
 
         # The queue should be empty after processing since depth == 0
         self.assertEqual(len(queue), 0)
@@ -173,9 +173,9 @@ class TestHookHandle(TestCase):
         """Test that nested handle calls don't process immediately."""
         with patch.object(HookClass, "_process") as mock_process:
             # First call
-            HookClass.handle(BEFORE_CREATE, TestModel, new_records=self.test_instances)
+            HookClass.handle(BEFORE_CREATE, HookModel, new_records=self.test_instances)
             # Second call (not nested since depth == 0)
-            HookClass.handle(AFTER_CREATE, TestModel, new_records=self.test_instances)
+            HookClass.handle(AFTER_CREATE, HookModel, new_records=self.test_instances)
 
             # Both calls should trigger processing since depth == 0
             self.assertEqual(mock_process.call_count, 2)
@@ -183,12 +183,12 @@ class TestHookHandle(TestCase):
     def test_handle_processes_queue(self):
         """Test that handle processes the entire queue."""
         with patch.object(HookClass, "_process") as mock_process:
-            HookClass.handle(BEFORE_CREATE, TestModel, new_records=self.test_instances)
+            HookClass.handle(BEFORE_CREATE, HookModel, new_records=self.test_instances)
 
             mock_process.assert_called_once()
             args = mock_process.call_args
             self.assertEqual(args[0][0], BEFORE_CREATE)  # event
-            self.assertEqual(args[0][1], TestModel)  # model
+            self.assertEqual(args[0][1], HookModel)  # model
             self.assertEqual(args[0][2], self.test_instances)  # new_records
 
 
@@ -196,8 +196,8 @@ class TestHookProcess(TestCase):
     """Test HookClass._process method."""
 
     def setUp(self):
-        self.tracker = TestHookTracker()
-        self.test_instances = create_test_instances(TestModel, 2)
+        self.tracker = HookTracker()
+        self.test_instances = create_test_instances(HookModel, 2)
         
         # Clear the registry to prevent interference between tests
         from django_bulk_hooks.registry import clear_hooks
@@ -207,7 +207,7 @@ class TestHookProcess(TestCase):
         """Test that _process sets hook_vars correctly."""
         initial_depth = hook_vars.depth
 
-        HookClass._process(BEFORE_CREATE, TestModel, self.test_instances, None)
+        HookClass._process(BEFORE_CREATE, HookModel, self.test_instances, None)
 
         self.assertEqual(hook_vars.depth, initial_depth)
         self.assertIsNone(hook_vars.new)
@@ -219,7 +219,7 @@ class TestHookProcess(TestCase):
         """Test that _process increments and decrements depth."""
         initial_depth = hook_vars.depth
 
-        HookClass._process(BEFORE_CREATE, TestModel, self.test_instances, None)
+        HookClass._process(BEFORE_CREATE, HookModel, self.test_instances, None)
 
         self.assertEqual(hook_vars.depth, initial_depth)
 
@@ -231,7 +231,7 @@ class TestHookProcess(TestCase):
             mock_get_conn.return_value = mock_conn
 
             with patch("django.db.transaction.on_commit") as mock_on_commit:
-                HookClass._process(AFTER_CREATE, TestModel, self.test_instances, None)
+                HookClass._process(AFTER_CREATE, HookModel, self.test_instances, None)
 
                 mock_on_commit.assert_called_once()
 
@@ -243,7 +243,7 @@ class TestHookProcess(TestCase):
             mock_get_conn.return_value = mock_conn
 
             with patch("django.db.transaction.on_commit") as mock_on_commit:
-                HookClass._process(BEFORE_CREATE, TestModel, self.test_instances, None)
+                HookClass._process(BEFORE_CREATE, HookModel, self.test_instances, None)
 
                 mock_on_commit.assert_not_called()
 
@@ -252,12 +252,12 @@ class TestHookProcess(TestCase):
         with patch("django_bulk_hooks.handler.logger") as mock_logger:
             # Create a hook that raises an exception
             class ExceptionHook(HookClass):
-                @hook(BEFORE_CREATE, model=TestModel)
+                @hook(BEFORE_CREATE, model=HookModel)
                 def on_before_create(self, new_records, old_records=None, **kwargs):
                     raise ValueError("Test exception")
 
             # This should not raise an exception
-            HookClass._process(BEFORE_CREATE, TestModel, self.test_instances, None)
+            HookClass._process(BEFORE_CREATE, HookModel, self.test_instances, None)
 
             # Should log the exception
             mock_logger.exception.assert_called()
@@ -267,8 +267,8 @@ class TestHookIntegration(TestCase):
     """Integration tests for Hook functionality."""
 
     def setUp(self):
-        self.tracker = TestHookTracker()
-        self.test_instances = create_test_instances(TestModel, 3)
+        self.tracker = HookTracker()
+        self.test_instances = create_test_instances(HookModel, 3)
         
         # Clear the registry to prevent interference between tests
         from django_bulk_hooks.registry import clear_hooks
@@ -278,16 +278,16 @@ class TestHookIntegration(TestCase):
         """Test a complete hook cycle."""
 
         class TestHookClass(HookClass):
-            tracker = TestHookTracker()  # Class variable to persist across instances
+            tracker = HookTracker()  # Class variable to persist across instances
             
             def __init__(self):
                 pass  # No need to create instance tracker
 
-            @hook(BEFORE_CREATE, model=TestModel)
+            @hook(BEFORE_CREATE, model=HookModel)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 TestHookClass.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-            @hook(BEFORE_CREATE, model=TestModel)
+            @hook(BEFORE_CREATE, model=HookModel)
             def on_after_create(self, new_records, old_records=None, **kwargs):
                 TestHookClass.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
@@ -297,8 +297,8 @@ class TestHookIntegration(TestCase):
         hook_instance = TestHookClass()
 
         # Trigger hooks
-        HookClass.handle(BEFORE_CREATE, TestModel, new_records=self.test_instances)
-        HookClass.handle(AFTER_CREATE, TestModel, new_records=self.test_instances)
+        HookClass.handle(BEFORE_CREATE, HookModel, new_records=self.test_instances)
+        HookClass.handle(AFTER_CREATE, HookModel, new_records=self.test_instances)
 
         # Verify calls were tracked
         assert_hook_called(TestHookClass.tracker, BEFORE_CREATE, 2)  # Both hooks are now BEFORE_CREATE
@@ -308,26 +308,26 @@ class TestHookIntegration(TestCase):
         from django_bulk_hooks.conditions import IsEqual
 
         class ConditionalHook(HookClass):
-            tracker = TestHookTracker()  # Class variable to persist across instances
+            tracker = HookTracker()  # Class variable to persist across instances
             
             def __init__(self):
                 pass  # No need to create instance tracker
 
-            @hook(BEFORE_CREATE, model=TestModel, condition=IsEqual("status", "active"))
+            @hook(BEFORE_CREATE, model=HookModel, condition=IsEqual("status", "active"))
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 ConditionalHook.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
         # Hooks are automatically registered by the metaclass when the class is defined
 
         # Create instances with different statuses
-        active_instance = TestModel(name="Active", status="active")
-        inactive_instance = TestModel(name="Inactive", status="inactive")
+        active_instance = HookModel(name="Active", status="active")
+        inactive_instance = HookModel(name="Inactive", status="inactive")
 
         hook_instance = ConditionalHook()
 
         # Trigger hooks
         HookClass.handle(
-            BEFORE_CREATE, TestModel, new_records=[active_instance, inactive_instance]
+            BEFORE_CREATE, HookModel, new_records=[active_instance, inactive_instance]
         )
 
         # Only the active instance should trigger the hook

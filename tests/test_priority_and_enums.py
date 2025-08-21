@@ -160,15 +160,15 @@ class TestPriorityAndConstantsIntegration(TestCase):
         from django_bulk_hooks import HookClass
         from django_bulk_hooks.decorators import hook
 
-        class TestModel:
+        class HookModel:
             pass
 
         class TestHook(HookClass):
-            @hook(BEFORE_CREATE, model=TestModel, priority=Priority.HIGH)
+            @hook(BEFORE_CREATE, model=HookModel, priority=Priority.HIGH)
             def high_priority_method(self, new_records, old_records=None, **kwargs):
                 pass
 
-            @hook(BEFORE_CREATE, model=TestModel, priority=Priority.LOW)
+            @hook(BEFORE_CREATE, model=HookModel, priority=Priority.LOW)
             def low_priority_method(self, new_records, old_records=None, **kwargs):
                 pass
 
@@ -194,7 +194,7 @@ class TestPriorityAndConstantsIntegration(TestCase):
         """Test that priorities work correctly in hook ordering."""
         from django_bulk_hooks.registry import get_hooks, register_hook
 
-        class TestModel:
+        class HookModel:
             pass
 
         class Handler1:
@@ -211,7 +211,7 @@ class TestPriorityAndConstantsIntegration(TestCase):
 
         # Register hooks with different priorities
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=Handler2,
             method_name="method2",
@@ -220,7 +220,7 @@ class TestPriorityAndConstantsIntegration(TestCase):
         )
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=Handler1,
             method_name="method1",
@@ -229,7 +229,7 @@ class TestPriorityAndConstantsIntegration(TestCase):
         )
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=Handler3,
             method_name="method3",
@@ -238,7 +238,7 @@ class TestPriorityAndConstantsIntegration(TestCase):
         )
 
         # Get hooks and verify ordering
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 3)
 
         # Check priority order (high priority first - lower numbers)

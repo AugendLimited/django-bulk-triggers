@@ -79,19 +79,19 @@ The test suite uses several Django models:
 
 - `User` - Basic user model for foreign key testing
 - `Category` - Category model for foreign key testing
-- `TestModel` - Main test model with various field types
+- `HookModel` - Main test model with various field types
 - `SimpleModel` - Simple model for basic testing
 - `ComplexModel` - Model with various field types for comprehensive testing
 - `RelatedModel` - Related model for relationship testing
 
 ## Test Utilities
 
-### TestHookTracker
+### HookTracker
 
 A utility class for tracking hook calls in tests:
 
 ```python
-tracker = TestHookTracker()
+tracker = HookTracker()
 # ... perform operations ...
 assert len(tracker.before_create_calls) == 1
 assert len(tracker.after_update_calls) == 0
@@ -126,7 +126,7 @@ When adding new tests:
 
 1. **Follow naming conventions**: `test_*.py` files, `Test*` classes, `test_*` methods
 2. **Use appropriate test models**: Import from `tests.models`
-3. **Use test utilities**: Leverage `TestHookTracker` and helper functions
+3. **Use test utilities**: Leverage `HookTracker` and helper functions
 4. **Add appropriate markers**: Use `@pytest.mark.unit` or `@pytest.mark.integration`
 5. **Write descriptive docstrings**: Explain what each test is testing
 6. **Test edge cases**: Include tests for error conditions and edge cases

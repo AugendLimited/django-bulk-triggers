@@ -18,10 +18,10 @@ from django_bulk_hooks.constants import (
 )
 from django_bulk_hooks.decorators import hook
 from django_bulk_hooks.priority import Priority
-from tests.models import TestModel, SimpleModel
+from tests.models import HookModel, SimpleModel
 
 
-class TestHookTracker:
+class HookTracker:
     """Utility class to track hook calls for testing."""
 
     def __init__(self):
@@ -74,13 +74,13 @@ class TestHookTracker:
 
 
 def create_test_hook_class(
-    tracker: TestHookTracker, model_class, events: List[str] = None
+    tracker: HookTracker, model_class, events: List[str] = None
 ):
     """
     Create a test hook class that tracks calls.
 
     Args:
-        tracker: TestHookTracker instance to track calls
+        tracker: HookTracker instance to track calls
         model_class: Django model class to hook into
         events: List of events to hook into (defaults to all events)
 
@@ -121,7 +121,7 @@ def create_test_hook_class(
     return TestHook
 
 
-def assert_hook_called(tracker: TestHookTracker, event: str, expected_count: int = 1):
+def assert_hook_called(tracker: HookTracker, event: str, expected_count: int = 1):
     """Assert that a specific hook event was called the expected number of times."""
     if event == BEFORE_CREATE:
         actual_count = len(tracker.before_create_calls)
@@ -143,7 +143,7 @@ def assert_hook_called(tracker: TestHookTracker, event: str, expected_count: int
     )
 
 
-def assert_hook_not_called(tracker: TestHookTracker, event: str):
+def assert_hook_not_called(tracker: HookTracker, event: str):
     """Assert that a specific hook event was not called."""
     assert_hook_called(tracker, event, expected_count=0)
 
@@ -207,7 +207,7 @@ def re_register_test_hooks():
     # Manually register the hooks for each class
     # BulkCreateTestHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_CREATE,
         handler_cls=BulkCreateTestHook,
         method_name="on_before_create",
@@ -215,7 +215,7 @@ def re_register_test_hooks():
         priority=Priority.NORMAL,
     )
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=AFTER_CREATE,
         handler_cls=BulkCreateTestHook,
         method_name="on_after_create",
@@ -225,7 +225,7 @@ def re_register_test_hooks():
     
     # BulkUpdateTestHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_UPDATE,
         handler_cls=BulkUpdateTestHook,
         method_name="on_before_update",
@@ -233,7 +233,7 @@ def re_register_test_hooks():
         priority=Priority.NORMAL,
     )
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=AFTER_UPDATE,
         handler_cls=BulkUpdateTestHook,
         method_name="on_after_update",
@@ -243,7 +243,7 @@ def re_register_test_hooks():
     
     # BulkDeleteTestHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_DELETE,
         handler_cls=BulkDeleteTestHook,
         method_name="on_before_delete",
@@ -251,7 +251,7 @@ def re_register_test_hooks():
         priority=Priority.NORMAL,
     )
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=AFTER_DELETE,
         handler_cls=BulkDeleteTestHook,
         method_name="on_after_delete",
@@ -262,7 +262,7 @@ def re_register_test_hooks():
     # ConditionalTestHook
     from django_bulk_hooks.conditions import IsEqual, HasChanged
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_CREATE,
         handler_cls=ConditionalTestHook,
         method_name="on_active_create",
@@ -270,7 +270,7 @@ def re_register_test_hooks():
         priority=Priority.NORMAL,
     )
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_UPDATE,
         handler_cls=ConditionalTestHook,
         method_name="on_status_change",
@@ -281,7 +281,7 @@ def re_register_test_hooks():
     # ComplexConditionalTestHook
     from django_bulk_hooks.conditions import HasChanged
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_UPDATE,
         handler_cls=ComplexConditionalTestHook,
         method_name="on_status_change",
@@ -291,7 +291,7 @@ def re_register_test_hooks():
     
     # ErrorTestHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_CREATE,
         handler_cls=ErrorTestHook,
         method_name="on_before_create",
@@ -301,7 +301,7 @@ def re_register_test_hooks():
     
     # PerformanceTestHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_CREATE,
         handler_cls=PerformanceTestHook,
         method_name="on_before_create",
@@ -311,7 +311,7 @@ def re_register_test_hooks():
     
     # RelatedTestHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=AFTER_CREATE,
         handler_cls=RelatedTestHook,
         method_name="on_after_create",
@@ -321,7 +321,7 @@ def re_register_test_hooks():
     
     # TransactionTestHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=AFTER_CREATE,
         handler_cls=TransactionTestHook,
         method_name="on_after_create",
@@ -332,7 +332,7 @@ def re_register_test_hooks():
     # MultiModelTestHook
     from tests.models import SimpleModel
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_CREATE,
         handler_cls=MultiModelTestHook,
         method_name="on_test_model_create",
@@ -350,7 +350,7 @@ def re_register_test_hooks():
     
     # PriorityTestHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_CREATE,
         handler_cls=PriorityTestHook,
         method_name="high_priority",
@@ -358,7 +358,7 @@ def re_register_test_hooks():
         priority=Priority.HIGH,
     )
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_CREATE,
         handler_cls=PriorityTestHook,
         method_name="normal_priority",
@@ -366,7 +366,7 @@ def re_register_test_hooks():
         priority=Priority.NORMAL,
     )
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_CREATE,
         handler_cls=PriorityTestHook,
         method_name="low_priority",
@@ -376,7 +376,7 @@ def re_register_test_hooks():
     
     # InventoryHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=BEFORE_UPDATE,
         handler_cls=InventoryHook,
         method_name="check_stock_levels",
@@ -384,7 +384,7 @@ def re_register_test_hooks():
         priority=Priority.NORMAL,
     )
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=AFTER_DELETE,
         handler_cls=InventoryHook,
         method_name="log_deletion",
@@ -394,7 +394,7 @@ def re_register_test_hooks():
     
     # AuditHook
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=AFTER_CREATE,
         handler_cls=AuditHook,
         method_name="log_creation",
@@ -402,7 +402,7 @@ def re_register_test_hooks():
         priority=Priority.NORMAL,
     )
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=AFTER_UPDATE,
         handler_cls=AuditHook,
         method_name="log_status_change",
@@ -410,7 +410,7 @@ def re_register_test_hooks():
         priority=Priority.NORMAL,
     )
     register_hook(
-        model=TestModel,
+        model=HookModel,
         event=AFTER_DELETE,
         handler_cls=AuditHook,
         method_name="log_deletion",

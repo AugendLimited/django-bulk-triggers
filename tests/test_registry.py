@@ -18,7 +18,7 @@ from django_bulk_hooks.constants import (
 )
 from django_bulk_hooks.priority import Priority
 from django_bulk_hooks.registry import get_hooks, list_all_hooks, register_hook
-from tests.models import SimpleModel, TestModel, User
+from tests.models import SimpleModel, HookModel, User
 
 
 class TestRegisterHook(TestCase):
@@ -38,7 +38,7 @@ class TestRegisterHook(TestCase):
                 pass
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -46,7 +46,7 @@ class TestRegisterHook(TestCase):
             priority=Priority.NORMAL,
         )
 
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 1)
 
         handler_cls, method_name, condition, priority = hooks[0]
@@ -65,7 +65,7 @@ class TestRegisterHook(TestCase):
         condition = IsEqual("status", "active")
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -73,7 +73,7 @@ class TestRegisterHook(TestCase):
             priority=Priority.HIGH,
         )
 
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 1)
 
         handler_cls, method_name, condition, priority = hooks[0]
@@ -93,7 +93,7 @@ class TestRegisterHook(TestCase):
 
         # Register first hook
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=Handler1,
             method_name="method1",
@@ -103,7 +103,7 @@ class TestRegisterHook(TestCase):
 
         # Register second hook
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=Handler2,
             method_name="method2",
@@ -111,7 +111,7 @@ class TestRegisterHook(TestCase):
             priority=Priority.HIGH,
         )
 
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 2)
 
         # Hooks should be sorted by priority
@@ -125,9 +125,9 @@ class TestRegisterHook(TestCase):
             def test_method(self):
                 pass
 
-        # Register hook for TestModel
+        # Register hook for HookModel
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -145,8 +145,8 @@ class TestRegisterHook(TestCase):
             priority=Priority.NORMAL,
         )
 
-        # Check TestModel hooks
-        test_model_hooks = get_hooks(TestModel, BEFORE_CREATE)
+        # Check HookModel hooks
+        test_model_hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(test_model_hooks), 1)
 
         # Check User hooks
@@ -158,12 +158,12 @@ class TestRegisterHook(TestCase):
         from django_bulk_hooks.registry import list_all_hooks
         all_hooks = list_all_hooks()
         
-        # Check that TestModel and User have separate entries
-        self.assertIn((TestModel, BEFORE_CREATE), all_hooks)
+        # Check that HookModel and User have separate entries
+        self.assertIn((HookModel, BEFORE_CREATE), all_hooks)
         self.assertIn((User, BEFORE_CREATE), all_hooks)
         
         # Verify they have different keys in the registry
-        test_model_key = (TestModel, BEFORE_CREATE)
+        test_model_key = (HookModel, BEFORE_CREATE)
         user_key = (User, BEFORE_CREATE)
         self.assertNotEqual(test_model_key, user_key)
 
@@ -176,7 +176,7 @@ class TestRegisterHook(TestCase):
 
         # Register hook for BEFORE_CREATE
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -186,7 +186,7 @@ class TestRegisterHook(TestCase):
 
         # Register hook for AFTER_CREATE
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=AFTER_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -195,11 +195,11 @@ class TestRegisterHook(TestCase):
         )
 
         # Check BEFORE_CREATE hooks
-        before_hooks = get_hooks(TestModel, BEFORE_CREATE)
+        before_hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(before_hooks), 1)
 
         # Check AFTER_CREATE hooks
-        after_hooks = get_hooks(TestModel, AFTER_CREATE)
+        after_hooks = get_hooks(HookModel, AFTER_CREATE)
         self.assertEqual(len(after_hooks), 1)
 
         # Check that they're separate
@@ -208,12 +208,12 @@ class TestRegisterHook(TestCase):
         all_hooks = list_all_hooks()
         
         # Check that BEFORE_CREATE and AFTER_CREATE have separate entries
-        self.assertIn((TestModel, BEFORE_CREATE), all_hooks)
-        self.assertIn((TestModel, AFTER_CREATE), all_hooks)
+        self.assertIn((HookModel, BEFORE_CREATE), all_hooks)
+        self.assertIn((HookModel, AFTER_CREATE), all_hooks)
         
         # Verify they have different keys in the registry
-        before_key = (TestModel, BEFORE_CREATE)
-        after_key = (TestModel, AFTER_CREATE)
+        before_key = (HookModel, BEFORE_CREATE)
+        after_key = (HookModel, AFTER_CREATE)
         self.assertNotEqual(before_key, after_key)
 
     def test_register_hook_priority_sorting(self):
@@ -233,7 +233,7 @@ class TestRegisterHook(TestCase):
 
         # Register hooks in random priority order
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=Handler2,
             method_name="method2",
@@ -242,7 +242,7 @@ class TestRegisterHook(TestCase):
         )
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=Handler1,
             method_name="method1",
@@ -251,7 +251,7 @@ class TestRegisterHook(TestCase):
         )
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=Handler3,
             method_name="method3",
@@ -259,7 +259,7 @@ class TestRegisterHook(TestCase):
             priority=Priority.HIGH,
         )
 
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 3)
 
         # Check priority order (high priority first - lower numbers)
@@ -282,7 +282,7 @@ class TestGetHooks(TestCase):
 
     def test_get_hooks_empty(self):
         """Test getting hooks when none are registered."""
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(hooks, [])
 
     def test_get_hooks_existing(self):
@@ -293,7 +293,7 @@ class TestGetHooks(TestCase):
                 pass
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -301,7 +301,7 @@ class TestGetHooks(TestCase):
             priority=Priority.NORMAL,
         )
 
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 1)
 
         handler_cls, method_name, condition, priority = hooks[0]
@@ -316,7 +316,7 @@ class TestGetHooks(TestCase):
                 pass
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -325,7 +325,7 @@ class TestGetHooks(TestCase):
         )
 
         # Try to get hooks for different event
-        hooks = get_hooks(TestModel, AFTER_CREATE)
+        hooks = get_hooks(HookModel, AFTER_CREATE)
         self.assertEqual(hooks, [])
 
     def test_get_hooks_wrong_model(self):
@@ -336,7 +336,7 @@ class TestGetHooks(TestCase):
                 pass
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -366,7 +366,7 @@ class TestGetHooks(TestCase):
         # Register hooks for all events
         for event in events:
             register_hook(
-                model=TestModel,
+                model=HookModel,
                 event=event,
                 handler_cls=TestHandler,
                 method_name="test_method",
@@ -376,14 +376,14 @@ class TestGetHooks(TestCase):
 
         # Check that hooks exist for all events
         for event in events:
-            hooks = get_hooks(TestModel, event)
+            hooks = get_hooks(HookModel, event)
             self.assertEqual(len(hooks), 1)
 
     def test_get_hooks_logging(self):
         """Test that get_hooks logs appropriately."""
         with patch("django_bulk_hooks.registry.logger") as mock_logger:
             # Test with no hooks
-            get_hooks(TestModel, BEFORE_CREATE)
+            get_hooks(HookModel, BEFORE_CREATE)
             mock_logger.debug.assert_called()
 
             # Test with hooks
@@ -392,7 +392,7 @@ class TestGetHooks(TestCase):
                     pass
 
             register_hook(
-                model=TestModel,
+                model=HookModel,
                 event=BEFORE_CREATE,
                 handler_cls=TestHandler,
                 method_name="test_method",
@@ -400,7 +400,7 @@ class TestGetHooks(TestCase):
                 priority=Priority.NORMAL,
             )
 
-            get_hooks(TestModel, BEFORE_CREATE)
+            get_hooks(HookModel, BEFORE_CREATE)
             # Should log when hooks are found
             mock_logger.debug.assert_called()
 
@@ -428,7 +428,7 @@ class TestListAllHooks(TestCase):
 
         # Register some hooks
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -448,11 +448,11 @@ class TestListAllHooks(TestCase):
         hooks = list_all_hooks()
 
         # Should have entries for both models
-        self.assertIn((TestModel, BEFORE_CREATE), hooks)
+        self.assertIn((HookModel, BEFORE_CREATE), hooks)
         self.assertIn((User, AFTER_CREATE), hooks)
 
         # Check the content
-        test_model_hooks = hooks[(TestModel, BEFORE_CREATE)]
+        test_model_hooks = hooks[(HookModel, BEFORE_CREATE)]
         self.assertEqual(len(test_model_hooks), 1)
 
         user_hooks = hooks[(User, AFTER_CREATE)]
@@ -466,7 +466,7 @@ class TestListAllHooks(TestCase):
                 pass
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -479,7 +479,7 @@ class TestListAllHooks(TestCase):
         # Check that the structure is correct
         self.assertIsInstance(hooks, dict)
 
-        key = (TestModel, BEFORE_CREATE)
+        key = (HookModel, BEFORE_CREATE)
         self.assertIn(key, hooks)
 
         hook_list = hooks[key]
@@ -508,19 +508,19 @@ class TestRegistryIntegration(TestCase):
         from django_bulk_hooks.decorators import hook
 
         class TestHook(HookClass):
-            @hook(BEFORE_CREATE, model=TestModel)
+            @hook(BEFORE_CREATE, model=HookModel)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
 
-            @hook(AFTER_CREATE, model=TestModel)
+            @hook(AFTER_CREATE, model=HookModel)
             def on_after_create(self, new_records, old_records=None, **kwargs):
                 pass
 
         # Check that hooks were registered
-        before_hooks = get_hooks(TestModel, BEFORE_CREATE)
+        before_hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(before_hooks), 1)
 
-        after_hooks = get_hooks(TestModel, AFTER_CREATE)
+        after_hooks = get_hooks(HookModel, AFTER_CREATE)
         self.assertEqual(len(after_hooks), 1)
 
         # Check hook details
@@ -537,11 +537,11 @@ class TestRegistryIntegration(TestCase):
         from django_bulk_hooks.conditions import IsEqual
 
         class ConditionalHook(HookClass):
-            @hook(BEFORE_CREATE, model=TestModel, condition=IsEqual("status", "active"))
+            @hook(BEFORE_CREATE, model=HookModel, condition=IsEqual("status", "active"))
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
 
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 1)
 
         handler_cls, method_name, condition, priority = hooks[0]
@@ -556,16 +556,16 @@ class TestRegistryIntegration(TestCase):
         from django_bulk_hooks.priority import Priority
 
         class HighPriorityHook(HookClass):
-            @hook(BEFORE_CREATE, model=TestModel, priority=Priority.HIGH)
+            @hook(BEFORE_CREATE, model=HookModel, priority=Priority.HIGH)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
 
         class LowPriorityHook(HookClass):
-            @hook(BEFORE_CREATE, model=TestModel, priority=Priority.LOW)
+            @hook(BEFORE_CREATE, model=HookModel, priority=Priority.LOW)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
 
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 2)
 
         # Check priority order
@@ -580,7 +580,7 @@ class TestRegistryIntegration(TestCase):
                 pass
 
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -589,7 +589,7 @@ class TestRegistryIntegration(TestCase):
         )
 
         # Verify hook is registered
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 1)
 
         # Clear registry
@@ -598,5 +598,5 @@ class TestRegistryIntegration(TestCase):
         _hooks.clear()
 
         # Verify hook is gone
-        hooks = get_hooks(TestModel, BEFORE_CREATE)
+        hooks = get_hooks(HookModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 0)

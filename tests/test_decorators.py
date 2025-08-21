@@ -19,15 +19,15 @@ from django_bulk_hooks.constants import (
 )
 from django_bulk_hooks.decorators import hook, select_related
 from django_bulk_hooks.priority import Priority
-from tests.models import Category, TestModel, User
-from tests.utils import TestHookTracker, create_test_instances
+from tests.models import Category, HookModel, User
+from tests.utils import HookTracker, create_test_instances
 
 
 class TestHookDecorator(TestCase):
     """Test the hook decorator."""
 
     def setUp(self):
-        self.tracker = TestHookTracker()
+        self.tracker = HookTracker()
         
         # Clear the registry to prevent interference between tests
         from django_bulk_hooks.registry import clear_hooks
@@ -36,7 +36,7 @@ class TestHookDecorator(TestCase):
     def test_hook_decorator_basic(self):
         """Test basic hook decorator functionality."""
 
-        @hook(BEFORE_CREATE, model=TestModel)
+        @hook(BEFORE_CREATE, model=HookModel)
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
@@ -45,7 +45,7 @@ class TestHookDecorator(TestCase):
         self.assertEqual(len(test_hook.hooks_hooks), 1)
 
         hook_info = test_hook.hooks_hooks[0]
-        self.assertEqual(hook_info[0], TestModel)  # model
+        self.assertEqual(hook_info[0], HookModel)  # model
         self.assertEqual(hook_info[1], BEFORE_CREATE)  # event
         self.assertIsNone(hook_info[2])  # condition
         self.assertEqual(hook_info[3], Priority.NORMAL)  # priority
@@ -54,7 +54,7 @@ class TestHookDecorator(TestCase):
         """Test hook decorator with condition."""
         condition = IsEqual("status", "active")
 
-        @hook(BEFORE_CREATE, model=TestModel, condition=condition)
+        @hook(BEFORE_CREATE, model=HookModel, condition=condition)
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
@@ -64,7 +64,7 @@ class TestHookDecorator(TestCase):
     def test_hook_decorator_with_priority(self):
         """Test hook decorator with custom priority."""
 
-        @hook(BEFORE_CREATE, model=TestModel, priority=Priority.HIGH)
+        @hook(BEFORE_CREATE, model=HookModel, priority=Priority.HIGH)
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
@@ -74,8 +74,8 @@ class TestHookDecorator(TestCase):
     def test_hook_decorator_multiple_hooks(self):
         """Test multiple hooks on the same function."""
 
-        @hook(BEFORE_CREATE, model=TestModel)
-        @hook(AFTER_CREATE, model=TestModel)
+        @hook(BEFORE_CREATE, model=HookModel)
+        @hook(AFTER_CREATE, model=HookModel)
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
@@ -88,7 +88,7 @@ class TestHookDecorator(TestCase):
     def test_hook_decorator_different_models(self):
         """Test hooks on different models."""
 
-        @hook(BEFORE_CREATE, model=TestModel)
+        @hook(BEFORE_CREATE, model=HookModel)
         @hook(BEFORE_CREATE, model=User)
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
@@ -96,7 +96,7 @@ class TestHookDecorator(TestCase):
         self.assertEqual(len(test_hook.hooks_hooks), 2)
 
         models = [hook_info[0] for hook_info in test_hook.hooks_hooks]
-        self.assertIn(TestModel, models)
+        self.assertIn(HookModel, models)
         self.assertIn(User, models)
 
     def test_hook_decorator_with_all_events(self):
@@ -112,7 +112,7 @@ class TestHookDecorator(TestCase):
 
         for event in events:
 
-            @hook(event, model=TestModel)
+            @hook(event, model=HookModel)
             def test_hook(new_records, old_records=None, **kwargs):
                 self.tracker.add_call(event, new_records, old_records, **kwargs)
 
@@ -130,8 +130,8 @@ class TestSelectRelatedDecorator(TestCase):
 
         # Create test instances with foreign keys
         self.test_instances = [
-            TestModel(name="Test 1", created_by=self.user, category=self.category),
-            TestModel(name="Test 2", created_by=self.user, category=self.category),
+            HookModel(name="Test 1", created_by=self.user, category=self.category),
+            HookModel(name="Test 2", created_by=self.user, category=self.category),
         ]
 
         # Save instances to get PKs
@@ -236,8 +236,8 @@ class TestSelectRelatedDecorator(TestCase):
         """Test select_related with instances that have None foreign keys."""
         # Create instances with None foreign keys
         none_instances = [
-            TestModel(name="None FK 1", created_by=None, category=None),
-            TestModel(name="None FK 2", created_by=None, category=None),
+            HookModel(name="None FK 1", created_by=None, category=None),
+            HookModel(name="None FK 2", created_by=None, category=None),
         ]
 
         for instance in none_instances:
@@ -282,7 +282,7 @@ class TestDecoratorIntegration(TestCase):
     """Integration tests for decorators."""
 
     def setUp(self):
-        self.tracker = TestHookTracker()
+        self.tracker = HookTracker()
         self.user = User.objects.create(username="testuser", email="test@example.com")
         self.category = Category.objects.create(name="Test Category")
         
@@ -293,7 +293,7 @@ class TestDecoratorIntegration(TestCase):
     def test_hook_with_select_related(self):
         """Test combining hook and select_related decorators."""
 
-        @hook(BEFORE_CREATE, model=TestModel)
+        @hook(BEFORE_CREATE, model=HookModel)
         @select_related("created_by", "category")
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
@@ -307,8 +307,8 @@ class TestDecoratorIntegration(TestCase):
 
         # Create test instances
         test_instances = [
-            TestModel(name="Test 1", created_by=self.user, category=self.category),
-            TestModel(name="Test 2", created_by=self.user, category=self.category),
+            HookModel(name="Test 1", created_by=self.user, category=self.category),
+            HookModel(name="Test 2", created_by=self.user, category=self.category),
         ]
 
         # Call the hook function
@@ -320,8 +320,8 @@ class TestDecoratorIntegration(TestCase):
     def test_multiple_hooks_with_select_related(self):
         """Test multiple hooks with select_related."""
 
-        @hook(BEFORE_CREATE, model=TestModel)
-        @hook(AFTER_CREATE, model=TestModel)
+        @hook(BEFORE_CREATE, model=HookModel)
+        @hook(AFTER_CREATE, model=HookModel)
         @select_related("created_by")
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
@@ -330,7 +330,7 @@ class TestDecoratorIntegration(TestCase):
         self.assertEqual(len(test_hook.hooks_hooks), 2)
 
         # Test the function
-        test_instances = [TestModel(name="Test", created_by=self.user)]
+        test_instances = [HookModel(name="Test", created_by=self.user)]
         test_hook(new_records=test_instances)
 
         self.assertEqual(len(self.tracker.before_create_calls), 1)

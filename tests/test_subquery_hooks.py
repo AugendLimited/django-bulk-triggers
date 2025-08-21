@@ -4,11 +4,12 @@ Test to verify that Subquery objects in update operations work correctly with ho
 
 from django.db.models import OuterRef, Subquery, Sum
 from django.test import TestCase
+from django.contrib.auth.models import User
 
 from django_bulk_hooks import HookClass
 from django_bulk_hooks.constants import AFTER_UPDATE
 from django_bulk_hooks.decorators import hook
-from tests.models import RelatedModel, TestModel, User
+from tests.models import RelatedModel, HookModel
 
 
 class SubqueryHookTest(HookClass):
@@ -28,7 +29,7 @@ class SubqueryHookTest(HookClass):
         cls.computed_values.clear()
         cls.foreign_key_values.clear()
 
-    @hook(AFTER_UPDATE, model=TestModel)
+    @hook(AFTER_UPDATE, model=HookModel)
     def test_subquery_access(self, new_records, old_records):
         SubqueryHookTest.after_update_called = True  # Use class variable
         for record in new_records:
@@ -48,14 +49,14 @@ class SubqueryHooksTestCase(TestCase):
         
         # Create test data
         self.user = User.objects.create(username="testuser")
-        self.test_model = TestModel.objects.create(
+        self.hook_model = HookModel.objects.create(
             name="Test", value=10, created_by=self.user
         )
         self.related1 = RelatedModel.objects.create(
-            test_model=self.test_model, amount=5
+            hook_model=self.hook_model, amount=5
         )
         self.related2 = RelatedModel.objects.create(
-            test_model=self.test_model, amount=15
+            hook_model=self.hook_model, amount=15
         )
 
         # Create hook instance and manually register it
@@ -64,7 +65,7 @@ class SubqueryHooksTestCase(TestCase):
         # Manually register the hook since the metaclass registration was cleared
         from django_bulk_hooks.registry import register_hook
         register_hook(
-            model=TestModel,
+            model=HookModel,
             event=AFTER_UPDATE,
             handler_cls=SubqueryHookTest,
             method_name="test_subquery_access",
@@ -79,10 +80,10 @@ class SubqueryHooksTestCase(TestCase):
         """Test that Subquery computed values are accessible in hooks."""
 
         # Perform update with Subquery
-        TestModel.objects.filter(pk=self.test_model.pk).update(
+        HookModel.objects.filter(pk=self.hook_model.pk).update(
             computed_value=Subquery(
-                RelatedModel.objects.filter(test_model=OuterRef("pk"))
-                .values("test_model")
+                RelatedModel.objects.filter(hook_model=OuterRef("pk"))
+                .values("hook_model")
                 .annotate(total=Sum("amount"))
                 .values("total")[:1]
             )
@@ -95,8 +96,8 @@ class SubqueryHooksTestCase(TestCase):
         self.assertEqual(self.hook.computed_values[0], 20)
 
         # Verify the database was actually updated
-        self.test_model.refresh_from_db()
-        self.assertEqual(self.test_model.computed_value, 20)
+        self.hook_model.refresh_from_db()
+        self.assertEqual(self.hook_model.computed_value, 20)
 
     def test_bulk_subquery_performance(self):
         """Test that bulk Subquery operations are efficient."""
@@ -104,17 +105,17 @@ class SubqueryHooksTestCase(TestCase):
         # Create multiple test models for bulk testing
         test_models = []
         for i in range(10):
-            model = TestModel.objects.create(name=f"Test{i}", value=i)
-            RelatedModel.objects.create(test_model=model, amount=i * 2)
-            RelatedModel.objects.create(test_model=model, amount=i * 3)
+            model = HookModel.objects.create(name=f"Test{i}", value=i)
+            RelatedModel.objects.create(hook_model=model, amount=i * 2)
+            RelatedModel.objects.create(hook_model=model, amount=i * 3)
             test_models.append(model)
 
         # Perform bulk update with Subquery
         pks = [model.pk for model in test_models]
-        TestModel.objects.filter(pk__in=pks).update(
+        HookModel.objects.filter(pk__in=pks).update(
             computed_value=Subquery(
-                RelatedModel.objects.filter(test_model=OuterRef("pk"))
-                .values("test_model")
+                RelatedModel.objects.filter(hook_model=OuterRef("pk"))
+                .values("hook_model")
                 .annotate(total=Sum("amount"))
                 .values("total")[:1]
             )
@@ -133,10 +134,10 @@ class SubqueryHooksTestCase(TestCase):
         """Test that Subquery objects are not passed to hooks, only computed values."""
 
         # Perform update with Subquery
-        TestModel.objects.filter(pk=self.test_model.pk).update(
+        HookModel.objects.filter(pk=self.hook_model.pk).update(
             computed_value=Subquery(
-                RelatedModel.objects.filter(test_model=OuterRef("pk"))
-                .values("test_model")
+                RelatedModel.objects.filter(hook_model=OuterRef("pk"))
+                .values("hook_model")
                 .annotate(total=Sum("amount"))
                 .values("total")[:1]
             )
@@ -153,10 +154,10 @@ class SubqueryHooksTestCase(TestCase):
         """Test that foreign key fields are preserved correctly after Subquery updates."""
 
         # Perform update with Subquery
-        TestModel.objects.filter(pk=self.test_model.pk).update(
+        HookModel.objects.filter(pk=self.hook_model.pk).update(
             computed_value=Subquery(
-                RelatedModel.objects.filter(test_model=OuterRef("pk"))
-                .values("test_model")
+                RelatedModel.objects.filter(hook_model=OuterRef("pk"))
+                .values("hook_model")
                 .annotate(total=Sum("amount"))
                 .values("total")[:1]
             )

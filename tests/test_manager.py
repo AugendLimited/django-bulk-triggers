@@ -6,10 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.test import TestCase
+from django.contrib.auth.models import User
 
 from django_bulk_hooks.manager import BulkHookManager
-from tests.models import SimpleModel, TestModel, User
-from tests.utils import TestHookTracker, create_test_instances
+from django_bulk_hooks.registry import clear_hooks
+from tests.models import HookModel, SimpleModel, ComplexModel
+from tests.utils import HookTracker, create_test_instances
 
 
 class TestBulkHookManager(TestCase):
@@ -17,11 +19,10 @@ class TestBulkHookManager(TestCase):
 
     def setUp(self):
         self.manager = BulkHookManager()
-        self.manager.model = TestModel
-        self.tracker = TestHookTracker()
+        self.manager.model = HookModel
+        self.tracker = HookTracker()
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
         clear_hooks()
 
     def test_get_queryset_returns_hook_queryset(self):
@@ -45,7 +46,7 @@ class TestBulkHookManager(TestCase):
 
     def test_bulk_create_delegates_to_queryset(self):
         """Test that bulk_create delegates to queryset."""
-        test_instances = create_test_instances(TestModel, 3)
+        test_instances = create_test_instances(HookModel, 3)
 
         with patch.object(self.manager, "get_queryset") as mock_get_queryset:
             mock_queryset = MagicMock()
@@ -71,7 +72,7 @@ class TestBulkHookManager(TestCase):
 
     def test_bulk_update_delegates_to_queryset(self):
         """Test that bulk_update delegates to queryset."""
-        test_instances = create_test_instances(TestModel, 3)
+        test_instances = create_test_instances(HookModel, 3)
         fields = ["name", "value"]
 
         with patch.object(self.manager, "get_queryset") as mock_get_queryset:
@@ -86,7 +87,7 @@ class TestBulkHookManager(TestCase):
 
     def test_bulk_delete_delegates_to_queryset(self):
         """Test that bulk_delete delegates to queryset."""
-        test_instances = create_test_instances(TestModel, 3)
+        test_instances = create_test_instances(HookModel, 3)
 
         with patch.object(self.manager, "get_queryset") as mock_get_queryset:
             mock_queryset = MagicMock()
@@ -122,7 +123,7 @@ class TestBulkHookManager(TestCase):
 
     def test_bulk_create_with_all_parameters(self):
         """Test bulk_create with all possible parameters."""
-        test_instances = create_test_instances(TestModel, 3)
+        test_instances = create_test_instances(HookModel, 3)
 
         with patch.object(self.manager, "get_queryset") as mock_get_queryset:
             mock_queryset = MagicMock()
@@ -152,7 +153,7 @@ class TestBulkHookManager(TestCase):
 
     def test_bulk_update_with_all_parameters(self):
         """Test bulk_update with all possible parameters."""
-        test_instances = create_test_instances(TestModel, 3)
+        test_instances = create_test_instances(HookModel, 3)
         fields = ["name", "value"]
 
         with patch.object(self.manager, "get_queryset") as mock_get_queryset:
@@ -180,24 +181,23 @@ class TestBulkHookManagerIntegration(TestCase):
     """Integration tests for BulkHookManager."""
 
     def setUp(self):
-        self.tracker = TestHookTracker()
+        self.tracker = HookTracker()
         self.user = User.objects.create(username="testuser", email="test@example.com")
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
         clear_hooks()
 
     def test_manager_with_real_queryset(self):
         """Test manager with real queryset operations."""
         # Create test instances
         test_instances = [
-            TestModel(name="Test 1", value=1, created_by=self.user),
-            TestModel(name="Test 2", value=2, created_by=self.user),
-            TestModel(name="Test 3", value=3, created_by=self.user),
+            HookModel(name="Test 1", value=1, created_by=self.user),
+            HookModel(name="Test 2", value=2, created_by=self.user),
+            HookModel(name="Test 3", value=3, created_by=self.user),
         ]
 
         # Test bulk_create
-        created_instances = TestModel.objects.bulk_create(test_instances)
+        created_instances = HookModel.objects.bulk_create(test_instances)
         self.assertEqual(len(created_instances), 3)
 
         # Verify instances were created
@@ -208,7 +208,7 @@ class TestBulkHookManagerIntegration(TestCase):
         for instance in created_instances:
             instance.value *= 2
 
-        updated_count = TestModel.objects.bulk_update(created_instances, ["value"])
+        updated_count = HookModel.objects.bulk_update(created_instances, ["value"])
         self.assertEqual(updated_count, 3)
 
         # Verify updates
@@ -217,11 +217,11 @@ class TestBulkHookManagerIntegration(TestCase):
             self.assertIn(instance.value, [2, 4, 6])
 
         # Test bulk_delete
-        deleted_count = TestModel.objects.bulk_delete(created_instances)
+        deleted_count = HookModel.objects.bulk_delete(created_instances)
         self.assertEqual(deleted_count, 3)
 
         # Verify deletion
-        remaining_count = TestModel.objects.count()
+        remaining_count = HookModel.objects.count()
         self.assertEqual(remaining_count, 0)
 
     def test_manager_bypass_hooks(self):
@@ -232,12 +232,12 @@ class TestBulkHookManagerIntegration(TestCase):
         from django_bulk_hooks.constants import BEFORE_CREATE
 
         class TestHook(HookClass):
-            tracker = TestHookTracker()  # Class variable to persist across instances
+            tracker = HookTracker()  # Class variable to persist across instances
             
             def __init__(self):
                 pass  # No need to create instance tracker
 
-            @hook(BEFORE_CREATE, model=TestModel)
+            @hook(BEFORE_CREATE, model=HookModel)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 TestHook.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
@@ -245,12 +245,12 @@ class TestBulkHookManagerIntegration(TestCase):
 
         # Create test instances
         test_instances = [
-            TestModel(name="Test 1", value=1, created_by=self.user),
-            TestModel(name="Test 2", value=2, created_by=self.user),
+            HookModel(name="Test 1", value=1, created_by=self.user),
+            HookModel(name="Test 2", value=2, created_by=self.user),
         ]
 
         # Test without bypass_hooks (hooks should run)
-        TestModel.objects.bulk_create(test_instances, bypass_hooks=False)
+        HookModel.objects.bulk_create(test_instances, bypass_hooks=False)
         self.assertEqual(len(TestHook.tracker.before_create_calls), 1)
 
         # Clear tracker
@@ -258,10 +258,10 @@ class TestBulkHookManagerIntegration(TestCase):
 
         # Test with bypass_hooks (hooks should not run)
         test_instances2 = [
-            TestModel(name="Test 3", value=3, created_by=self.user),
-            TestModel(name="Test 4", value=4, created_by=self.user),
+            HookModel(name="Test 3", value=3, created_by=self.user),
+            HookModel(name="Test 4", value=4, created_by=self.user),
         ]
-        TestModel.objects.bulk_create(test_instances2, bypass_hooks=True)
+        HookModel.objects.bulk_create(test_instances2, bypass_hooks=True)
         self.assertEqual(len(TestHook.tracker.before_create_calls), 0)
 
     def test_manager_with_different_models(self):
@@ -288,13 +288,13 @@ class TestBulkHookManagerIntegration(TestCase):
         """Test manager error handling."""
         # Test with invalid data
         invalid_instances = [
-            TestModel(name="", value=-1),  # Invalid value
+            HookModel(name="", value=-1),  # Invalid value
         ]
 
         # Since no validation hooks are registered, this should not raise an exception
         # Django's bulk_create doesn't validate field values by default
         try:
-            created_instances = TestModel.objects.bulk_create(invalid_instances)
+            created_instances = HookModel.objects.bulk_create(invalid_instances)
             # If it succeeds, that's fine - no validation hooks are registered
             self.assertEqual(len(created_instances), 1)
         except Exception as e:
@@ -307,13 +307,13 @@ class TestBulkHookManagerIntegration(TestCase):
         test_instances = []
         for i in range(100):
             test_instances.append(
-                TestModel(name=f"Test {i}", value=i, created_by=self.user)
+                HookModel(name=f"Test {i}", value=i, created_by=self.user)
             )
 
         # Test bulk_create performance
         # With hooks enabled, we expect 3 queries: SAVEPOINT, INSERT, RELEASE SAVEPOINT
         with self.assertNumQueries(3):  # Correct behavior when hooks are enabled
-            created_instances = TestModel.objects.bulk_create(test_instances)
+            created_instances = HookModel.objects.bulk_create(test_instances)
 
         self.assertEqual(len(created_instances), 100)
 
@@ -324,7 +324,7 @@ class TestBulkHookManagerIntegration(TestCase):
         # With hooks enabled, we expect 7 queries: 
         # SAVEPOINT, SAVEPOINT, SELECT originals, SELECT originals, UPDATE, RELEASE, RELEASE
         with self.assertNumQueries(7):  # Correct behavior when hooks are enabled
-            updated_count = TestModel.objects.bulk_update(created_instances, ["value"])
+            updated_count = HookModel.objects.bulk_update(created_instances, ["value"])
 
         self.assertEqual(updated_count, 100)
 
@@ -332,7 +332,7 @@ class TestBulkHookManagerIntegration(TestCase):
         # With hooks enabled, we expect 5 queries: 
         # SAVEPOINT, SELECT originals, DELETE related models, DELETE main models, RELEASE
         with self.assertNumQueries(5):  # Correct behavior when hooks are enabled
-            deleted_count = TestModel.objects.bulk_delete(created_instances)
+            deleted_count = HookModel.objects.bulk_delete(created_instances)
 
         self.assertEqual(deleted_count, 100)
 
@@ -342,10 +342,9 @@ class TestBulkHookManagerEdgeCases(TestCase):
 
     def setUp(self):
         self.manager = BulkHookManager()
-        self.manager.model = TestModel
+        self.manager.model = HookModel
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
         clear_hooks()
 
     def test_manager_with_empty_list(self):
@@ -364,7 +363,7 @@ class TestBulkHookManagerEdgeCases(TestCase):
 
     def test_manager_with_none_parameters(self):
         """Test manager with None parameters."""
-        test_instances = [TestModel(name="Test", value=1)]
+        test_instances = [HookModel(name="Test", value=1)]
 
         with patch.object(self.manager, "get_queryset") as mock_get_queryset:
             mock_queryset = MagicMock()
@@ -408,7 +407,7 @@ class TestBulkHookManagerEdgeCases(TestCase):
                 return CustomQuerySet(self.model, using=self._db)
 
         custom_manager = CustomManager()
-        custom_manager.model = TestModel
+        custom_manager.model = HookModel
 
         queryset = custom_manager.get_queryset()
         self.assertIsInstance(queryset, CustomQuerySet)

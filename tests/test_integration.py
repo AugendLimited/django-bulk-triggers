@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 from django.db import transaction
 from django.test import TestCase
+from django.contrib.auth.models import User
 
 from django_bulk_hooks import BulkHookManager, HookClass
 from django_bulk_hooks.handler import Hook
@@ -18,17 +19,20 @@ from django_bulk_hooks.constants import (
     BEFORE_CREATE,
     BEFORE_DELETE,
     BEFORE_UPDATE,
+    VALIDATE_CREATE,
+    VALIDATE_DELETE,
+    VALIDATE_UPDATE,
 )
 from django_bulk_hooks.decorators import hook
 from django_bulk_hooks.priority import Priority
-from tests.models import Category, RelatedModel, SimpleModel, TestModel, User
-from tests.utils import TestHookTracker, create_test_instances
+from tests.models import HookModel, SimpleModel, ComplexModel, Category, RelatedModel
+from tests.utils import HookTracker, create_test_instances
 
 # Define hook classes at module level to ensure registration
 # Use separate trackers for each hook class
-_create_tracker = TestHookTracker()
-_update_tracker = TestHookTracker()
-_delete_tracker = TestHookTracker()
+_create_tracker = HookTracker()
+_update_tracker = HookTracker()
+_delete_tracker = HookTracker()
 
 
 class BulkCreateTestHook(HookClass):
@@ -37,14 +41,14 @@ class BulkCreateTestHook(HookClass):
     def __init__(self):
         pass  # No need to create instance tracker
 
-    @hook(BEFORE_CREATE, model=TestModel)
+    @hook(BEFORE_CREATE, model=HookModel)
     def on_before_create(self, new_records, old_records=None, **kwargs):
         BulkCreateTestHook.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
         # Modify records before creation
         for record in new_records:
             record.name = f"Modified {record.name}"
 
-    @hook(AFTER_CREATE, model=TestModel)
+    @hook(AFTER_CREATE, model=HookModel)
     def on_after_create(self, new_records, old_records=None, **kwargs):
         BulkCreateTestHook.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
 
@@ -55,11 +59,11 @@ class BulkUpdateTestHook(HookClass):
     def __init__(self):
         pass  # No need to create instance tracker
 
-    @hook(BEFORE_UPDATE, model=TestModel)
+    @hook(BEFORE_UPDATE, model=HookModel)
     def on_before_update(self, new_records, old_records=None, **kwargs):
         BulkUpdateTestHook.tracker.add_call(BEFORE_UPDATE, new_records, old_records, **kwargs)
 
-    @hook(AFTER_UPDATE, model=TestModel)
+    @hook(AFTER_UPDATE, model=HookModel)
     def on_after_update(self, new_records, old_records=None, **kwargs):
         BulkUpdateTestHook.tracker.add_call(AFTER_UPDATE, new_records, old_records, **kwargs)
 
@@ -70,24 +74,24 @@ class BulkDeleteTestHook(HookClass):
     def __init__(self):
         pass  # No need to create instance tracker
 
-    @hook(BEFORE_DELETE, model=TestModel)
+    @hook(BEFORE_DELETE, model=HookModel)
     def on_before_delete(self, new_records, old_records=None, **kwargs):
         BulkDeleteTestHook.tracker.add_call(BEFORE_DELETE, new_records, old_records, **kwargs)
 
-    @hook(AFTER_DELETE, model=TestModel)
+    @hook(AFTER_DELETE, model=HookModel)
     def on_after_delete(self, new_records, old_records=None, **kwargs):
         BulkDeleteTestHook.tracker.add_call(AFTER_DELETE, new_records, old_records, **kwargs)
 
 
 # Additional hook classes for specific test scenarios
-_conditional_tracker = TestHookTracker()
-_complex_conditional_tracker = TestHookTracker()
-_error_tracker = TestHookTracker()
-_performance_tracker = TestHookTracker()
-_related_tracker = TestHookTracker()
-_transaction_tracker = TestHookTracker()
-_multi_model_tracker = TestHookTracker()
-_priority_tracker = TestHookTracker()
+_conditional_tracker = HookTracker()
+_complex_conditional_tracker = HookTracker()
+_error_tracker = HookTracker()
+_performance_tracker = HookTracker()
+_related_tracker = HookTracker()
+_transaction_tracker = HookTracker()
+_multi_model_tracker = HookTracker()
+_priority_tracker = HookTracker()
 
 # Global flags to control which hooks are active
 _active_hooks = set()
@@ -97,12 +101,12 @@ class ConditionalTestHook(HookClass):
     def __init__(self):
         self.tracker = _conditional_tracker
 
-    @hook(BEFORE_CREATE, model=TestModel, condition=IsEqual("status", "active"))
+    @hook(BEFORE_CREATE, model=HookModel, condition=IsEqual("status", "active"))
     def on_active_create(self, new_records, old_records=None, **kwargs):
         if "conditional" in _active_hooks:
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-    @hook(BEFORE_UPDATE, model=TestModel, condition=HasChanged("status"))
+    @hook(BEFORE_UPDATE, model=HookModel, condition=HasChanged("status"))
     def on_status_change(self, new_records, old_records=None, **kwargs):
         if "conditional" in _active_hooks:
             self.tracker.add_call(BEFORE_UPDATE, new_records, old_records, **kwargs)
@@ -114,7 +118,7 @@ class ComplexConditionalTestHook(HookClass):
 
     @hook(
         BEFORE_UPDATE,
-        model=TestModel,
+        model=HookModel,
         condition=(
             HasChanged("status")
             & (IsEqual("status", "active") | IsEqual("status", "inactive"))
@@ -131,7 +135,7 @@ class ErrorTestHook(HookClass):
     def __init__(self):
         self.tracker = _error_tracker
 
-    @hook(BEFORE_CREATE, model=TestModel)
+    @hook(BEFORE_CREATE, model=HookModel)
     def on_before_create(self, new_records, old_records=None, **kwargs):
         if "error" in _active_hooks:
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
@@ -145,7 +149,7 @@ class PerformanceTestHook(HookClass):
     def __init__(self):
         self.tracker = _performance_tracker
 
-    @hook(BEFORE_CREATE, model=TestModel)
+    @hook(BEFORE_CREATE, model=HookModel)
     def on_before_create(self, new_records, old_records=None, **kwargs):
         if "performance" in _active_hooks:
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
@@ -155,15 +159,15 @@ class RelatedTestHook(HookClass):
     def __init__(self):
         self.tracker = _related_tracker
 
-    @hook(AFTER_CREATE, model=TestModel)
+    @hook(AFTER_CREATE, model=HookModel)
     def on_after_create(self, new_records, old_records=None, **kwargs):
         if "related" in _active_hooks:
             self.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
             # Create related objects when this hook is active
             for record in new_records:
                 RelatedModel.objects.create(
-                    test_model=record,
-                    amount=record.value * 10,
+                    hook_model=record,
+                    amount=record.value * 2,
                     description=f"Related to {record.name}",
                 )
 
@@ -172,7 +176,7 @@ class TransactionTestHook(HookClass):
     def __init__(self):
         self.tracker = _transaction_tracker
 
-    @hook(AFTER_CREATE, model=TestModel)
+    @hook(AFTER_CREATE, model=HookModel)
     def on_after_create(self, new_records, old_records=None, **kwargs):
         if "transaction" in _active_hooks:
             self.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
@@ -182,7 +186,7 @@ class MultiModelTestHook(HookClass):
     def __init__(self):
         self.tracker = _multi_model_tracker
 
-    @hook(BEFORE_CREATE, model=TestModel)
+    @hook(BEFORE_CREATE, model=HookModel)
     def on_test_model_create(self, new_records, old_records=None, **kwargs):
         if "multi_model" in _active_hooks:
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
@@ -199,19 +203,19 @@ class PriorityTestHook(Hook):
     def __init__(self):
         self.tracker = _priority_tracker
 
-    @hook(BEFORE_CREATE, model=TestModel, priority=Priority.LOW)
+    @hook(BEFORE_CREATE, model=HookModel, priority=Priority.LOW)
     def low_priority(self, new_records, old_records=None, **kwargs):
         if "priority" in _active_hooks:
             PriorityTestHook.execution_order.append("low")  # Use class variable
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-    @hook(BEFORE_CREATE, model=TestModel, priority=Priority.HIGH)
+    @hook(BEFORE_CREATE, model=HookModel, priority=Priority.HIGH)
     def high_priority(self, new_records, old_records=None, **kwargs):
         if "priority" in _active_hooks:
             PriorityTestHook.execution_order.append("high")  # Use class variable
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-    @hook(BEFORE_CREATE, model=TestModel, priority=Priority.NORMAL)
+    @hook(BEFORE_CREATE, model=HookModel, priority=Priority.NORMAL)
     def normal_priority(self, new_records, old_records=None, **kwargs):
         if "priority" in _active_hooks:
             PriorityTestHook.execution_order.append("normal")  # Use class variable
@@ -221,12 +225,12 @@ class PriorityTestHook(Hook):
 # Additional hook classes for real-world scenarios
 class InventoryHook(Hook):
     low_stock_alerts = []  # Class variable to persist across instances
-    tracker = TestHookTracker()  # Class variable to persist across instances
+    tracker = HookTracker()  # Class variable to persist across instances
     
     def __init__(self):
         pass  # No need to create instance tracker
 
-    @hook(BEFORE_UPDATE, model=TestModel, condition=HasChanged("value"))
+    @hook(BEFORE_UPDATE, model=HookModel, condition=HasChanged("value"))
     def check_stock_levels(self, new_records, old_records=None, **kwargs):
         if "inventory" in _active_hooks:
             InventoryHook.tracker.add_call(BEFORE_UPDATE, new_records, old_records, **kwargs)
@@ -235,7 +239,7 @@ class InventoryHook(Hook):
                 if new_record.value < 10 and old_record.value >= 10:
                     InventoryHook.low_stock_alerts.append(new_record.name)
 
-    @hook(AFTER_DELETE, model=TestModel)
+    @hook(AFTER_DELETE, model=HookModel)
     def log_deletion(self, new_records, old_records=None, **kwargs):
         if "inventory" in _active_hooks:
             InventoryHook.tracker.add_call(AFTER_DELETE, new_records, old_records, **kwargs)
@@ -245,9 +249,9 @@ class AuditHook(Hook):
     audit_log = []  # Class variable to persist across instances
     
     def __init__(self):
-        self.tracker = TestHookTracker()
+        self.tracker = HookTracker()
 
-    @hook(AFTER_CREATE, model=TestModel)
+    @hook(AFTER_CREATE, model=HookModel)
     def log_creation(self, new_records, old_records=None, **kwargs):
         if "audit" in _active_hooks:
             self.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
@@ -256,7 +260,7 @@ class AuditHook(Hook):
                     f"Created: {record.name} by {record.created_by.username}"
                 )
 
-    @hook(AFTER_UPDATE, model=TestModel, condition=HasChanged("status"))
+    @hook(AFTER_UPDATE, model=HookModel, condition=HasChanged("status"))
     def log_status_change(self, new_records, old_records=None, **kwargs):
         if "audit" in _active_hooks:
             self.tracker.add_call(AFTER_UPDATE, new_records, old_records, **kwargs)
@@ -265,7 +269,7 @@ class AuditHook(Hook):
                     f"Status changed: {new_record.name} {old_record.status} -> {new_record.status}"
                 )
 
-    @hook(AFTER_DELETE, model=TestModel)
+    @hook(AFTER_DELETE, model=HookModel)
     def log_deletion(self, new_records, old_records=None, **kwargs):
         if "audit" in _active_hooks:
             self.tracker.add_call(AFTER_DELETE, new_records, old_records, **kwargs)
@@ -278,7 +282,7 @@ class UserRegistrationHook(Hook):
     welcome_emails_sent = []  # Class variable to persist across instances
     
     def __init__(self):
-        self.tracker = TestHookTracker()
+        self.tracker = HookTracker()
 
     @hook(BEFORE_CREATE, model=User)
     def validate_user(self, new_records, old_records=None, **kwargs):
@@ -302,7 +306,7 @@ class TestFullSystemIntegration(TestCase):
     """Test the entire system working together."""
 
     def setUp(self):
-        self.tracker = TestHookTracker()
+        self.tracker = HookTracker()
         self.user = User.objects.create(username="testuser", email="test@example.com")
         self.category = Category.objects.create(name="Test Category")
         
@@ -342,19 +346,19 @@ class TestFullSystemIntegration(TestCase):
 
         # Create test instances
         test_instances = [
-            TestModel(
+            HookModel(
                 name="Test 1", value=1, created_by=self.user, category=self.category
             ),
-            TestModel(
+            HookModel(
                 name="Test 2", value=2, created_by=self.user, category=self.category
             ),
-            TestModel(
+            HookModel(
                 name="Test 3", value=3, created_by=self.user, category=self.category
             ),
         ]
 
         # Perform bulk_create
-        created_instances = TestModel.objects.bulk_create(test_instances)
+        created_instances = HookModel.objects.bulk_create(test_instances)
 
         # Verify hooks were called
         self.assertEqual(len(hook_instance.tracker.before_create_calls), 1)
@@ -378,11 +382,11 @@ class TestFullSystemIntegration(TestCase):
 
         # Create initial instances
         test_instances = [
-            TestModel(name="Test 1", value=1, created_by=self.user),
-            TestModel(name="Test 2", value=2, created_by=self.user),
-            TestModel(name="Test 3", value=3, created_by=self.user),
+            HookModel(name="Test 1", value=1, created_by=self.user),
+            HookModel(name="Test 2", value=2, created_by=self.user),
+            HookModel(name="Test 3", value=3, created_by=self.user),
         ]
-        created_instances = TestModel.objects.bulk_create(test_instances)
+        created_instances = HookModel.objects.bulk_create(test_instances)
 
         # Modify instances for update
         for instance in created_instances:
@@ -390,7 +394,7 @@ class TestFullSystemIntegration(TestCase):
             instance.status = "updated"
 
         # Perform bulk_update
-        updated_count = TestModel.objects.bulk_update(
+        updated_count = HookModel.objects.bulk_update(
             created_instances, ["value", "status"]
         )
 
@@ -414,16 +418,16 @@ class TestFullSystemIntegration(TestCase):
 
         # Create instances to delete (without hooks)
         test_instances = [
-            TestModel(name="Test 1", value=1, created_by=self.user),
-            TestModel(name="Test 2", value=2, created_by=self.user),
-            TestModel(name="Test 3", value=3, created_by=self.user),
+            HookModel(name="Test 1", value=1, created_by=self.user),
+            HookModel(name="Test 2", value=2, created_by=self.user),
+            HookModel(name="Test 3", value=3, created_by=self.user),
         ]
-        created_instances = TestModel.objects.bulk_create(
+        created_instances = HookModel.objects.bulk_create(
             test_instances, bypass_hooks=True
         )
 
         # Perform bulk_delete
-        deleted_count = TestModel.objects.bulk_delete(created_instances)
+        deleted_count = HookModel.objects.bulk_delete(created_instances)
 
         # Verify hooks were called
         self.assertEqual(len(hook_instance.tracker.before_delete_calls), 1)
@@ -433,7 +437,7 @@ class TestFullSystemIntegration(TestCase):
         self.assertEqual(deleted_count, 3)
 
         # Verify instances are gone
-        remaining_count = TestModel.objects.count()
+        remaining_count = HookModel.objects.count()
         self.assertEqual(remaining_count, 0)
 
     def test_hooks_with_conditions(self):
@@ -444,17 +448,17 @@ class TestFullSystemIntegration(TestCase):
 
         # Create instances with different statuses
         test_instances = [
-            TestModel(name="Active 1", status="active", created_by=self.user),
-            TestModel(name="Inactive 1", status="inactive", created_by=self.user),
-            TestModel(name="Active 2", status="active", created_by=self.user),
+            HookModel(name="Active 1", status="active", created_by=self.user),
+            HookModel(name="Inactive 1", status="inactive", created_by=self.user),
+            HookModel(name="Active 2", status="active", created_by=self.user),
         ]
 
         # Only active instances should trigger the hook
-        TestModel.objects.bulk_create(test_instances)
+        HookModel.objects.bulk_create(test_instances)
         self.assertEqual(len(hook_instance.tracker.before_create_calls), 1)
 
         # Get created instances
-        created_instances = TestModel.objects.all()
+        created_instances = HookModel.objects.all()
 
         # Update status of some instances
         for i, instance in enumerate(created_instances):
@@ -465,7 +469,7 @@ class TestFullSystemIntegration(TestCase):
             # i == 2: No change
 
         # Only changed instances should trigger the hook
-        TestModel.objects.bulk_update(created_instances, ["status"])
+        HookModel.objects.bulk_update(created_instances, ["status"])
         self.assertEqual(len(hook_instance.tracker.before_update_calls), 1)
 
     def test_hooks_with_priorities(self):
@@ -476,12 +480,12 @@ class TestFullSystemIntegration(TestCase):
 
         # Create test instances
         test_instances = [
-            TestModel(name="Test 1", value=1, created_by=self.user),
-            TestModel(name="Test 2", value=2, created_by=self.user),
+            HookModel(name="Test 1", value=1, created_by=self.user),
+            HookModel(name="Test 2", value=2, created_by=self.user),
         ]
 
         # Perform bulk_create
-        TestModel.objects.bulk_create(test_instances)
+        HookModel.objects.bulk_create(test_instances)
 
         # Verify execution order (high priority first)
         expected_order = ["high", "normal", "low"]
@@ -500,12 +504,12 @@ class TestFullSystemIntegration(TestCase):
 
         # Create test instances
         test_instances = [
-            TestModel(name="Test 1", value=1, created_by=self.user),
-            TestModel(name="Test 2", value=2, created_by=self.user),
+            HookModel(name="Test 1", value=1, created_by=self.user),
+            HookModel(name="Test 2", value=2, created_by=self.user),
         ]
 
         # Test without bypass (hooks should run)
-        TestModel.objects.bulk_create(test_instances, bypass_hooks=False)
+        HookModel.objects.bulk_create(test_instances, bypass_hooks=False)
         self.assertEqual(len(hook_instance.tracker.before_create_calls), 1)
 
         # Clear tracker
@@ -513,10 +517,10 @@ class TestFullSystemIntegration(TestCase):
 
         # Test with bypass (hooks should not run)
         test_instances2 = [
-            TestModel(name="Test 3", value=3, created_by=self.user),
-            TestModel(name="Test 4", value=4, created_by=self.user),
+            HookModel(name="Test 3", value=3, created_by=self.user),
+            HookModel(name="Test 4", value=4, created_by=self.user),
         ]
-        TestModel.objects.bulk_create(test_instances2, bypass_hooks=True)
+        HookModel.objects.bulk_create(test_instances2, bypass_hooks=True)
         self.assertEqual(len(hook_instance.tracker.before_create_calls), 0)
 
     def test_hooks_with_transactions(self):
@@ -528,12 +532,12 @@ class TestFullSystemIntegration(TestCase):
         # Test with transaction
         with transaction.atomic():
             test_instances = [
-                TestModel(name="Test 1", value=1, created_by=self.user),
-                TestModel(name="Test 2", value=2, created_by=self.user),
+                HookModel(name="Test 1", value=1, created_by=self.user),
+                HookModel(name="Test 2", value=2, created_by=self.user),
             ]
 
             # Hooks are called immediately (not deferred)
-            TestModel.objects.bulk_create(test_instances)
+            HookModel.objects.bulk_create(test_instances)
 
             # Hook should have been called immediately
             self.assertEqual(len(hook_instance.tracker.after_create_calls), 1)
@@ -550,23 +554,23 @@ class TestFullSystemIntegration(TestCase):
 
         # Create test instances
         test_instances = [
-            TestModel(name="Test 1", value=1, created_by=self.user),
-            TestModel(name="Test 2", value=2, created_by=self.user),
+            HookModel(name="Test 1", value=1, created_by=self.user),
+            HookModel(name="Test 2", value=2, created_by=self.user),
         ]
 
         # Perform bulk_create
-        created_instances = TestModel.objects.bulk_create(test_instances)
+        created_instances = HookModel.objects.bulk_create(test_instances)
 
         # Verify hooks were called
         self.assertEqual(len(hook_instance.tracker.after_create_calls), 1)
 
         # Verify related objects were created
         for instance in created_instances:
-            related_count = RelatedModel.objects.filter(test_model=instance).count()
+            related_count = RelatedModel.objects.filter(hook_model=instance).count()
             self.assertEqual(related_count, 1)
 
-            related = RelatedModel.objects.get(test_model=instance)
-            self.assertEqual(related.amount, instance.value * 10)
+            related = RelatedModel.objects.get(hook_model=instance)
+            self.assertEqual(related.amount, instance.value * 2)
 
     def test_hooks_with_error_handling(self):
         """Test hooks with error handling."""
@@ -576,20 +580,20 @@ class TestFullSystemIntegration(TestCase):
 
         # Create test instances
         test_instances = [
-            TestModel(name="Test 1", value=1, created_by=self.user),
-            TestModel(name="Test 2", value=2, created_by=self.user),
+            HookModel(name="Test 1", value=1, created_by=self.user),
+            HookModel(name="Test 2", value=2, created_by=self.user),
         ]
 
         # This should raise an exception due to the hook error
         with self.assertRaises(ValueError):
-            TestModel.objects.bulk_create(test_instances)
+            HookModel.objects.bulk_create(test_instances)
 
         # Verify hook was called and error was raised
         self.assertEqual(len(hook_instance.tracker.before_create_calls), 1)
         self.assertEqual(hook_instance.error_count, 1)
 
         # Verify instances were NOT created due to the exception
-        self.assertEqual(TestModel.objects.count(), 0)
+        self.assertEqual(HookModel.objects.count(), 0)
 
     def test_hooks_with_complex_conditions(self):
         """Test hooks with complex condition combinations."""
@@ -599,21 +603,21 @@ class TestFullSystemIntegration(TestCase):
 
         # Create initial instances
         test_instances = [
-            TestModel(name="Test 1", status="pending", created_by=self.user),
-            TestModel(name="Test 2", status="pending", created_by=self.user),
+            HookModel(name="Test 1", status="pending", created_by=self.user),
+            HookModel(name="Test 2", status="pending", created_by=self.user),
         ]
-        created_instances = TestModel.objects.bulk_create(test_instances)
+        created_instances = HookModel.objects.bulk_create(test_instances)
 
         # Update statuses
         created_instances[0].status = "active"
         created_instances[1].status = "inactive"
 
         # Only the changed instances should trigger the hook
-        TestModel.objects.bulk_update(created_instances, ["status"])
+        HookModel.objects.bulk_update(created_instances, ["status"])
         self.assertEqual(len(hook_instance.tracker.before_update_calls), 1)
 
         # Update again without changes
-        TestModel.objects.bulk_update(created_instances, ["status"])
+        HookModel.objects.bulk_update(created_instances, ["status"])
         self.assertEqual(
             len(hook_instance.tracker.before_update_calls), 1
         )  # No additional calls
@@ -624,12 +628,12 @@ class TestFullSystemIntegration(TestCase):
         _active_hooks.add("multi_model")
         hook_instance = MultiModelTestHook()
 
-        # Create TestModel instances
+        # Create HookModel instances
         test_instances = [
-            TestModel(name="Test 1", value=1, created_by=self.user),
-            TestModel(name="Test 2", value=2, created_by=self.user),
+            HookModel(name="Test 1", value=1, created_by=self.user),
+            HookModel(name="Test 2", value=2, created_by=self.user),
         ]
-        TestModel.objects.bulk_create(test_instances)
+        HookModel.objects.bulk_create(test_instances)
 
         # Create SimpleModel instances
         simple_instances = [
@@ -651,12 +655,12 @@ class TestFullSystemIntegration(TestCase):
         test_instances = []
         for i in range(100):
             test_instances.append(
-                TestModel(name=f"Test {i}", value=i, created_by=self.user)
+                HookModel(name=f"Test {i}", value=i, created_by=self.user)
             )
 
         # Test bulk_create performance
         with self.assertNumQueries(3):  # SAVEPOINT, INSERT, RELEASE SAVEPOINT
-            created_instances = TestModel.objects.bulk_create(test_instances)
+            created_instances = HookModel.objects.bulk_create(test_instances)
 
         # Verify hooks were called
         self.assertEqual(len(hook_instance.tracker.before_create_calls), 1)
@@ -666,7 +670,7 @@ class TestFullSystemIntegration(TestCase):
         # The current implementation does individual queries for each instance
         # plus the bulk update query, so we expect more than 1 query
         with self.assertNumQueries(107):  # 100 individual SELECTs + 1 bulk UPDATE + 1 bulk SELECT + 6 transaction queries
-            updated_count = TestModel.objects.bulk_update(created_instances, ["value"])
+            updated_count = HookModel.objects.bulk_update(created_instances, ["value"])
 
         self.assertEqual(updated_count, 100)
 
@@ -674,7 +678,7 @@ class TestFullSystemIntegration(TestCase):
         # The current implementation does individual queries for each instance
         # plus the bulk delete queries, so we expect more than 1 query
         with self.assertNumQueries(105):  # 100 individual SELECTs + 1 bulk SELECT + 2 DELETE queries + 2 transaction queries
-            deleted_count = TestModel.objects.bulk_delete(created_instances)
+            deleted_count = HookModel.objects.bulk_delete(created_instances)
 
         self.assertEqual(deleted_count, 100)
 
@@ -739,18 +743,18 @@ class TestRealWorldScenarios(TestCase):
 
         # Create inventory items
         inventory_items = [
-            TestModel(name="Item 1", value=50, created_by=self.user),
-            TestModel(name="Item 2", value=15, created_by=self.user),
-            TestModel(name="Item 3", value=25, created_by=self.user),
+            HookModel(name="Item 1", value=50, created_by=self.user),
+            HookModel(name="Item 2", value=15, created_by=self.user),
+            HookModel(name="Item 3", value=25, created_by=self.user),
         ]
-        created_items = TestModel.objects.bulk_create(inventory_items)
+        created_items = HookModel.objects.bulk_create(inventory_items)
 
         # Update stock levels (some going below 10)
         created_items[0].value = 5  # Goes below 10
         created_items[1].value = 8  # Goes below 10
         created_items[2].value = 20  # Stays above 10
 
-        TestModel.objects.bulk_update(created_items, ["value"])
+        HookModel.objects.bulk_update(created_items, ["value"])
 
         # Verify low stock alerts
         self.assertEqual(len(InventoryHook.low_stock_alerts), 2)
@@ -759,7 +763,7 @@ class TestRealWorldScenarios(TestCase):
         self.assertIn("Modified Item 2", InventoryHook.low_stock_alerts)
 
         # Delete some items
-        TestModel.objects.bulk_delete([created_items[0]])
+        HookModel.objects.bulk_delete([created_items[0]])
 
         # Verify deletion was logged
         self.assertEqual(len(InventoryHook.tracker.after_delete_calls), 1)
@@ -774,18 +778,18 @@ class TestRealWorldScenarios(TestCase):
 
         # Create records
         records = [
-            TestModel(name="Record 1", status="draft", created_by=self.user),
-            TestModel(name="Record 2", status="draft", created_by=self.user),
+            HookModel(name="Record 1", status="draft", created_by=self.user),
+            HookModel(name="Record 2", status="draft", created_by=self.user),
         ]
-        created_records = TestModel.objects.bulk_create(records)
+        created_records = HookModel.objects.bulk_create(records)
 
         # Update statuses
         created_records[0].status = "published"
         created_records[1].status = "archived"
-        TestModel.objects.bulk_update(created_records, ["status"])
+        HookModel.objects.bulk_update(created_records, ["status"])
 
         # Delete one record
-        TestModel.objects.bulk_delete([created_records[0]])
+        HookModel.objects.bulk_delete([created_records[0]])
 
         # Verify audit log
         print(f"Audit log contents: {AuditHook.audit_log}")
