@@ -61,7 +61,7 @@ class HookContextState:
         return hook_vars.model
 
 
-Hook = HookContextState()
+HookContext = HookContextState()
 
 
 class HookMeta(type):
@@ -99,17 +99,26 @@ class Hook(metaclass=HookMeta):
     ) -> None:
         queue = get_hook_queue()
         queue.append((cls, event, model, new_records, old_records, kwargs))
+        logger.debug(f"Added item to queue: {event}, depth: {hook_vars.depth}")
 
         # If we're already processing hooks (depth > 0), don't process the queue
         # The outermost call will process the entire queue
         if hook_vars.depth > 0:
+            logger.debug(f"Depth > 0, returning without processing queue")
             return
 
         # Process the entire queue
+        logger.debug(f"Processing queue with {len(queue)} items")
         while queue:
             item = queue.popleft()
-            cls_, event_, model_, new_, old_, kw_ = item
-            cls_._process(event_, model_, new_, old_, **kw_)
+            if len(item) == 6:
+                cls_, event_, model_, new_, old_, kw_ = item
+                logger.debug(f"Processing queue item: {event_}")
+                # Call _process on the Hook class, not the calling class
+                Hook._process(event_, model_, new_, old_, **kw_)
+            else:
+                logger.warning(f"Invalid queue item format: {item}")
+                continue
 
     @classmethod
     def _process(
@@ -127,23 +136,28 @@ class Hook(metaclass=HookMeta):
         hook_vars.model = model
 
         hooks = sorted(get_hooks(model, event), key=lambda x: x[3])
+        logger.debug(f"Found {len(hooks)} hooks for {event}")
 
         def _execute():
+            logger.debug(f"Executing {len(hooks)} hooks for {event}")
             new_local = new_records or []
             old_local = old_records or []
             if len(old_local) < len(new_local):
                 old_local += [None] * (len(new_local) - len(old_local))
 
             for handler_cls, method_name, condition, priority in hooks:
+                logger.debug(f"Processing hook {handler_cls.__name__}.{method_name}")
                 if condition is not None:
                     checks = [
                         condition.check(n, o) for n, o in zip(new_local, old_local)
                     ]
                     if not any(checks):
+                        logger.debug(f"Condition failed for {handler_cls.__name__}.{method_name}")
                         continue
 
                 handler = handler_cls()
                 method = getattr(handler, method_name)
+                logger.debug(f"Executing {handler_cls.__name__}.{method_name}")
 
                 try:
                     method(
@@ -151,16 +165,20 @@ class Hook(metaclass=HookMeta):
                         old_records=old_local,
                         **kwargs,
                     )
+                    logger.debug(f"Successfully executed {handler_cls.__name__}.{method_name}")
                 except Exception:
                     logger.exception(
                         "Error in hook %s.%s", handler_cls.__name__, method_name
                     )
 
         conn = transaction.get_connection()
+        logger.debug(f"Transaction in_atomic_block: {conn.in_atomic_block}, event: {event}")
         try:
             if conn.in_atomic_block and event.startswith("after_"):
+                logger.debug(f"Deferring {event} to on_commit")
                 transaction.on_commit(_execute)
             else:
+                logger.debug(f"Executing {event} immediately")
                 _execute()
         finally:
             hook_vars.new = None

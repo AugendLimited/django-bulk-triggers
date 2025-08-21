@@ -5,13 +5,13 @@ Test to verify that Subquery objects in update operations work correctly with ho
 from django.db.models import OuterRef, Subquery, Sum
 from django.test import TestCase
 
-from django_bulk_hooks import Hook
+from django_bulk_hooks import HookClass
 from django_bulk_hooks.constants import AFTER_UPDATE
 from django_bulk_hooks.decorators import hook
 from tests.models import RelatedModel, TestModel, User
 
 
-class SubqueryHookTest(Hook):
+class SubqueryHookTest(HookClass):
     """Hook to test Subquery functionality."""
     
     after_update_called = False  # Class variable to persist across instances

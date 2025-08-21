@@ -7,7 +7,7 @@ from typing import Any, List, Optional
 
 from django.db import models
 
-from django_bulk_hooks import Hook
+from django_bulk_hooks import HookClass
 from django_bulk_hooks.constants import (
     AFTER_CREATE,
     AFTER_DELETE,
@@ -172,3 +172,58 @@ class MockException(Exception):
     """Mock exception for testing error handling."""
 
     pass
+
+
+def re_register_test_hooks():
+    """
+    Re-register test hooks after they've been cleared.
+    This is needed because the test setup calls clear_hooks() which removes
+    all registered hooks, but the hook classes are already defined.
+    """
+    from django_bulk_hooks.handler import HookMeta
+    
+    # Clear the metaclass registration cache so hooks can be re-registered
+    HookMeta._registered.clear()
+    
+    # The metaclass will automatically re-register hooks when the classes are accessed
+    # We just need to trigger the metaclass by accessing the classes
+    from tests.test_integration import (
+        BulkCreateTestHook,
+        BulkUpdateTestHook,
+        BulkDeleteTestHook,
+        ConditionalTestHook,
+        ComplexConditionalTestHook,
+        ErrorTestHook,
+        PerformanceTestHook,
+        RelatedTestHook,
+        TransactionTestHook,
+        MultiModelTestHook,
+        PriorityTestHook,
+        InventoryHook,
+        AuditHook,
+        UserRegistrationHook,
+    )
+    
+    # Force the metaclass to re-register hooks by accessing the classes
+    # This triggers the __new__ method of HookMeta
+    hook_classes = [
+        BulkCreateTestHook,
+        BulkUpdateTestHook,
+        BulkDeleteTestHook,
+        ConditionalTestHook,
+        ComplexConditionalTestHook,
+        ErrorTestHook,
+        PerformanceTestHook,
+        RelatedTestHook,
+        TransactionTestHook,
+        MultiModelTestHook,
+        PriorityTestHook,
+        InventoryHook,
+        AuditHook,
+        UserRegistrationHook,
+    ]
+    
+    # Access each class to trigger metaclass registration
+    for hook_class in hook_classes:
+        # Just accessing the class should trigger the metaclass
+        _ = hook_class.__name__

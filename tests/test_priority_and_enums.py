@@ -157,13 +157,13 @@ class TestPriorityAndConstantsIntegration(TestCase):
 
     def test_priority_with_hook_events(self):
         """Test using priorities with hook events."""
-        from django_bulk_hooks import Hook
+        from django_bulk_hooks import HookClass
         from django_bulk_hooks.decorators import hook
 
         class TestModel:
             pass
 
-        class TestHook(Hook):
+        class TestHook(HookClass):
             @hook(BEFORE_CREATE, model=TestModel, priority=Priority.HIGH)
             def high_priority_method(self, new_records, old_records=None, **kwargs):
                 pass

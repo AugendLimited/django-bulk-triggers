@@ -227,17 +227,19 @@ class TestBulkHookManagerIntegration(TestCase):
     def test_manager_bypass_hooks(self):
         """Test manager with bypass_hooks parameter."""
         # Create a hook to track calls
-        from django_bulk_hooks import Hook
+        from django_bulk_hooks import HookClass
         from django_bulk_hooks.decorators import hook
         from django_bulk_hooks.constants import BEFORE_CREATE
 
-        class TestHook(Hook):
+        class TestHook(HookClass):
+            tracker = TestHookTracker()  # Class variable to persist across instances
+            
             def __init__(self):
-                self.tracker = TestHookTracker()
+                pass  # No need to create instance tracker
 
             @hook(BEFORE_CREATE, model=TestModel)
             def on_before_create(self, new_records, old_records=None, **kwargs):
-                self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+                TestHook.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
         hook_instance = TestHook()
 
@@ -249,10 +251,10 @@ class TestBulkHookManagerIntegration(TestCase):
 
         # Test without bypass_hooks (hooks should run)
         TestModel.objects.bulk_create(test_instances, bypass_hooks=False)
-        self.assertEqual(len(hook_instance.tracker.before_create_calls), 1)
+        self.assertEqual(len(TestHook.tracker.before_create_calls), 1)
 
         # Clear tracker
-        hook_instance.tracker.reset()
+        TestHook.tracker.reset()
 
         # Test with bypass_hooks (hooks should not run)
         test_instances2 = [
@@ -260,7 +262,7 @@ class TestBulkHookManagerIntegration(TestCase):
             TestModel(name="Test 4", value=4, created_by=self.user),
         ]
         TestModel.objects.bulk_create(test_instances2, bypass_hooks=True)
-        self.assertEqual(len(hook_instance.tracker.before_create_calls), 0)
+        self.assertEqual(len(TestHook.tracker.before_create_calls), 0)
 
     def test_manager_with_different_models(self):
         """Test manager with different model types."""

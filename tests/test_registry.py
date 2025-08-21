@@ -504,10 +504,10 @@ class TestRegistryIntegration(TestCase):
 
     def test_registry_with_real_hooks(self):
         """Test registry with real hook classes."""
-        from django_bulk_hooks import Hook
+        from django_bulk_hooks import HookClass
         from django_bulk_hooks.decorators import hook
 
-        class TestHook(Hook):
+        class TestHook(HookClass):
             @hook(BEFORE_CREATE, model=TestModel)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
@@ -532,11 +532,11 @@ class TestRegistryIntegration(TestCase):
 
     def test_registry_with_conditions(self):
         """Test registry with conditional hooks."""
-        from django_bulk_hooks import Hook
+        from django_bulk_hooks import HookClass
         from django_bulk_hooks.decorators import hook
         from django_bulk_hooks.conditions import IsEqual
 
-        class ConditionalHook(Hook):
+        class ConditionalHook(HookClass):
             @hook(BEFORE_CREATE, model=TestModel, condition=IsEqual("status", "active"))
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
@@ -551,16 +551,16 @@ class TestRegistryIntegration(TestCase):
 
     def test_registry_with_priorities(self):
         """Test registry with different priorities."""
-        from django_bulk_hooks import Hook
+        from django_bulk_hooks import HookClass
         from django_bulk_hooks.decorators import hook
         from django_bulk_hooks.priority import Priority
 
-        class HighPriorityHook(Hook):
+        class HighPriorityHook(HookClass):
             @hook(BEFORE_CREATE, model=TestModel, priority=Priority.HIGH)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
 
-        class LowPriorityHook(Hook):
+        class LowPriorityHook(HookClass):
             @hook(BEFORE_CREATE, model=TestModel, priority=Priority.LOW)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
