@@ -55,6 +55,7 @@ class HookQuerySetMixin:
 
     @transaction.atomic
     def update(self, **kwargs):
+        logger.debug(f"Entering update method with {len(kwargs)} kwargs")
         instances = list(self)
         if not instances:
             return 0
@@ -70,13 +71,29 @@ class HookQuerySetMixin:
         originals = [original_map.get(obj.pk) for obj in instances]
 
         # Check if any of the update values are Subquery objects
-        from django.db.models import Subquery
-        has_subquery = any(
-            isinstance(value, Subquery)
-            for value in kwargs.values()
-        )
+        try:
+            from django.db.models import Subquery
+            logger.debug(f"Successfully imported Subquery from django.db.models")
+        except ImportError as e:
+            logger.error(f"Failed to import Subquery: {e}")
+            raise
+        
+        logger.debug(f"Checking for Subquery objects in {len(kwargs)} kwargs")
+        
+        subquery_detected = []
+        for key, value in kwargs.items():
+            is_subquery = isinstance(value, Subquery)
+            logger.debug(f"Key '{key}': type={type(value).__name__}, is_subquery={is_subquery}")
+            if is_subquery:
+                subquery_detected.append(key)
+        
+        has_subquery = len(subquery_detected) > 0
+        logger.debug(f"Subquery detection result: {has_subquery}, detected keys: {subquery_detected}")
         
         # Debug logging for Subquery detection
+        logger.debug(f"Update kwargs: {list(kwargs.keys())}")
+        logger.debug(f"Update kwargs types: {[(k, type(v).__name__) for k, v in kwargs.items()]}")
+        
         if has_subquery:
             logger.debug(f"Detected Subquery in update: {[k for k, v in kwargs.items() if isinstance(v, Subquery)]}")
         else:
@@ -84,6 +101,8 @@ class HookQuerySetMixin:
             for k, v in kwargs.items():
                 if hasattr(v, 'query') and hasattr(v, 'resolve_expression'):
                     logger.warning(f"Potential Subquery-like object detected but not recognized: {k}={type(v).__name__}")
+                    logger.warning(f"Object attributes: query={hasattr(v, 'query')}, resolve_expression={hasattr(v, 'resolve_expression')}")
+                    logger.warning(f"Object dir: {[attr for attr in dir(v) if not attr.startswith('_')][:10]}")
 
         # Apply field updates to instances
         # If a per-object value map exists (from bulk_update), prefer it over kwargs
@@ -145,11 +164,24 @@ class HookQuerySetMixin:
                             output_field = field_obj
                             target_name = field_name
 
-                        when_statements.append(
-                            When(
-                                pk=obj_pk, then=Value(value, output_field=output_field)
+                        # Special handling for Subquery values in CASE statements
+                        if isinstance(value, Subquery):
+                            logger.debug(f"Creating When statement with Subquery for {field_name}")
+                            # Ensure the Subquery has proper output_field
+                            if not hasattr(value, 'output_field') or value.output_field is None:
+                                value.output_field = output_field
+                                logger.debug(f"Set output_field for Subquery in When statement to {output_field}")
+                            when_statements.append(
+                                When(
+                                    pk=obj_pk, then=value
+                                )
                             )
-                        )
+                        else:
+                            when_statements.append(
+                                When(
+                                    pk=obj_pk, then=Value(value, output_field=output_field)
+                                )
+                            )
 
                     if when_statements:
                         case_statements[target_name] = Case(
@@ -158,6 +190,22 @@ class HookQuerySetMixin:
 
                 # Merge extra CASE updates into kwargs for DB update
                 if case_statements:
+                    logger.debug(f"Adding case statements to kwargs: {list(case_statements.keys())}")
+                    for field_name, case_stmt in case_statements.items():
+                        logger.debug(f"Case statement for {field_name}: {type(case_stmt).__name__}")
+                        # Check if the case statement contains Subquery objects
+                        if hasattr(case_stmt, 'get_source_expressions'):
+                            source_exprs = case_stmt.get_source_expressions()
+                            for expr in source_exprs:
+                                if isinstance(expr, Subquery):
+                                    logger.debug(f"Case statement for {field_name} contains Subquery")
+                                elif hasattr(expr, 'get_source_expressions'):
+                                    # Check nested expressions (like Value objects)
+                                    nested_exprs = expr.get_source_expressions()
+                                    for nested_expr in nested_exprs:
+                                        if isinstance(nested_expr, Subquery):
+                                            logger.debug(f"Case statement for {field_name} contains nested Subquery")
+                    
                     kwargs = {**kwargs, **case_statements}
 
         # Use Django's built-in update logic directly
@@ -166,24 +214,79 @@ class HookQuerySetMixin:
         # Additional safety check: ensure Subquery objects are properly handled
         # This prevents the "cannot adapt type 'Subquery'" error
         safe_kwargs = {}
+        logger.debug(f"Processing {len(kwargs)} kwargs for safety check")
+        
         for key, value in kwargs.items():
+            logger.debug(f"Processing key '{key}' with value type {type(value).__name__}")
+            
             if isinstance(value, Subquery):
+                logger.debug(f"Found Subquery for field {key}")
                 # Ensure Subquery has proper output_field
                 if not hasattr(value, 'output_field') or value.output_field is None:
                     logger.warning(f"Subquery for field {key} missing output_field, attempting to infer")
                     # Try to infer from the model field
                     try:
                         field = model_cls._meta.get_field(key)
+                        logger.debug(f"Inferred field type: {type(field).__name__}")
                         value = value.resolve_expression(None, None)
                         value.output_field = field
+                        logger.debug(f"Set output_field to {field}")
                     except Exception as e:
                         logger.error(f"Failed to infer output_field for Subquery on {key}: {e}")
                         raise
+                else:
+                    logger.debug(f"Subquery for field {key} already has output_field: {value.output_field}")
                 safe_kwargs[key] = value
+            elif hasattr(value, 'get_source_expressions') and hasattr(value, 'resolve_expression'):
+                # Handle Case statements and other complex expressions
+                logger.debug(f"Found complex expression for field {key}: {type(value).__name__}")
+                
+                # Check if this expression contains any Subquery objects
+                source_expressions = value.get_source_expressions()
+                has_nested_subquery = False
+                
+                for expr in source_expressions:
+                    if isinstance(expr, Subquery):
+                        has_nested_subquery = True
+                        logger.debug(f"Found nested Subquery in {type(value).__name__}")
+                        # Ensure the nested Subquery has proper output_field
+                        if not hasattr(expr, 'output_field') or expr.output_field is None:
+                            try:
+                                field = model_cls._meta.get_field(key)
+                                expr.output_field = field
+                                logger.debug(f"Set output_field for nested Subquery to {field}")
+                            except Exception as e:
+                                logger.error(f"Failed to set output_field for nested Subquery: {e}")
+                                raise
+                
+                if has_nested_subquery:
+                    logger.debug(f"Expression contains Subquery, ensuring proper output_field")
+                    # Try to resolve the expression to ensure it's properly formatted
+                    try:
+                        resolved_value = value.resolve_expression(None, None)
+                        safe_kwargs[key] = resolved_value
+                        logger.debug(f"Successfully resolved expression for {key}")
+                    except Exception as e:
+                        logger.error(f"Failed to resolve expression for {key}: {e}")
+                        raise
+                else:
+                    safe_kwargs[key] = value
             else:
+                logger.debug(f"Non-Subquery value for field {key}: {type(value).__name__}")
                 safe_kwargs[key] = value
         
-        update_count = super().update(**safe_kwargs)
+        logger.debug(f"Safe kwargs keys: {list(safe_kwargs.keys())}")
+        logger.debug(f"Safe kwargs types: {[(k, type(v).__name__) for k, v in safe_kwargs.items()]}")
+        
+        logger.debug(f"Calling super().update() with {len(safe_kwargs)} kwargs")
+        try:
+            update_count = super().update(**safe_kwargs)
+            logger.debug(f"Super update successful, count: {update_count}")
+        except Exception as e:
+            logger.error(f"Super update failed: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Safe kwargs that caused failure: {safe_kwargs}")
+            raise
 
         # If we used Subquery objects, refresh the instances to get computed values
         if has_subquery and instances:
