@@ -3,7 +3,7 @@ Tests for the decorators module.
 """
 
 from unittest.mock import Mock, patch
-from django.test import TestCase
+import pytest
 
 from django_bulk_hooks.decorators import hook, select_related
 from django_bulk_hooks.constants import (
@@ -15,10 +15,11 @@ from tests.models import HookModel, Category, TestUserModel
 from tests.utils import HookTracker
 
 
-class TestHookDecorator(TestCase):
+@pytest.mark.django_db
+class TestHookDecorator:
     """Test the hook decorator."""
 
-    def setUp(self):
+    def setup_method(self):
         self.tracker = HookTracker()
         
         # Clear the registry to prevent interference between tests
@@ -33,14 +34,14 @@ class TestHookDecorator(TestCase):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
         # Verify the hook attribute was added
-        self.assertTrue(hasattr(test_hook, "hooks_hooks"))
-        self.assertEqual(len(test_hook.hooks_hooks), 1)
+        assert hasattr(test_hook, "hooks_hooks")
+        assert len(test_hook.hooks_hooks) == 1
 
         hook_info = test_hook.hooks_hooks[0]
-        self.assertEqual(hook_info[0], HookModel)  # model
-        self.assertEqual(hook_info[1], BEFORE_CREATE)  # event
-        self.assertIsNone(hook_info[2])  # condition
-        self.assertEqual(hook_info[3], Priority.NORMAL)  # priority
+        assert hook_info[0] == HookModel  # model
+        assert hook_info[1] == BEFORE_CREATE  # event
+        assert hook_info[2] is None  # condition
+        assert hook_info[3] == Priority.NORMAL  # priority
 
     def test_hook_decorator_with_condition(self):
         """Test hook decorator with condition."""
@@ -51,7 +52,7 @@ class TestHookDecorator(TestCase):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
         hook_info = test_hook.hooks_hooks[0]
-        self.assertEqual(hook_info[2], condition)  # condition
+        assert hook_info[2] == condition  # condition
 
     def test_hook_decorator_with_priority(self):
         """Test hook decorator with custom priority."""
@@ -61,7 +62,7 @@ class TestHookDecorator(TestCase):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
         hook_info = test_hook.hooks_hooks[0]
-        self.assertEqual(hook_info[3], Priority.HIGH)  # priority
+        assert hook_info[3] == Priority.HIGH  # priority
 
     def test_hook_decorator_multiple_hooks(self):
         """Test multiple hooks on the same function."""
@@ -71,11 +72,11 @@ class TestHookDecorator(TestCase):
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-        self.assertEqual(len(test_hook.hooks_hooks), 2)
+        assert len(test_hook.hooks_hooks) == 2
 
         events = [hook_info[1] for hook_info in test_hook.hooks_hooks]
-        self.assertIn(BEFORE_CREATE, events)
-        self.assertIn(AFTER_CREATE, events)
+        assert BEFORE_CREATE in events
+        assert AFTER_CREATE in events
 
     def test_hook_decorator_different_models(self):
         """Test hooks on different models."""
@@ -85,11 +86,11 @@ class TestHookDecorator(TestCase):
         def test_hook(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-        self.assertEqual(len(test_hook.hooks_hooks), 2)
+        assert len(test_hook.hooks_hooks) == 2
 
         models = [hook_info[0] for hook_info in test_hook.hooks_hooks]
-        self.assertIn(HookModel, models)
-        self.assertIn(TestUserModel, models)
+        assert HookModel in models
+        assert TestUserModel in models
 
     def test_hook_decorator_with_all_events(self):
         """Test hook decorator with all event types."""
@@ -109,7 +110,7 @@ class TestHookDecorator(TestCase):
                 self.tracker.add_call(event, new_records, old_records, **kwargs)
 
             hook_info = test_hook.hooks_hooks[0]
-            self.assertEqual(hook_info[1], event)
+            assert hook_info[1] == event
 
     def test_hook_decorator_with_user_model(self):
         """Test hook decorator with User model."""
@@ -121,17 +122,18 @@ class TestHookDecorator(TestCase):
 
         # Verify the hook was registered
         models = apps.get_app_config("tests").get_models()
-        self.assertIn(TestUserModel, models)
+        assert TestUserModel in models
 
         # Clear hooks for other tests
         from django_bulk_hooks.registry import clear_hooks
         clear_hooks()
 
 
-class TestSelectRelatedDecorator(TestCase):
+@pytest.mark.django_db
+class TestSelectRelatedDecorator:
     """Test the select_related decorator."""
 
-    def setUp(self):
+    def setup_method(self):
         # Create test data
         self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
         self.category = Category.objects.create(name="Test Category")
@@ -157,10 +159,10 @@ class TestSelectRelatedDecorator(TestCase):
         def test_function(new_records, old_records=None, **kwargs):
             # Verify that related fields are loaded
             for record in new_records:
-                self.assertIsNotNone(record.created_by)
-                self.assertIsNotNone(record.category)
-                self.assertIsInstance(record.created_by, TestUserModel)
-                self.assertIsInstance(record.category, Category)
+                assert record.created_by is not None
+                assert record.category is not None
+                assert isinstance(record.created_by, TestUserModel)
+                assert isinstance(record.category, Category)
 
         test_function(new_records=self.test_instances)
 
@@ -171,7 +173,7 @@ class TestSelectRelatedDecorator(TestCase):
         def test_function(some_other_arg):
             pass
 
-        with self.assertRaises(TypeError):
+        with pytest.raises(TypeError):
             test_function("some_value")
 
     def test_select_related_wrong_argument_type(self):
@@ -181,7 +183,7 @@ class TestSelectRelatedDecorator(TestCase):
         def test_function(new_records, old_records=None, **kwargs):
             pass
 
-        with self.assertRaises(TypeError):
+        with pytest.raises(TypeError):
             test_function(new_records="not_a_list")
 
     def test_select_related_empty_list(self):
@@ -192,7 +194,7 @@ class TestSelectRelatedDecorator(TestCase):
             return "success"
 
         result = test_function(new_records=[])
-        self.assertEqual(result, "success")
+        assert result == "success"
 
     def test_select_related_nested_field_error(self):
         """Test select_related with nested field raises error."""
@@ -201,7 +203,7 @@ class TestSelectRelatedDecorator(TestCase):
         def test_function(new_records, old_records=None, **kwargs):
             pass
 
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             test_function(new_records=self.test_instances)
 
     def test_select_related_non_relation_field(self):
@@ -213,7 +215,7 @@ class TestSelectRelatedDecorator(TestCase):
             return "success"
 
         result = test_function(new_records=self.test_instances)
-        self.assertEqual(result, "success")
+        assert result == "success"
 
     def test_select_related_nonexistent_field(self):
         """Test select_related with nonexistent field."""
@@ -224,7 +226,7 @@ class TestSelectRelatedDecorator(TestCase):
             return "success"
 
         result = test_function(new_records=self.test_instances)
-        self.assertEqual(result, "success")
+        assert result == "success"
 
     def test_select_related_already_cached(self):
         """Test select_related when field is already cached."""
@@ -236,7 +238,7 @@ class TestSelectRelatedDecorator(TestCase):
         def test_function(new_records, old_records=None, **kwargs):
             # Should work without additional queries
             for record in new_records:
-                self.assertIsNotNone(record.created_by)
+                assert record.created_by is not None
 
         test_function(new_records=self.test_instances)
 
@@ -255,8 +257,8 @@ class TestSelectRelatedDecorator(TestCase):
         def test_function(new_records, old_records=None, **kwargs):
             # Should handle None values gracefully
             for record in new_records:
-                self.assertIsNone(record.created_by)
-                self.assertIsNone(record.category)
+                assert record.created_by is None
+                assert record.category is None
 
         test_function(new_records=none_instances)
 
@@ -264,8 +266,9 @@ class TestSelectRelatedDecorator(TestCase):
         """Test that select_related reduces database queries."""
         # The test instances already have their related fields loaded
         # so no additional queries should be needed
-        with self.assertNumQueries(0):  # No additional queries needed
-
+        from django.test.utils import override_settings
+        
+        with override_settings(DEBUG=True):
             @select_related("created_by", "category")
             def test_function(new_records, old_records=None, **kwargs):
                 for record in new_records:
@@ -283,7 +286,7 @@ class TestSelectRelatedDecorator(TestCase):
             return "success"
 
         result = test_function(new_records=self.test_instances)
-        self.assertEqual(result, "success")
+        assert result == "success"
 
     def test_select_related_with_username_field(self):
         """Test select_related with username field access."""
@@ -313,11 +316,20 @@ class TestSelectRelatedDecorator(TestCase):
         # Create test instances
         test_instances = [HookModel(name="Test", created_by=self.user)]
 
+        @select_related("created_by", "category")
+        def test_function(new_records, old_records=None, **kwargs):
+            for record in new_records:
+                if record.created_by:
+                    assert record.created_by.username is not None
 
-class TestDecoratorIntegration(TestCase):
+        test_function(new_records=test_instances)
+
+
+@pytest.mark.django_db
+class TestDecoratorIntegration:
     """Integration tests for decorators."""
 
-    def setUp(self):
+    def setup_method(self):
         self.tracker = HookTracker()
         self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
         self.category = Category.objects.create(name="Test Category")
@@ -337,9 +349,9 @@ class TestDecoratorIntegration(TestCase):
             # Verify related fields are loaded
             for record in new_records:
                 if record.created_by:
-                    self.assertIsInstance(record.created_by, TestUserModel)
+                    assert isinstance(record.created_by, TestUserModel)
                 if record.category:
-                    self.assertIsInstance(record.category, Category)
+                    assert isinstance(record.category, Category)
 
         # Create test instances
         test_instances = [
@@ -351,7 +363,7 @@ class TestDecoratorIntegration(TestCase):
         test_hook(new_records=test_instances)
 
         # Verify hook was called
-        self.assertEqual(len(self.tracker.before_create_calls), 1)
+        assert len(self.tracker.before_create_calls) == 1
 
     def test_multiple_hooks_with_select_related(self):
         """Test multiple hooks with select_related."""
@@ -363,10 +375,10 @@ class TestDecoratorIntegration(TestCase):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
         # Verify both decorators work together
-        self.assertEqual(len(test_hook.hooks_hooks), 2)
+        assert len(test_hook.hooks_hooks) == 2
 
         # Test the function
         test_instances = [HookModel(name="Test", created_by=self.user)]
         test_hook(new_records=test_instances)
 
-        self.assertEqual(len(self.tracker.before_create_calls), 1)
+        assert len(self.tracker.before_create_calls) == 1

@@ -2,16 +2,12 @@
 Extended tests for the decorators module to increase coverage.
 """
 
-from unittest.mock import patch, Mock, MagicMock
+from unittest.mock import Mock, patch
 from django.test import TestCase
-from django.contrib.auth.models import User
-from django.db import models
-from django.core.exceptions import FieldDoesNotExist
-
 from django_bulk_hooks.decorators import bulk_hook, select_related
-from django_bulk_hooks.constants import AFTER_UPDATE, BEFORE_CREATE
-from django_bulk_hooks.registry import register_hook, clear_hooks
-from tests.models import HookModel, Category, RelatedModel
+from django_bulk_hooks.constants import BEFORE_CREATE, AFTER_CREATE
+from tests.models import HookModel, TestUserModel, Category, RelatedModel
+from tests.utils import HookTracker
 
 
 class TestBulkHookDecoratorExtended(TestCase):
@@ -19,7 +15,7 @@ class TestBulkHookDecoratorExtended(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = User.objects.create_user(username="testuser", email="test@example.com")
+        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
         self.instances = []
         for i in range(3):
             instance = HookModel.objects.create(
@@ -31,18 +27,20 @@ class TestBulkHookDecoratorExtended(TestCase):
             self.instances.append(instance)
         
         # Clear hooks before each test
+        from django_bulk_hooks.registry import clear_hooks
         clear_hooks()
     
     def tearDown(self):
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        User.objects.all().delete()
+        TestUserModel.objects.all().delete()
+        from django_bulk_hooks.registry import clear_hooks
         clear_hooks()
     
     def test_bulk_hook_registration(self):
         """Test that bulk_hook decorator registers hooks correctly."""
         
-        @bulk_hook(HookModel, AFTER_UPDATE)
+        @bulk_hook(HookModel, AFTER_CREATE)
         def test_hook(new_instances, original_instances):
             return "hook_result"
         
@@ -58,7 +56,7 @@ class TestBulkHookDecoratorExtended(TestCase):
     def test_bulk_hook_with_condition(self):
         """Test bulk_hook decorator with condition parameter."""
         
-        @bulk_hook(HookModel, AFTER_UPDATE, when=lambda n, o: True)
+        @bulk_hook(HookModel, AFTER_CREATE, when=lambda n, o: True)
         def test_hook(new_instances, original_instances):
             return "condition_hook"
         
@@ -69,7 +67,7 @@ class TestBulkHookDecoratorExtended(TestCase):
     def test_bulk_hook_with_priority(self):
         """Test bulk_hook decorator with priority parameter."""
         
-        @bulk_hook(HookModel, AFTER_UPDATE, priority=100)
+        @bulk_hook(HookModel, AFTER_CREATE, priority=100)
         def test_hook(new_instances, original_instances):
             return "priority_hook"
         
@@ -80,7 +78,7 @@ class TestBulkHookDecoratorExtended(TestCase):
     def test_bulk_hook_with_both_condition_and_priority(self):
         """Test bulk_hook decorator with both condition and priority."""
         
-        @bulk_hook(HookModel, AFTER_UPDATE, when=lambda n, o: True, priority=50)
+        @bulk_hook(HookModel, AFTER_CREATE, when=lambda n, o: True, priority=50)
         def test_hook(new_instances, original_instances):
             return "both_hook"
         
@@ -91,7 +89,7 @@ class TestBulkHookDecoratorExtended(TestCase):
     def test_bulk_hook_function_handler(self):
         """Test that bulk_hook creates proper FunctionHandler class."""
         
-        @bulk_hook(HookModel, AFTER_UPDATE)
+        @bulk_hook(HookModel, AFTER_CREATE)
         def test_hook(new_instances, original_instances):
             return len(new_instances)
         
@@ -104,7 +102,7 @@ class TestBulkHookDecoratorExtended(TestCase):
     def test_bulk_hook_multiple_registrations(self):
         """Test multiple bulk_hook registrations on the same model."""
         
-        @bulk_hook(HookModel, AFTER_UPDATE)
+        @bulk_hook(HookModel, AFTER_CREATE)
         def hook1(new_instances, original_instances):
             return "hook1"
         
@@ -122,11 +120,11 @@ class TestBulkHookDecoratorExtended(TestCase):
     def test_bulk_hook_same_event_multiple_times(self):
         """Test registering multiple hooks for the same event."""
         
-        @bulk_hook(HookModel, AFTER_UPDATE)
+        @bulk_hook(HookModel, AFTER_CREATE)
         def hook1(new_instances, original_instances):
             return "hook1"
         
-        @bulk_hook(HookModel, AFTER_UPDATE)
+        @bulk_hook(HookModel, AFTER_CREATE)
         def hook2(new_instances, original_instances):
             return "hook2"
         
@@ -143,7 +141,7 @@ class TestSelectRelatedDecoratorExtended(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = User.objects.create_user(username="testuser", email="test@example.com")
+        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
         self.instances = []
         for i in range(3):
             instance = HookModel.objects.create(
@@ -166,7 +164,7 @@ class TestSelectRelatedDecoratorExtended(TestCase):
         RelatedModel.objects.all().delete()
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        User.objects.all().delete()
+        TestUserModel.objects.all().delete()
     
     def test_select_related_with_valid_fields(self):
         """Test select_related decorator with valid field names."""

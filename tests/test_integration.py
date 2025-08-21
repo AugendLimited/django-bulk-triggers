@@ -6,26 +6,16 @@ from unittest.mock import patch
 
 import pytest
 from django.db import transaction
-from django.test import TestCase
-from django.contrib.auth.models import User
-
-from django_bulk_hooks import BulkHookManager, HookClass
-from django_bulk_hooks.handler import Hook
-from django_bulk_hooks.conditions import HasChanged, IsEqual, IsNotEqual, WasEqual
-from django_bulk_hooks.constants import (
-    AFTER_CREATE,
-    AFTER_DELETE,
-    AFTER_UPDATE,
-    BEFORE_CREATE,
-    BEFORE_DELETE,
-    BEFORE_UPDATE,
-    VALIDATE_CREATE,
-    VALIDATE_DELETE,
-    VALIDATE_UPDATE,
-)
+from django.test import TestCase, TransactionTestCase
+from django_bulk_hooks import HookClass
 from django_bulk_hooks.decorators import hook
+from django_bulk_hooks.constants import (
+    BEFORE_CREATE, AFTER_CREATE, BEFORE_UPDATE, AFTER_UPDATE, 
+    BEFORE_DELETE, AFTER_DELETE, VALIDATE_CREATE, VALIDATE_UPDATE, VALIDATE_DELETE
+)
+from django_bulk_hooks.conditions import HasChanged, IsEqual, IsNotEqual, WasEqual
 from django_bulk_hooks.priority import Priority
-from tests.models import HookModel, SimpleModel, ComplexModel, Category, RelatedModel
+from tests.models import HookModel, TestUserModel, SimpleModel, ComplexModel, Category, RelatedModel
 from tests.utils import HookTracker, create_test_instances
 
 # Define hook classes at module level to ensure registration
@@ -197,7 +187,7 @@ class MultiModelTestHook(HookClass):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
 
-class PriorityTestHook(Hook):
+class PriorityTestHook(HookClass):
     execution_order = []  # Class variable to persist across instances
     
     def __init__(self):
@@ -223,7 +213,7 @@ class PriorityTestHook(Hook):
 
 
 # Additional hook classes for real-world scenarios
-class InventoryHook(Hook):
+class InventoryHook(HookClass):
     low_stock_alerts = []  # Class variable to persist across instances
     tracker = HookTracker()  # Class variable to persist across instances
     
@@ -245,7 +235,7 @@ class InventoryHook(Hook):
             InventoryHook.tracker.add_call(AFTER_DELETE, new_records, old_records, **kwargs)
 
 
-class AuditHook(Hook):
+class AuditHook(HookClass):
     audit_log = []  # Class variable to persist across instances
     
     def __init__(self):
@@ -306,7 +296,7 @@ class TestFullSystemIntegration(TestCase):
 
     def setUp(self):
         self.tracker = HookTracker()
-        self.user = User.objects.create(username="testuser", email="test@example.com")
+        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
         self.category = Category.objects.create(name="Test Category")
         
         # Reset the trackers for each test
@@ -686,7 +676,7 @@ class TestRealWorldScenarios(TestCase):
     """Test real-world usage scenarios."""
 
     def setUp(self):
-        self.user = User.objects.create(username="testuser", email="test@example.com")
+        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
         self.category = Category.objects.create(name="Test Category")
         
         # Reset hook class variables

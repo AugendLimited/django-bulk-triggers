@@ -4,7 +4,10 @@ Test to verify that Subquery objects in update operations work correctly with ho
 
 from django.db.models import OuterRef, Subquery, Sum
 from django.test import TestCase
-from django.contrib.auth.models import User
+from django.db import models
+from django_bulk_hooks.queryset import HookQuerySetMixin
+from django_bulk_hooks.manager import BulkHookManager
+from tests.models import HookModel, TestUserModel
 
 from django_bulk_hooks import HookClass
 from django_bulk_hooks.constants import AFTER_UPDATE
@@ -48,7 +51,7 @@ class SubqueryHooksTestCase(TestCase):
         clear_hooks()
         
         # Create test data
-        self.user = User.objects.create(username="testuser")
+        self.user = TestUserModel.objects.create(username="testuser")
         self.hook_model = HookModel.objects.create(
             name="Test", value=10, created_by=self.user
         )
@@ -169,5 +172,5 @@ class SubqueryHooksTestCase(TestCase):
         # Verify that foreign key fields are still intact
         # The hook should have access to the created_by field as a User instance
         self.assertEqual(len(self.hook.foreign_key_values), 1)
-        self.assertIsInstance(self.hook.foreign_key_values[0], User)
+        self.assertIsInstance(self.hook.foreign_key_values[0], TestUserModel)
         self.assertEqual(self.hook.foreign_key_values[0].username, "testuser")

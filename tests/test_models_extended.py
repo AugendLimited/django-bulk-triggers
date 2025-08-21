@@ -4,16 +4,15 @@ Extended tests for the models module to increase coverage.
 
 from unittest.mock import patch, Mock
 from django.test import TestCase
-from django.contrib.auth.models import User
-from django.db import models
-
+from django.core.exceptions import ValidationError
 from django_bulk_hooks.models import HookModelMixin
 from django_bulk_hooks.constants import (
     VALIDATE_CREATE, VALIDATE_UPDATE, VALIDATE_DELETE,
     BEFORE_CREATE, BEFORE_UPDATE, BEFORE_DELETE,
     AFTER_CREATE, AFTER_UPDATE, AFTER_DELETE
 )
-from tests.models import HookModel, Category
+from tests.models import HookModel, TestUserModel, Category
+from tests.utils import HookTracker
 
 
 class TestHookModelMixinExtended(TestCase):
@@ -21,10 +20,18 @@ class TestHookModelMixinExtended(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = User.objects.create_user(username="testuser", email="test@example.com")
+        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
         self.instance = HookModel.objects.create(
             name="Test Instance",
             value=42,
+            status="active",
+            category=self.category,
+            created_by=self.user
+        )
+        self.original_instance = HookModel.objects.create(
+            name="Original Instance",
+            value=100,
+            status="pending",
             category=self.category,
             created_by=self.user
         )
@@ -32,7 +39,7 @@ class TestHookModelMixinExtended(TestCase):
     def tearDown(self):
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        User.objects.all().delete()
+        TestUserModel.objects.all().delete()
     
     @patch('django_bulk_hooks.models.run')
     def test_clean_create_operation(self, mock_run):
@@ -168,12 +175,12 @@ class TestHookModelMixinEdgeCases(TestCase):
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
-        self.user = User.objects.create_user(username="testuser", email="test@example.com")
+        self.user = TestUserModel.objects.create(username="testuser", email="test@example.com")
     
     def tearDown(self):
         HookModel.objects.all().delete()
         Category.objects.all().delete()
-        User.objects.all().delete()
+        TestUserModel.objects.all().delete()
     
     @patch('django_bulk_hooks.models.run')
     def test_clean_with_none_pk(self, mock_run):
