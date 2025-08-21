@@ -73,60 +73,105 @@ class HookQuerySetMixin:
         # Check if any of the update values are Subquery objects
         try:
             from django.db.models import Subquery
+
             logger.debug(f"Successfully imported Subquery from django.db.models")
         except ImportError as e:
             logger.error(f"Failed to import Subquery: {e}")
             raise
-        
+
         logger.debug(f"Checking for Subquery objects in {len(kwargs)} kwargs")
-        
+
         subquery_detected = []
         for key, value in kwargs.items():
             is_subquery = isinstance(value, Subquery)
-            logger.debug(f"Key '{key}': type={type(value).__name__}, is_subquery={is_subquery}")
+            logger.debug(
+                f"Key '{key}': type={type(value).__name__}, is_subquery={is_subquery}"
+            )
             if is_subquery:
                 subquery_detected.append(key)
-        
+
         has_subquery = len(subquery_detected) > 0
-        logger.debug(f"Subquery detection result: {has_subquery}, detected keys: {subquery_detected}")
-        
+        logger.debug(
+            f"Subquery detection result: {has_subquery}, detected keys: {subquery_detected}"
+        )
+
         # Debug logging for Subquery detection
         logger.debug(f"Update kwargs: {list(kwargs.keys())}")
-        logger.debug(f"Update kwargs types: {[(k, type(v).__name__) for k, v in kwargs.items()]}")
-        
+        logger.debug(
+            f"Update kwargs types: {[(k, type(v).__name__) for k, v in kwargs.items()]}"
+        )
+
         if has_subquery:
-            logger.debug(f"Detected Subquery in update: {[k for k, v in kwargs.items() if isinstance(v, Subquery)]}")
+            logger.debug(
+                f"Detected Subquery in update: {[k for k, v in kwargs.items() if isinstance(v, Subquery)]}"
+            )
         else:
             # Check if we missed any Subquery objects
             for k, v in kwargs.items():
-                if hasattr(v, 'query') and hasattr(v, 'resolve_expression'):
-                    logger.warning(f"Potential Subquery-like object detected but not recognized: {k}={type(v).__name__}")
-                    logger.warning(f"Object attributes: query={hasattr(v, 'query')}, resolve_expression={hasattr(v, 'resolve_expression')}")
-                    logger.warning(f"Object dir: {[attr for attr in dir(v) if not attr.startswith('_')][:10]}")
+                if hasattr(v, "query") and hasattr(v, "resolve_expression"):
+                    logger.warning(
+                        f"Potential Subquery-like object detected but not recognized: {k}={type(v).__name__}"
+                    )
+                    logger.warning(
+                        f"Object attributes: query={hasattr(v, 'query')}, resolve_expression={hasattr(v, 'resolve_expression')}"
+                    )
+                    logger.warning(
+                        f"Object dir: {[attr for attr in dir(v) if not attr.startswith('_')][:10]}"
+                    )
 
         # Apply field updates to instances
         # If a per-object value map exists (from bulk_update), prefer it over kwargs
+        # IMPORTANT: Do not assign Django expression objects (e.g., Subquery/Case/F)
+        # to in-memory instances before running BEFORE_UPDATE hooks. Hooks must not
+        # receive unresolved expression objects.
         per_object_values = get_bulk_update_value_map()
-        for obj in instances:
-            if per_object_values and obj.pk in per_object_values:
-                for field, value in per_object_values[obj.pk].items():
-                    setattr(obj, field, value)
-            else:
-                for field, value in kwargs.items():
-                    setattr(obj, field, value)
 
-        # Check if we're in a bulk operation context to prevent double hook execution
+        # For Subquery updates, skip all in-memory field assignments to prevent
+        # expression objects from reaching hooks
+        if has_subquery:
+            logger.debug(
+                "Skipping in-memory field assignments due to Subquery detection"
+            )
+        else:
+            for obj in instances:
+                if per_object_values and obj.pk in per_object_values:
+                    for field, value in per_object_values[obj.pk].items():
+                        setattr(obj, field, value)
+                else:
+                    for field, value in kwargs.items():
+                        # Skip assigning expression-like objects (they will be handled at DB level)
+                        is_expression_like = hasattr(value, "resolve_expression")
+                        if is_expression_like:
+                            # Special-case Value() which can be unwrapped safely
+                            if isinstance(value, Value):
+                                try:
+                                    setattr(obj, field, value.value)
+                                except Exception:
+                                    # If Value cannot be unwrapped for any reason, skip assignment
+                                    continue
+                            else:
+                                # Do not assign unresolved expressions to in-memory objects
+                                logger.debug(
+                                    f"Skipping assignment of expression {type(value).__name__} to field {field}"
+                                )
+                                continue
+                        else:
+                            setattr(obj, field, value)
+
+        # Salesforce-style trigger behavior: Always run hooks, rely on Django's stack overflow protection
         from django_bulk_hooks.context import get_bypass_hooks
 
         current_bypass_hooks = get_bypass_hooks()
 
-        # If we're in a bulk operation context, skip hooks to prevent double execution
+        # Only skip hooks if explicitly bypassed (not for recursion prevention)
         if current_bypass_hooks:
-            logger.debug("update: skipping hooks (bulk context)")
+            logger.debug("update: hooks explicitly bypassed")
             ctx = HookContext(model_cls, bypass_hooks=True)
         else:
-            logger.debug("update: running hooks (standalone)")
+            # Always run hooks - Django will handle stack overflow protection
+            logger.debug("update: running hooks with Salesforce-style behavior")
             ctx = HookContext(model_cls, bypass_hooks=False)
+
             # Run validation hooks first
             engine.run(model_cls, VALIDATE_UPDATE, instances, originals, ctx=ctx)
             # Then run BEFORE_UPDATE hooks
@@ -164,22 +209,32 @@ class HookQuerySetMixin:
                             output_field = field_obj
                             target_name = field_name
 
-                        # Special handling for Subquery values in CASE statements
+                        # Special handling for Subquery and other expression values in CASE statements
                         if isinstance(value, Subquery):
-                            logger.debug(f"Creating When statement with Subquery for {field_name}")
-                            # Ensure the Subquery has proper output_field
-                            if not hasattr(value, 'output_field') or value.output_field is None:
-                                value.output_field = output_field
-                                logger.debug(f"Set output_field for Subquery in When statement to {output_field}")
-                            when_statements.append(
-                                When(
-                                    pk=obj_pk, then=value
-                                )
+                            logger.debug(
+                                f"Creating When statement with Subquery for {field_name}"
                             )
+                            # Ensure the Subquery has proper output_field
+                            if (
+                                not hasattr(value, "output_field")
+                                or value.output_field is None
+                            ):
+                                value.output_field = output_field
+                                logger.debug(
+                                    f"Set output_field for Subquery in When statement to {output_field}"
+                                )
+                            when_statements.append(When(pk=obj_pk, then=value))
+                        elif hasattr(value, "resolve_expression"):
+                            # Handle other expression objects (Case, F, etc.)
+                            logger.debug(
+                                f"Creating When statement with expression for {field_name}: {type(value).__name__}"
+                            )
+                            when_statements.append(When(pk=obj_pk, then=value))
                         else:
                             when_statements.append(
                                 When(
-                                    pk=obj_pk, then=Value(value, output_field=output_field)
+                                    pk=obj_pk,
+                                    then=Value(value, output_field=output_field),
                                 )
                             )
 
@@ -190,40 +245,52 @@ class HookQuerySetMixin:
 
                 # Merge extra CASE updates into kwargs for DB update
                 if case_statements:
-                    logger.debug(f"Adding case statements to kwargs: {list(case_statements.keys())}")
+                    logger.debug(
+                        f"Adding case statements to kwargs: {list(case_statements.keys())}"
+                    )
                     for field_name, case_stmt in case_statements.items():
-                        logger.debug(f"Case statement for {field_name}: {type(case_stmt).__name__}")
+                        logger.debug(
+                            f"Case statement for {field_name}: {type(case_stmt).__name__}"
+                        )
                         # Check if the case statement contains Subquery objects
-                        if hasattr(case_stmt, 'get_source_expressions'):
+                        if hasattr(case_stmt, "get_source_expressions"):
                             source_exprs = case_stmt.get_source_expressions()
                             for expr in source_exprs:
                                 if isinstance(expr, Subquery):
-                                    logger.debug(f"Case statement for {field_name} contains Subquery")
-                                elif hasattr(expr, 'get_source_expressions'):
+                                    logger.debug(
+                                        f"Case statement for {field_name} contains Subquery"
+                                    )
+                                elif hasattr(expr, "get_source_expressions"):
                                     # Check nested expressions (like Value objects)
                                     nested_exprs = expr.get_source_expressions()
                                     for nested_expr in nested_exprs:
                                         if isinstance(nested_expr, Subquery):
-                                            logger.debug(f"Case statement for {field_name} contains nested Subquery")
-                    
+                                            logger.debug(
+                                                f"Case statement for {field_name} contains nested Subquery"
+                                            )
+
                     kwargs = {**kwargs, **case_statements}
 
         # Use Django's built-in update logic directly
         # Call the base QuerySet implementation to avoid recursion
-        
+
         # Additional safety check: ensure Subquery objects are properly handled
         # This prevents the "cannot adapt type 'Subquery'" error
         safe_kwargs = {}
         logger.debug(f"Processing {len(kwargs)} kwargs for safety check")
-        
+
         for key, value in kwargs.items():
-            logger.debug(f"Processing key '{key}' with value type {type(value).__name__}")
-            
+            logger.debug(
+                f"Processing key '{key}' with value type {type(value).__name__}"
+            )
+
             if isinstance(value, Subquery):
                 logger.debug(f"Found Subquery for field {key}")
                 # Ensure Subquery has proper output_field
-                if not hasattr(value, 'output_field') or value.output_field is None:
-                    logger.warning(f"Subquery for field {key} missing output_field, attempting to infer")
+                if not hasattr(value, "output_field") or value.output_field is None:
+                    logger.warning(
+                        f"Subquery for field {key} missing output_field, attempting to infer"
+                    )
                     # Try to infer from the model field
                     try:
                         field = model_cls._meta.get_field(key)
@@ -232,35 +299,52 @@ class HookQuerySetMixin:
                         value.output_field = field
                         logger.debug(f"Set output_field to {field}")
                     except Exception as e:
-                        logger.error(f"Failed to infer output_field for Subquery on {key}: {e}")
+                        logger.error(
+                            f"Failed to infer output_field for Subquery on {key}: {e}"
+                        )
                         raise
                 else:
-                    logger.debug(f"Subquery for field {key} already has output_field: {value.output_field}")
+                    logger.debug(
+                        f"Subquery for field {key} already has output_field: {value.output_field}"
+                    )
                 safe_kwargs[key] = value
-            elif hasattr(value, 'get_source_expressions') and hasattr(value, 'resolve_expression'):
+            elif hasattr(value, "get_source_expressions") and hasattr(
+                value, "resolve_expression"
+            ):
                 # Handle Case statements and other complex expressions
-                logger.debug(f"Found complex expression for field {key}: {type(value).__name__}")
-                
+                logger.debug(
+                    f"Found complex expression for field {key}: {type(value).__name__}"
+                )
+
                 # Check if this expression contains any Subquery objects
                 source_expressions = value.get_source_expressions()
                 has_nested_subquery = False
-                
+
                 for expr in source_expressions:
                     if isinstance(expr, Subquery):
                         has_nested_subquery = True
                         logger.debug(f"Found nested Subquery in {type(value).__name__}")
                         # Ensure the nested Subquery has proper output_field
-                        if not hasattr(expr, 'output_field') or expr.output_field is None:
+                        if (
+                            not hasattr(expr, "output_field")
+                            or expr.output_field is None
+                        ):
                             try:
                                 field = model_cls._meta.get_field(key)
                                 expr.output_field = field
-                                logger.debug(f"Set output_field for nested Subquery to {field}")
+                                logger.debug(
+                                    f"Set output_field for nested Subquery to {field}"
+                                )
                             except Exception as e:
-                                logger.error(f"Failed to set output_field for nested Subquery: {e}")
+                                logger.error(
+                                    f"Failed to set output_field for nested Subquery: {e}"
+                                )
                                 raise
-                
+
                 if has_nested_subquery:
-                    logger.debug(f"Expression contains Subquery, ensuring proper output_field")
+                    logger.debug(
+                        f"Expression contains Subquery, ensuring proper output_field"
+                    )
                     # Try to resolve the expression to ensure it's properly formatted
                     try:
                         resolved_value = value.resolve_expression(None, None)
@@ -272,12 +356,16 @@ class HookQuerySetMixin:
                 else:
                     safe_kwargs[key] = value
             else:
-                logger.debug(f"Non-Subquery value for field {key}: {type(value).__name__}")
+                logger.debug(
+                    f"Non-Subquery value for field {key}: {type(value).__name__}"
+                )
                 safe_kwargs[key] = value
-        
+
         logger.debug(f"Safe kwargs keys: {list(safe_kwargs.keys())}")
-        logger.debug(f"Safe kwargs types: {[(k, type(v).__name__) for k, v in safe_kwargs.items()]}")
-        
+        logger.debug(
+            f"Safe kwargs types: {[(k, type(v).__name__) for k, v in safe_kwargs.items()]}"
+        )
+
         logger.debug(f"Calling super().update() with {len(safe_kwargs)} kwargs")
         try:
             update_count = super().update(**safe_kwargs)
@@ -309,19 +397,12 @@ class HookQuerySetMixin:
                                 getattr(refreshed_instance, field.name),
                             )
 
-        # Run AFTER_UPDATE hooks for standalone updates or subquery operations
-        # For subquery operations, we need to run hooks even if we're in a bulk context
-        # because subqueries bypass the normal object-level update flow
-        should_run_hooks = (
-            not current_bypass_hooks or 
-            has_subquery  # Always run hooks for subquery operations
-        )
-        
-        if should_run_hooks:
+        # Salesforce-style: Always run AFTER_UPDATE hooks unless explicitly bypassed
+        if not current_bypass_hooks:
             logger.debug("update: running AFTER_UPDATE")
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
         else:
-            logger.debug("update: skipping AFTER_UPDATE (bulk context)")
+            logger.debug("update: AFTER_UPDATE explicitly bypassed")
 
         return update_count
 
@@ -523,6 +604,9 @@ class HookQuerySetMixin:
         """
         Detect fields that were modified during BEFORE_UPDATE hooks by comparing
         new instances with their original values.
+
+        IMPORTANT: Skip fields that contain Django expression objects (Subquery, Case, etc.)
+        as these should not be treated as in-memory modifications.
         """
         if not original_instances:
             return set()
@@ -539,15 +623,28 @@ class HookQuerySetMixin:
                 if field.name == "id":
                     continue
 
+                # Get the new value to check if it's an expression object
+                new_value = getattr(new_instance, field.name)
+
+                # Skip fields that contain expression objects - these are not in-memory modifications
+                # but rather database-level expressions that should not be applied to instances
+                from django.db.models import Subquery
+
+                if isinstance(new_value, Subquery) or hasattr(
+                    new_value, "resolve_expression"
+                ):
+                    logger.debug(
+                        f"Skipping field {field.name} with expression value: {type(new_value).__name__}"
+                    )
+                    continue
+
                 # Handle different field types appropriately
                 if field.is_relation:
                     # Compare by raw id values to catch cases where only <fk>_id was set
-                    new_pk = getattr(new_instance, field.attname, None)
                     original_pk = getattr(original, field.attname, None)
-                    if new_pk != original_pk:
+                    if new_value != original_pk:
                         modified_fields.add(field.name)
                 else:
-                    new_value = getattr(new_instance, field.name)
                     original_value = getattr(original, field.name)
                     if new_value != original_value:
                         modified_fields.add(field.name)
