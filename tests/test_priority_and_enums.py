@@ -19,6 +19,11 @@ from django_bulk_hooks.priority import Priority
 class TestPriority(TestCase):
     """Test the Priority enum."""
 
+    def setUp(self):
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
+
     def test_priority_values(self):
         """Test that priority values are correct."""
         self.assertEqual(Priority.HIGHEST, 0)
@@ -102,43 +107,10 @@ class TestPriority(TestCase):
 class TestConstants(TestCase):
     """Test the constants module."""
 
-    def test_constant_values(self):
-        """Test that constant values are correct."""
-        self.assertEqual(BEFORE_CREATE, "before_create")
-        self.assertEqual(AFTER_CREATE, "after_create")
-        self.assertEqual(BEFORE_UPDATE, "before_update")
-        self.assertEqual(AFTER_UPDATE, "after_update")
-        self.assertEqual(BEFORE_DELETE, "before_delete")
-        self.assertEqual(AFTER_DELETE, "after_delete")
-
-    def test_constant_strings(self):
-        """Test that constants are strings."""
-        self.assertIsInstance(BEFORE_CREATE, str)
-        self.assertIsInstance(AFTER_CREATE, str)
-        self.assertIsInstance(BEFORE_UPDATE, str)
-        self.assertIsInstance(AFTER_UPDATE, str)
-        self.assertIsInstance(BEFORE_DELETE, str)
-        self.assertIsInstance(AFTER_DELETE, str)
-
-    def test_constant_format(self):
-        """Test that constants follow the expected format."""
-        self.assertTrue(BEFORE_CREATE.startswith("before_"))
-        self.assertTrue(AFTER_CREATE.startswith("after_"))
-        self.assertTrue(BEFORE_UPDATE.startswith("before_"))
-        self.assertTrue(AFTER_UPDATE.startswith("after_"))
-        self.assertTrue(BEFORE_DELETE.startswith("before_"))
-        self.assertTrue(AFTER_DELETE.startswith("after_"))
-
-        self.assertTrue(BEFORE_CREATE.endswith("_create"))
-        self.assertTrue(AFTER_CREATE.endswith("_create"))
-        self.assertTrue(BEFORE_UPDATE.endswith("_update"))
-        self.assertTrue(AFTER_UPDATE.endswith("_update"))
-        self.assertTrue(BEFORE_DELETE.endswith("_delete"))
-        self.assertTrue(AFTER_DELETE.endswith("_delete"))
-
-
-class TestConstants(TestCase):
-    """Test the constants module."""
+    def setUp(self):
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_constant_values(self):
         """Test that constant values are correct."""
@@ -177,6 +149,11 @@ class TestConstants(TestCase):
 
 class TestPriorityAndConstantsIntegration(TestCase):
     """Integration tests for priority and constants."""
+
+    def setUp(self):
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_priority_with_hook_events(self):
         """Test using priorities with hook events."""
@@ -275,6 +252,11 @@ class TestPriorityAndConstantsIntegration(TestCase):
 
 class TestEdgeCases(TestCase):
     """Test edge cases for priority and constants."""
+
+    def setUp(self):
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_priority_edge_values(self):
         """Test priority edge values."""

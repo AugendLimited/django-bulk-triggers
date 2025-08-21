@@ -34,6 +34,10 @@ class TestResolveDottedAttr(TestCase):
             created_by=self.user,
             category=self.category,
         )
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_resolve_simple_attr(self):
         """Test resolving a simple attribute."""
@@ -105,6 +109,10 @@ class TestIsEqual(TestCase):
         self.condition = IsEqual("status", "active")
         self.test_model = TestModel(name="Test", status="active")
         self.old_model = TestModel(name="Test", status="inactive")
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_is_equal_basic(self):
         """Test basic IsEqual functionality."""
@@ -156,6 +164,10 @@ class TestIsNotEqual(TestCase):
         self.condition = IsNotEqual("status", "inactive")
         self.test_model = TestModel(name="Test", status="active")
         self.old_model = TestModel(name="Test", status="inactive")
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_is_not_equal_basic(self):
         """Test basic IsNotEqual functionality."""
@@ -189,6 +201,10 @@ class TestHasChanged(TestCase):
         self.condition = HasChanged("status")
         self.test_model = TestModel(name="Test", status="active")
         self.old_model = TestModel(name="Test", status="inactive")
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_has_changed_true(self):
         """Test HasChanged when field has changed."""
@@ -232,6 +248,10 @@ class TestWasEqual(TestCase):
         self.condition = WasEqual("status", "inactive")
         self.test_model = TestModel(name="Test", status="active")
         self.old_model = TestModel(name="Test", status="inactive")
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_was_equal_true(self):
         """Test WasEqual when original value matches."""
@@ -272,6 +292,10 @@ class TestAndCondition(TestCase):
         self.and_condition = self.condition1 & self.condition2
 
         self.test_model = TestModel(name="Test", status="active", value=42)
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_and_condition_both_true(self):
         """Test AndCondition when both conditions are true."""
@@ -305,6 +329,10 @@ class TestOrCondition(TestCase):
         self.condition1 = IsEqual("status", "active")
         self.condition2 = IsEqual("value", 42)
         self.or_condition = self.condition1 | self.condition2
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_or_condition_both_true(self):
         """Test OrCondition when both conditions are true."""
@@ -333,6 +361,10 @@ class TestNotCondition(TestCase):
     def setUp(self):
         self.condition = IsEqual("status", "active")
         self.not_condition = ~self.condition
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_not_condition_true_becomes_false(self):
         """Test NotCondition when original condition is true."""
@@ -351,6 +383,10 @@ class TestComplexConditions(TestCase):
     def setUp(self):
         self.test_model = TestModel(name="Test", status="active", value=42)
         self.old_model = TestModel(name="Test", status="inactive", value=0)
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_complex_and_or_combination(self):
         """Test complex AND/OR condition combination."""
@@ -395,6 +431,11 @@ class TestComplexConditions(TestCase):
 
 class TestConditionEdgeCases(TestCase):
     """Test edge cases for conditions."""
+
+    def setUp(self):
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_condition_with_none_values(self):
         """Test conditions with None values."""

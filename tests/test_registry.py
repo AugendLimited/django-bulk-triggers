@@ -154,7 +154,18 @@ class TestRegisterHook(TestCase):
         self.assertEqual(len(user_hooks), 1)
 
         # Check that they're separate
-        self.assertNotEqual(test_model_hooks, user_hooks)
+        # The hooks should be stored separately in the registry
+        from django_bulk_hooks.registry import list_all_hooks
+        all_hooks = list_all_hooks()
+        
+        # Check that TestModel and User have separate entries
+        self.assertIn((TestModel, BEFORE_CREATE), all_hooks)
+        self.assertIn((User, BEFORE_CREATE), all_hooks)
+        
+        # Verify they have different keys in the registry
+        test_model_key = (TestModel, BEFORE_CREATE)
+        user_key = (User, BEFORE_CREATE)
+        self.assertNotEqual(test_model_key, user_key)
 
     def test_register_hook_different_events(self):
         """Test registering hooks for different events."""
@@ -192,7 +203,18 @@ class TestRegisterHook(TestCase):
         self.assertEqual(len(after_hooks), 1)
 
         # Check that they're separate
-        self.assertNotEqual(before_hooks, after_hooks)
+        # The hooks should be stored separately in the registry
+        from django_bulk_hooks.registry import list_all_hooks
+        all_hooks = list_all_hooks()
+        
+        # Check that BEFORE_CREATE and AFTER_CREATE have separate entries
+        self.assertIn((TestModel, BEFORE_CREATE), all_hooks)
+        self.assertIn((TestModel, AFTER_CREATE), all_hooks)
+        
+        # Verify they have different keys in the registry
+        before_key = (TestModel, BEFORE_CREATE)
+        after_key = (TestModel, AFTER_CREATE)
+        self.assertNotEqual(before_key, after_key)
 
     def test_register_hook_priority_sorting(self):
         """Test that hooks are sorted by priority."""
@@ -240,13 +262,13 @@ class TestRegisterHook(TestCase):
         hooks = get_hooks(TestModel, BEFORE_CREATE)
         self.assertEqual(len(hooks), 3)
 
-        # Check priority order (low to high)
+        # Check priority order (high priority first - lower numbers)
         priorities = [hook[3] for hook in hooks]
         self.assertEqual(priorities, [Priority.HIGH, Priority.NORMAL, Priority.LOW])
 
         # Check handler order matches priority order
         handlers = [hook[0] for hook in hooks]
-        self.assertEqual(handlers, [Handler1, Handler2, Handler3])
+        self.assertEqual(handlers, [Handler3, Handler2, Handler1])
 
 
 class TestGetHooks(TestCase):

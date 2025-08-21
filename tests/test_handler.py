@@ -33,6 +33,10 @@ class TestHookContextState(TestCase):
 
     def setUp(self):
         self.hook_state = HookContextState()
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_is_before_property(self):
         """Test is_before property."""
@@ -111,6 +115,11 @@ class TestHookQueue(TestCase):
 class TestHookMeta(TestCase):
     """Test HookMeta metaclass functionality."""
 
+    def setUp(self):
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
+
     def test_hook_registration_via_metaclass(self):
         """Test that hooks are registered via metaclass."""
         tracker = TestHookTracker()
@@ -144,6 +153,10 @@ class TestHookHandle(TestCase):
     def setUp(self):
         self.tracker = TestHookTracker()
         self.test_instances = create_test_instances(TestModel, 2)
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_handle_queues_hook_call(self):
         """Test that handle queues the hook call."""
@@ -183,6 +196,10 @@ class TestHookProcess(TestCase):
     def setUp(self):
         self.tracker = TestHookTracker()
         self.test_instances = create_test_instances(TestModel, 2)
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_process_sets_hook_vars(self):
         """Test that _process sets hook_vars correctly."""
@@ -250,6 +267,10 @@ class TestHookIntegration(TestCase):
     def setUp(self):
         self.tracker = TestHookTracker()
         self.test_instances = create_test_instances(TestModel, 3)
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_full_hook_cycle(self):
         """Test a complete hook cycle."""

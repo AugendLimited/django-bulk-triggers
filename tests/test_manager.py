@@ -19,6 +19,10 @@ class TestBulkHookManager(TestCase):
         self.manager = BulkHookManager()
         self.manager.model = TestModel
         self.tracker = TestHookTracker()
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_get_queryset_returns_hook_queryset(self):
         """Test that get_queryset returns a HookQuerySet."""
@@ -178,6 +182,10 @@ class TestBulkHookManagerIntegration(TestCase):
     def setUp(self):
         self.tracker = TestHookTracker()
         self.user = User.objects.create(username="testuser", email="test@example.com")
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_manager_with_real_queryset(self):
         """Test manager with real queryset operations."""
@@ -322,6 +330,10 @@ class TestBulkHookManagerEdgeCases(TestCase):
     def setUp(self):
         self.manager = BulkHookManager()
         self.manager.model = TestModel
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_manager_with_empty_list(self):
         """Test manager with empty lists."""

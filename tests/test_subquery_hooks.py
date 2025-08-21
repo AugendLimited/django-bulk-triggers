@@ -13,20 +13,22 @@ from tests.models import RelatedModel, TestModel, User
 
 class SubqueryHookTest(Hook):
     """Hook to test Subquery functionality."""
+    
+    after_update_called = False  # Class variable to persist across instances
+    computed_values = []  # Class variable to persist across instances
+    foreign_key_values = []  # Class variable to persist across instances
 
     def __init__(self):
-        self.after_update_called = False
-        self.computed_values = []
-        self.foreign_key_values = []
+        pass  # No need to initialize instance variables
 
     @hook(AFTER_UPDATE, model=TestModel)
     def test_subquery_access(self, new_records, old_records):
-        self.after_update_called = True
+        SubqueryHookTest.after_update_called = True  # Use class variable
         for record in new_records:
             # This should now contain the computed value, not the Subquery object
-            self.computed_values.append(record.computed_value)
+            SubqueryHookTest.computed_values.append(record.computed_value)  # Use class variable
             # This should contain the User instance, not a raw ID
-            self.foreign_key_values.append(record.created_by)
+            SubqueryHookTest.foreign_key_values.append(record.created_by)  # Use class variable
 
 
 class SubqueryHooksTestCase(TestCase):

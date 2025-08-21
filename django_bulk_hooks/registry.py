@@ -15,7 +15,7 @@ def register_hook(
     key = (model, event)
     hooks = _hooks.setdefault(key, [])
     hooks.append((handler_cls, method_name, condition, priority))
-    # keep sorted by priority
+    # Sort by priority (lower values first)
     hooks.sort(key=lambda x: x[3])
     logger.debug(f"Registered {handler_cls.__name__}.{method_name} for {model.__name__}.{event}")
 
@@ -27,6 +27,13 @@ def get_hooks(model, event):
     if hooks or event in ['after_update', 'before_update', 'after_create', 'before_create']:
         logger.debug(f"get_hooks {model.__name__}.{event} found {len(hooks)} hooks")
     return hooks
+
+
+def clear_hooks():
+    """Clear all registered hooks. Useful for testing."""
+    global _hooks
+    _hooks.clear()
+    logger.debug("Cleared all registered hooks")
 
 
 def list_all_hooks():

@@ -28,6 +28,10 @@ class TestHookDecorator(TestCase):
 
     def setUp(self):
         self.tracker = TestHookTracker()
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_hook_decorator_basic(self):
         """Test basic hook decorator functionality."""
@@ -133,6 +137,10 @@ class TestSelectRelatedDecorator(TestCase):
         # Save instances to get PKs
         for instance in self.test_instances:
             instance.save()
+            
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_select_related_basic(self):
         """Test basic select_related functionality."""
@@ -277,6 +285,10 @@ class TestDecoratorIntegration(TestCase):
         self.tracker = TestHookTracker()
         self.user = User.objects.create(username="testuser", email="test@example.com")
         self.category = Category.objects.create(name="Test Category")
+        
+        # Clear the registry to prevent interference between tests
+        from django_bulk_hooks.registry import clear_hooks
+        clear_hooks()
 
     def test_hook_with_select_related(self):
         """Test combining hook and select_related decorators."""
