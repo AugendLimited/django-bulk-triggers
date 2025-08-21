@@ -70,10 +70,20 @@ class HookQuerySetMixin:
         originals = [original_map.get(obj.pk) for obj in instances]
 
         # Check if any of the update values are Subquery objects
+        from django.db.models import Subquery
         has_subquery = any(
-            hasattr(value, "query") and hasattr(value, "resolve_expression")
+            isinstance(value, Subquery)
             for value in kwargs.values()
         )
+        
+        # Debug logging for Subquery detection
+        if has_subquery:
+            logger.debug(f"Detected Subquery in update: {[k for k, v in kwargs.items() if isinstance(v, Subquery)]}")
+        else:
+            # Check if we missed any Subquery objects
+            for k, v in kwargs.items():
+                if hasattr(v, 'query') and hasattr(v, 'resolve_expression'):
+                    logger.warning(f"Potential Subquery-like object detected but not recognized: {k}={type(v).__name__}")
 
         # Apply field updates to instances
         # If a per-object value map exists (from bulk_update), prefer it over kwargs
@@ -152,7 +162,28 @@ class HookQuerySetMixin:
 
         # Use Django's built-in update logic directly
         # Call the base QuerySet implementation to avoid recursion
-        update_count = super().update(**kwargs)
+        
+        # Additional safety check: ensure Subquery objects are properly handled
+        # This prevents the "cannot adapt type 'Subquery'" error
+        safe_kwargs = {}
+        for key, value in kwargs.items():
+            if isinstance(value, Subquery):
+                # Ensure Subquery has proper output_field
+                if not hasattr(value, 'output_field') or value.output_field is None:
+                    logger.warning(f"Subquery for field {key} missing output_field, attempting to infer")
+                    # Try to infer from the model field
+                    try:
+                        field = model_cls._meta.get_field(key)
+                        value = value.resolve_expression(None, None)
+                        value.output_field = field
+                    except Exception as e:
+                        logger.error(f"Failed to infer output_field for Subquery on {key}: {e}")
+                        raise
+                safe_kwargs[key] = value
+            else:
+                safe_kwargs[key] = value
+        
+        update_count = super().update(**safe_kwargs)
 
         # If we used Subquery objects, refresh the instances to get computed values
         if has_subquery and instances:
