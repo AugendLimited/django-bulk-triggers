@@ -2,27 +2,19 @@
 Pytest configuration for django-bulk-hooks tests.
 """
 
+import os
+
 import pytest
 from django.conf import settings
 
-# Configure Django settings for testing
+# Configure Django settings before any imports
 if not settings.configured:
-    settings.configure(
-        DATABASES={
-            "default": {
-                "ENGINE": "django.db.backends.sqlite3",
-                "NAME": ":memory:",
-            }
-        },
-        INSTALLED_APPS=[
-            "django.contrib.contenttypes",
-            "django.contrib.auth",
-            "tests",
-        ],
-        USE_TZ=True,
-        TIME_ZONE="UTC",
-        SECRET_KEY="test-secret-key",
-    )
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.settings")
+
+    # Import Django and configure settings
+    import django
+
+    django.setup()
 
 
 @pytest.fixture(scope="session")
