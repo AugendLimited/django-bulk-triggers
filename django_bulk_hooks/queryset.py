@@ -174,11 +174,15 @@ class HookQuerySetMixin:
 
             # Run validation hooks first
             engine.run(model_cls, VALIDATE_UPDATE, instances, originals, ctx=ctx)
-            # Then run BEFORE_UPDATE hooks
-            engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
+
+            # For Subquery updates, skip BEFORE_UPDATE hooks here - they'll run after refresh
+            if not has_subquery:
+                # Then run BEFORE_UPDATE hooks for non-Subquery updates
+                engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
 
             # Persist any additional field mutations made by BEFORE_UPDATE hooks.
             # Build CASE statements per modified field not already present in kwargs.
+            # Note: For Subquery updates, this will be empty since hooks haven't run yet
             modified_fields = self._detect_modified_fields(instances, originals)
             extra_fields = [f for f in modified_fields if f not in kwargs]
             if extra_fields:
@@ -377,25 +381,59 @@ class HookQuerySetMixin:
             raise
 
         # If we used Subquery objects, refresh the instances to get computed values
-        if has_subquery and instances:
+        # and run BEFORE_UPDATE hooks so HasChanged conditions work correctly
+        if has_subquery and instances and not current_bypass_hooks:
+            logger.debug(
+                "Refreshing instances with Subquery computed values before running hooks"
+            )
             # Simple refresh of model fields without fetching related objects
             # Subquery updates only affect the model's own fields, not relationships
             refreshed_instances = {
                 obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
             }
 
-            # Bulk update all instances in memory
+            # Bulk update all instances in memory and save pre-hook state
+            pre_hook_state = {}
             for instance in instances:
                 if instance.pk in refreshed_instances:
                     refreshed_instance = refreshed_instances[instance.pk]
-                    # Update all fields except primary key
+                    # Save current state before modifying for hook comparison
+                    pre_hook_values = {}
                     for field in model_cls._meta.fields:
                         if field.name != "id":
+                            pre_hook_values[field.name] = getattr(
+                                refreshed_instance, field.name
+                            )
                             setattr(
                                 instance,
                                 field.name,
                                 getattr(refreshed_instance, field.name),
                             )
+                    pre_hook_state[instance.pk] = pre_hook_values
+
+            # Now run BEFORE_UPDATE hooks with refreshed instances so conditions work
+            logger.debug("Running BEFORE_UPDATE hooks after Subquery refresh")
+            engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
+
+            # Check if hooks modified any fields and persist them with bulk_update
+            hook_modified_fields = set()
+            for instance in instances:
+                if instance.pk in pre_hook_state:
+                    pre_hook_values = pre_hook_state[instance.pk]
+                    for field_name, pre_hook_value in pre_hook_values.items():
+                        current_value = getattr(instance, field_name)
+                        if current_value != pre_hook_value:
+                            hook_modified_fields.add(field_name)
+
+            hook_modified_fields = list(hook_modified_fields)
+            if hook_modified_fields:
+                logger.debug(
+                    f"Running bulk_update for hook-modified fields: {hook_modified_fields}"
+                )
+                # Use bulk_update to persist hook modifications, bypassing hooks to avoid recursion
+                model_cls.objects.bulk_update(
+                    instances, hook_modified_fields, bypass_hooks=True
+                )
 
         # Salesforce-style: Always run AFTER_UPDATE hooks unless explicitly bypassed
         if not current_bypass_hooks:
