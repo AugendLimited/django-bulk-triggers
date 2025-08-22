@@ -183,8 +183,13 @@ class HookQuerySetMixin:
             # Persist any additional field mutations made by BEFORE_UPDATE hooks.
             # Build CASE statements per modified field not already present in kwargs.
             # Note: For Subquery updates, this will be empty since hooks haven't run yet
-            modified_fields = self._detect_modified_fields(instances, originals)
-            extra_fields = [f for f in modified_fields if f not in kwargs]
+            # For Subquery updates, hook modifications are handled later via bulk_update
+            if not has_subquery:
+                modified_fields = self._detect_modified_fields(instances, originals)
+                extra_fields = [f for f in modified_fields if f not in kwargs]
+            else:
+                extra_fields = []  # Skip for Subquery updates
+
             if extra_fields:
                 case_statements = {}
                 for field_name in extra_fields:
