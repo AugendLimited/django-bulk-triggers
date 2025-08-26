@@ -45,6 +45,21 @@ class HookQuerySetMixin:
         # Then run business logic hooks
         engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
 
+        # Before deletion, ensure all related fields are properly cached
+        # to avoid DoesNotExist errors in AFTER_DELETE hooks
+        for obj in objs:
+            if obj.pk is not None:
+                # Cache all foreign key relationships by accessing them
+                for field in model_cls._meta.fields:
+                    if field.is_relation and not field.many_to_many and not field.one_to_many:
+                        try:
+                            # Access the related field to cache it before deletion
+                            getattr(obj, field.name)
+                        except Exception:
+                            # If we can't access the field (e.g., already deleted, no permission, etc.)
+                            # continue with other fields
+                            pass
+
         # Use Django's standard delete() method
         result = super().delete()
 
@@ -1146,6 +1161,22 @@ class HookQuerySetMixin:
         else:
             ctx = HookContext(model_cls, bypass_hooks=True)
             logger.debug("bulk_delete bypassed hooks")
+
+        # Before deletion, ensure all related fields are properly cached
+        # to avoid DoesNotExist errors in AFTER_DELETE hooks
+        if not bypass_hooks:
+            for obj in objs:
+                if obj.pk is not None:
+                    # Cache all foreign key relationships by accessing them
+                    for field in model_cls._meta.fields:
+                        if field.is_relation and not field.many_to_many and not field.one_to_many:
+                            try:
+                                # Access the related field to cache it before deletion
+                                getattr(obj, field.name)
+                            except Exception:
+                                # If we can't access the field (e.g., already deleted, no permission, etc.)
+                                # continue with other fields
+                                pass
 
         # Use Django's standard delete() method on the queryset
         pks = [obj.pk for obj in objs if obj.pk is not None]
