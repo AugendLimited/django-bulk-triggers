@@ -575,6 +575,55 @@ class HookQuerySetMixin:
                     # If no unique fields, treat all as new
                     new_records = objs
                 
+                # Handle auto_now fields intelligently for upsert operations
+                # Only set auto_now fields on records that will actually be created
+                for obj in new_records:
+                    for field in model_cls._meta.local_fields:
+                        if hasattr(field, "auto_now") and field.auto_now:
+                            field.pre_save(obj, add=True)
+                        elif hasattr(field, "auto_now_add") and field.auto_now_add:
+                            if getattr(obj, field.name) is None:
+                                field.pre_save(obj, add=True)
+                
+                # For existing records, preserve their original auto_now values
+                # We'll need to fetch them from the database to preserve the timestamps
+                if existing_records:
+                    # Get the unique field values for existing records
+                    existing_unique_values = []
+                    for obj in existing_records:
+                        unique_value = {}
+                        for field_name in unique_fields:
+                            if hasattr(obj, field_name):
+                                unique_value[field_name] = getattr(obj, field_name)
+                        if unique_value:
+                            existing_unique_values.append(unique_value)
+                    
+                    if existing_unique_values:
+                        # Build filter to fetch existing records
+                        existing_filters = Q()
+                        for unique_value in existing_unique_values:
+                            filter_kwargs = {}
+                            for field_name, value in unique_value.items():
+                                filter_kwargs[field_name] = value
+                            existing_filters |= Q(**filter_kwargs)
+                        
+                        # Fetch existing records to preserve their auto_now values
+                        existing_db_records = model_cls.objects.filter(existing_filters)
+                        existing_db_map = {}
+                        for db_record in existing_db_records:
+                            key = tuple(getattr(db_record, field) for field in unique_fields)
+                            existing_db_map[key] = db_record
+                        
+                        # Preserve auto_now field values for existing records
+                        for obj in existing_records:
+                            key = tuple(getattr(obj, field) for field in unique_fields)
+                            if key in existing_db_map:
+                                db_record = existing_db_map[key]
+                                for field in model_cls._meta.local_fields:
+                                    if hasattr(field, "auto_now") and field.auto_now:
+                                        # Preserve the original updated_at timestamp
+                                        setattr(obj, field.name, getattr(db_record, field.name))
+                
                 # Run validation hooks on all records
                 if not bypass_validation:
                     engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
@@ -586,6 +635,15 @@ class HookQuerySetMixin:
                     engine.run(model_cls, BEFORE_UPDATE, existing_records, ctx=ctx)
             else:
                 # For regular create operations, run create hooks before DB ops
+                # Handle auto_now fields normally for new records
+                for obj in objs:
+                    for field in model_cls._meta.local_fields:
+                        if hasattr(field, "auto_now") and field.auto_now:
+                            field.pre_save(obj, add=True)
+                        elif hasattr(field, "auto_now_add") and field.auto_now_add:
+                            if getattr(obj, field.name) is None:
+                                field.pre_save(obj, add=True)
+                
                 if not bypass_validation:
                     engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
                 engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
