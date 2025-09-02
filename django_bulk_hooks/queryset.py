@@ -889,6 +889,7 @@ class HookQuerySetMixin:
         # Handle auto_now fields like Django's update_or_create does
         fields_set = set(fields)
         pk_fields = model_cls._meta.pk_fields
+        pk_field_names = [f.name for f in pk_fields]
         auto_now_fields = []
         custom_update_fields = []  # Fields that need pre_save() called on update
         logger.debug(f"Checking for auto_now and custom update fields in {model_cls.__name__}")
@@ -898,7 +899,7 @@ class HookQuerySetMixin:
             if hasattr(field, "auto_now") and field.auto_now:
                 logger.debug(f"Found auto_now field: {field.name}")
                 print(f"DEBUG: Found auto_now field: {field.name}")
-                if field.name not in fields_set and field.name not in pk_fields:
+                if field.name not in fields_set and field.name not in pk_field_names:
                     fields_set.add(field.name)
                     if field.name != field.attname:
                         fields_set.add(field.attname)
@@ -913,7 +914,7 @@ class HookQuerySetMixin:
             # Check for custom fields that might need pre_save() on update (like CurrentUserField)
             elif hasattr(field, 'pre_save'):
                 # Only call pre_save on fields that aren't already being updated
-                if field.name not in fields_set and field.name not in pk_fields:
+                if field.name not in fields_set and field.name not in pk_field_names:
                     custom_update_fields.append(field)
                     logger.debug(f"Found custom field with pre_save: {field.name}")
                     print(f"DEBUG: Found custom field with pre_save: {field.name}")
@@ -945,8 +946,8 @@ class HookQuerySetMixin:
                         # Only update the field if pre_save returned a new value
                         if new_value is not None:
                             setattr(obj, field.name, new_value)
-                            # Add this field to the update fields if it's not already there
-                            if field.name not in fields_set:
+                            # Add this field to the update fields if it's not already there and not a primary key
+                            if field.name not in fields_set and field.name not in pk_field_names:
                                 fields_set.add(field.name)
                                 fields.append(field.name)
                             logger.debug(f"Custom field {field.name} updated via pre_save() for object {obj.pk}")
