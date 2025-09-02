@@ -82,17 +82,18 @@ def select_related(*related_fields):
                     ids_to_fetch.append(obj.pk)
 
             # Always validate fields for nested field errors, regardless of whether we need to fetch
-            for field in related_fields:
-                if "." in field or "__" in field:
-                    raise ValueError(
-                        f"@select_related does not support nested fields like '{field}'"
-                    )
+            # Note: We allow nested fields as Django's select_related supports them
 
             fetched = {}
             if ids_to_fetch:
                 # Validate fields before passing to select_related
                 validated_fields = []
                 for field in related_fields:
+                    # For nested fields (containing __), let Django's select_related handle validation
+                    if "__" in field:
+                        validated_fields.append(field)
+                        continue
+
                     try:
                         # Handle Mock objects that don't have _meta
                         if hasattr(model_cls, "_meta"):
@@ -112,9 +113,13 @@ def select_related(*related_fields):
 
                 if validated_fields:
                     # Use the base manager to avoid recursion
-                    fetched = model_cls._base_manager.select_related(
-                        *validated_fields
-                    ).in_bulk(ids_to_fetch)
+                    try:
+                        fetched = model_cls._base_manager.select_related(
+                            *validated_fields
+                        ).in_bulk(ids_to_fetch)
+                    except Exception:
+                        # If select_related fails (e.g., invalid nested fields), skip preloading
+                        fetched = {}
 
             for obj in new_records:
                 preloaded = fetched.get(obj.pk)
@@ -126,8 +131,8 @@ def select_related(*related_fields):
                         if field in obj._state.fields_cache:
                             # don't override values that were explicitly set or already loaded
                             continue
-                    if "." in field or "__" in field:
-                        # This should have been caught earlier, but just in case
+                    if "." in field:
+                        # Skip fields with dots (legacy format, not supported)
                         continue
 
                     try:

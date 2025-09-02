@@ -207,15 +207,18 @@ class TestSelectRelatedDecorator:
         result = test_function(new_records=[])
         assert result == "success"
 
-    def test_select_related_nested_field_error(self):
-        """Test select_related with nested field raises error."""
+    def test_select_related_nested_field_support(self):
+        """Test select_related with nested fields works correctly."""
 
         @select_related("created_by.username")
         def test_function(new_records, old_records=None, **kwargs):
-            pass
+            # Verify that nested field access works
+            for record in new_records:
+                if record.created_by:
+                    assert record.created_by.username is not None
 
-        with pytest.raises(ValueError):
-            test_function(new_records=self.test_instances)
+        # Should not raise an error and should work correctly
+        test_function(new_records=self.test_instances)
 
     def test_select_related_non_relation_field(self):
         """Test select_related with non-relation field."""

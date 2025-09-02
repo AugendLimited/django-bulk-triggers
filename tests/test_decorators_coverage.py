@@ -19,21 +19,22 @@ class TestDecoratorsCoverage(TestCase):
         clear_hooks()
     
     def test_select_related_with_nested_fields_error(self):
-        """Test select_related decorator raises error for nested fields."""
+        """Test select_related decorator handles nested fields gracefully."""
         @select_related('category__parent')
         def test_func(new_records, old_records=None, **kwargs):
-            pass
-        
+            return "success"
+
         # Create a mock instance
         mock_instance = Mock()
         mock_instance.pk = 1
-        
+
         # Mock model class
         mock_model = Mock()
         mock_model._meta.get_field.side_effect = FieldDoesNotExist("Field does not exist")
-        
-        with self.assertRaises(ValueError):
-            test_func([mock_instance], model_cls=mock_model)
+
+        # Should handle nested fields gracefully without raising ValueError
+        result = test_func([mock_instance], model_cls=mock_model)
+        self.assertEqual(result, "success")
     
     def test_select_related_with_invalid_field_type(self):
         """Test select_related decorator skips non-relation fields."""
