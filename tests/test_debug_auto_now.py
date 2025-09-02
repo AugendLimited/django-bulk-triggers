@@ -55,7 +55,7 @@ class TestModel(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        app_label = 'test'
+        app_label = 'test_debug'
 
 # Create a simple hook to track what's happening
 class TestHook:
