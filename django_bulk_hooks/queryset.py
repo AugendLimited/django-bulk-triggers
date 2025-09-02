@@ -619,29 +619,18 @@ class HookQuerySetMixin:
                             key = tuple(getattr(db_record, field) for field in unique_fields)
                             existing_db_map[key] = db_record
                         
-                        # Preserve auto_now field values for existing records
+                        # For existing records, set auto_now fields using Django's pre_save method
                         for obj in existing_records:
                             key = tuple(getattr(obj, field) for field in unique_fields)
                             if key in existing_db_map:
-                                db_record = existing_db_map[key]
+                                # Use Django's pre_save method to set auto_now fields (like updated_at)
                                 for field in model_cls._meta.local_fields:
                                     if hasattr(field, "auto_now") and field.auto_now:
-                                        # Preserve the original updated_at timestamp
-                                        setattr(obj, field.name, getattr(db_record, field.name))
+                                        field.pre_save(obj, add=False)  # add=False for updates
+                                        print(f"DEBUG: Set {field.name} using pre_save for existing record {obj.pk}")
+                                        logger.debug(f"Set {field.name} using pre_save for existing record {obj.pk}")
                 
-                # CRITICAL: For existing records, we need to set updated_at to current time
-                # since they are being updated, not just preserved
-                if existing_records:
-                    from django.utils import timezone
-                    current_time = timezone.now()
-                    print(f"DEBUG: Setting updated_at to current time for {len(existing_records)} existing records")
-                    logger.debug(f"Setting updated_at to current time for {len(existing_records)} existing records")
-                    for obj in existing_records:
-                        for field in model_cls._meta.local_fields:
-                            if hasattr(field, "auto_now") and field.auto_now:
-                                setattr(obj, field.name, current_time)
-                                print(f"DEBUG: Set {field.name} to {current_time} for existing record {obj.pk}")
-                                logger.debug(f"Set {field.name} to {current_time} for existing record {obj.pk}")
+                # Remove duplicate code since we're now handling this above
                 
                 # CRITICAL: Exclude auto_now fields from update_fields for existing records
                 # This prevents Django from including them in the ON CONFLICT DO UPDATE clause
