@@ -815,8 +815,9 @@ class HookQuerySetMixin:
             )
 
         logger.debug(
-            f"bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)}"
+            f"bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)} fields={fields}"
         )
+        print(f"DEBUG: bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)} fields={fields}")
 
         # Check for MTI
         is_mti = False
@@ -839,15 +840,41 @@ class HookQuerySetMixin:
         # Handle auto_now fields like Django's update_or_create does
         fields_set = set(fields)
         pk_fields = model_cls._meta.pk_fields
+        auto_now_fields = []
+        logger.debug(f"Checking for auto_now fields in {model_cls.__name__}")
         for field in model_cls._meta.local_concrete_fields:
             # Only add auto_now fields (like updated_at) that aren't already in the fields list
             # Don't include auto_now_add fields (like created_at) as they should only be set on creation
             if hasattr(field, "auto_now") and field.auto_now:
+                logger.debug(f"Found auto_now field: {field.name}")
+                print(f"DEBUG: Found auto_now field: {field.name}")
                 if field.name not in fields_set and field.name not in pk_fields:
                     fields_set.add(field.name)
                     if field.name != field.attname:
                         fields_set.add(field.attname)
+                    auto_now_fields.append(field.name)
+                    logger.debug(f"Added auto_now field {field.name} to fields list")
+                    print(f"DEBUG: Added auto_now field {field.name} to fields list")
+                else:
+                    logger.debug(f"Auto_now field {field.name} already in fields list or is PK")
+                    print(f"DEBUG: Auto_now field {field.name} already in fields list or is PK")
+            elif hasattr(field, "auto_now_add") and field.auto_now_add:
+                logger.debug(f"Found auto_now_add field: {field.name} (skipping)")
+        
+        logger.debug(f"Auto_now fields detected: {auto_now_fields}")
+        print(f"DEBUG: Auto_now fields detected: {auto_now_fields}")
         fields = list(fields_set)
+        
+        # Set auto_now field values to current timestamp
+        if auto_now_fields:
+            from django.utils import timezone
+            current_time = timezone.now()
+            print(f"DEBUG: Setting auto_now fields {auto_now_fields} to current time: {current_time}")
+            logger.debug(f"Setting auto_now fields {auto_now_fields} to current time: {current_time}")
+            for obj in objs:
+                for field_name in auto_now_fields:
+                    setattr(obj, field_name, current_time)
+                    print(f"DEBUG: Set {field_name} to {current_time} for object {obj.pk}")
 
         # Handle MTI models differently
         if is_mti:
@@ -860,8 +887,10 @@ class HookQuerySetMixin:
                 if k not in ["bypass_hooks", "bypass_validation"]
             }
             logger.debug("Calling Django bulk_update")
+            print("DEBUG: Calling Django bulk_update")
             # Build a per-object concrete value map to avoid leaking expressions into hooks
             value_map = {}
+            logger.debug(f"Building value map for {len(objs)} objects with fields: {fields}")
             for obj in objs:
                 if obj.pk is None:
                     continue
@@ -869,6 +898,8 @@ class HookQuerySetMixin:
                 for field_name in fields:
                     # Capture raw values assigned on the object (not expressions)
                     field_values[field_name] = getattr(obj, field_name)
+                    if field_name in auto_now_fields:
+                        logger.debug(f"Object {obj.pk} {field_name}: {field_values[field_name]}")
                 if field_values:
                     value_map[obj.pk] = field_values
 
