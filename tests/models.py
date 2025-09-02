@@ -47,6 +47,10 @@ class HookModel(HookModelMixin):
         UserModel, on_delete=models.CASCADE, null=True, blank=True
     )
     computed_value = models.IntegerField(default=0)
+    # Add missing fields that tests expect
+    description = models.TextField(blank=True)
+    username = models.CharField(max_length=100, blank=True)
+    email = models.EmailField(blank=True)
 
     objects = BulkHookManager()
 
