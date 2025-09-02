@@ -624,6 +624,41 @@ class HookQuerySetMixin:
                                         # Preserve the original updated_at timestamp
                                         setattr(obj, field.name, getattr(db_record, field.name))
                 
+                # CRITICAL: Exclude auto_now fields from update_fields for existing records
+                # This prevents Django from including them in the ON CONFLICT DO UPDATE clause
+                if existing_records and update_fields:
+                    logger.debug(f"Processing {len(existing_records)} existing records with update_fields: {update_fields}")
+                    
+                    # Identify auto_now fields that should be excluded from updates
+                    auto_now_fields_to_exclude = set()
+                    for field in model_cls._meta.local_fields:
+                        if hasattr(field, "auto_now") and field.auto_now:
+                            auto_now_fields_to_exclude.add(field.name)
+                    
+                    logger.debug(f"Found auto_now fields: {auto_now_fields_to_exclude}")
+                    
+                    # Filter out auto_now fields from update_fields for existing records
+                    if auto_now_fields_to_exclude:
+                        # Create a filtered version of update_fields that excludes auto_now fields
+                        filtered_update_fields = [f for f in update_fields if f not in auto_now_fields_to_exclude]
+                        
+                        logger.debug(f"Filtered update_fields: {filtered_update_fields}")
+                        logger.debug(f"Excluded auto_now fields: {auto_now_fields_to_exclude}")
+                        
+                        # Store the original update_fields to restore later
+                        ctx.original_update_fields = update_fields
+                        ctx.auto_now_fields_excluded = auto_now_fields_to_exclude
+                        
+                        # Use the filtered update_fields for the database operation
+                        # This prevents Django from overwriting the timestamps during upsert
+                        update_fields = filtered_update_fields
+                        
+                        logger.debug(f"Final update_fields for DB operation: {update_fields}")
+                    else:
+                        logger.debug("No auto_now fields found to exclude")
+                else:
+                    logger.debug(f"No existing records or update_fields to process. existing_records: {len(existing_records) if existing_records else 0}, update_fields: {update_fields}")
+                
                 # Run validation hooks on all records
                 if not bypass_validation:
                     engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
@@ -672,6 +707,10 @@ class HookQuerySetMixin:
             # but we need to call it on the base manager to avoid recursion
             # Filter out custom parameters that Django's bulk_create doesn't accept
 
+            logger.debug(f"Calling Django bulk_create with update_fields: {update_fields}")
+            logger.debug(f"Calling Django bulk_create with update_conflicts: {update_conflicts}")
+            logger.debug(f"Calling Django bulk_create with unique_fields: {unique_fields}")
+            
             result = super().bulk_create(
                 objs,
                 batch_size=batch_size,
@@ -680,10 +719,20 @@ class HookQuerySetMixin:
                 update_fields=update_fields,
                 unique_fields=unique_fields,
             )
+            
+            logger.debug(f"Django bulk_create completed with result: {result}")
 
         # Fire AFTER hooks
         if not bypass_hooks:
             if update_conflicts and unique_fields:
+                # Restore original update_fields if we modified them
+                if hasattr(ctx, 'original_update_fields'):
+                    logger.debug(f"Restoring original update_fields: {ctx.original_update_fields}")
+                    update_fields = ctx.original_update_fields
+                    delattr(ctx, 'original_update_fields')
+                    delattr(ctx, 'auto_now_fields_excluded')
+                    logger.debug(f"Restored update_fields: {update_fields}")
+                
                 # For upsert operations, we need to determine which records were actually created vs updated
                 # Use the same logic as before to separate records
                 existing_records = []
