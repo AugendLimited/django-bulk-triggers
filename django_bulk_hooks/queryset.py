@@ -482,6 +482,11 @@ class HookQuerySetMixin:
         passed through to the correct logic. For MTI, only a subset of options may be supported.
         """
         model_cls = self.model
+        
+        print(f"DEBUG: bulk_create called for {model_cls.__name__} with {len(objs)} objects")
+        print(f"DEBUG: update_conflicts={update_conflicts}, unique_fields={unique_fields}, update_fields={update_fields}")
+        logger.debug(f"bulk_create called for {model_cls.__name__} with {len(objs)} objects")
+        logger.debug(f"update_conflicts={update_conflicts}, unique_fields={unique_fields}, update_fields={update_fields}")
 
         # When you bulk insert you don't get the primary keys back (if it's an
         # autoincrement, except if can_return_rows_from_bulk_insert=True), so
@@ -623,6 +628,20 @@ class HookQuerySetMixin:
                                     if hasattr(field, "auto_now") and field.auto_now:
                                         # Preserve the original updated_at timestamp
                                         setattr(obj, field.name, getattr(db_record, field.name))
+                
+                # CRITICAL: For existing records, we need to set updated_at to current time
+                # since they are being updated, not just preserved
+                if existing_records:
+                    from django.utils import timezone
+                    current_time = timezone.now()
+                    print(f"DEBUG: Setting updated_at to current time for {len(existing_records)} existing records")
+                    logger.debug(f"Setting updated_at to current time for {len(existing_records)} existing records")
+                    for obj in existing_records:
+                        for field in model_cls._meta.local_fields:
+                            if hasattr(field, "auto_now") and field.auto_now:
+                                setattr(obj, field.name, current_time)
+                                print(f"DEBUG: Set {field.name} to {current_time} for existing record {obj.pk}")
+                                logger.debug(f"Set {field.name} to {current_time} for existing record {obj.pk}")
                 
                 # CRITICAL: Exclude auto_now fields from update_fields for existing records
                 # This prevents Django from including them in the ON CONFLICT DO UPDATE clause
