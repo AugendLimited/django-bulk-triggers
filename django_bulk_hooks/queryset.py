@@ -520,9 +520,75 @@ class HookQuerySetMixin:
         # Fire hooks before DB ops
         if not bypass_hooks:
             ctx = HookContext(model_cls, bypass_hooks=False)  # Pass bypass_hooks
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
-            engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
+            
+            if update_conflicts and unique_fields:
+                # For upsert operations, we need to determine which records will be created vs updated
+                # Check which records already exist in the database based on unique fields
+                existing_records = []
+                new_records = []
+                
+                # Build a filter to check which records already exist
+                unique_values = []
+                for obj in objs:
+                    unique_value = {}
+                    for field_name in unique_fields:
+                        if hasattr(obj, field_name):
+                            unique_value[field_name] = getattr(obj, field_name)
+                    if unique_value:
+                        unique_values.append(unique_value)
+                
+                if unique_values:
+                    # Query the database to see which records already exist
+                    from django.db.models import Q
+                    existing_filters = Q()
+                    for unique_value in unique_values:
+                        filter_kwargs = {}
+                        for field_name, value in unique_value.items():
+                            filter_kwargs[field_name] = value
+                        existing_filters |= Q(**filter_kwargs)
+                    
+                    existing_pks = set(
+                        model_cls.objects.filter(existing_filters).values_list('pk', flat=True)
+                    )
+                    
+                    # Separate records based on whether they already exist
+                    for obj in objs:
+                        obj_unique_value = {}
+                        for field_name in unique_fields:
+                            if hasattr(obj, field_name):
+                                obj_unique_value[field_name] = getattr(obj, field_name)
+                        
+                        # Check if this record already exists
+                        if obj_unique_value:
+                            existing_q = Q()
+                            for field_name, value in obj_unique_value.items():
+                                existing_q &= Q(**{field_name: value})
+                            
+                            if model_cls.objects.filter(existing_q).exists():
+                                existing_records.append(obj)
+                            else:
+                                new_records.append(obj)
+                        else:
+                            # If we can't determine uniqueness, treat as new
+                            new_records.append(obj)
+                else:
+                    # If no unique fields, treat all as new
+                    new_records = objs
+                
+                # Run validation hooks on all records
+                if not bypass_validation:
+                    engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
+                
+                # Run appropriate BEFORE hooks based on what will happen
+                if new_records:
+                    engine.run(model_cls, BEFORE_CREATE, new_records, ctx=ctx)
+                if existing_records:
+                    engine.run(model_cls, BEFORE_UPDATE, existing_records, ctx=ctx)
+            else:
+                # For regular create operations, run create hooks before DB ops
+                if not bypass_validation:
+                    engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
+                engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
         else:
             ctx = HookContext(model_cls, bypass_hooks=True)  # Pass bypass_hooks
             logger.debug("bulk_create bypassed hooks")
@@ -557,9 +623,70 @@ class HookQuerySetMixin:
                 unique_fields=unique_fields,
             )
 
-        # Fire AFTER_CREATE hooks
+        # Fire AFTER hooks
         if not bypass_hooks:
-            engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
+            if update_conflicts and unique_fields:
+                # For upsert operations, we need to determine which records were actually created vs updated
+                # Use the same logic as before to separate records
+                existing_records = []
+                new_records = []
+                
+                # Build a filter to check which records already exist
+                unique_values = []
+                for obj in objs:
+                    unique_value = {}
+                    for field_name in unique_fields:
+                        if hasattr(obj, field_name):
+                            unique_value[field_name] = getattr(obj, field_name)
+                    if unique_value:
+                        unique_values.append(unique_value)
+                
+                if unique_values:
+                    # Query the database to see which records already exist
+                    from django.db.models import Q
+                    existing_filters = Q()
+                    for unique_value in unique_values:
+                        filter_kwargs = {}
+                        for field_name, value in unique_value.items():
+                            filter_kwargs[field_name] = value
+                        existing_filters |= Q(**filter_kwargs)
+                    
+                    existing_pks = set(
+                        model_cls.objects.filter(existing_filters).values_list('pk', flat=True)
+                    )
+                    
+                    # Separate records based on whether they already exist
+                    for obj in objs:
+                        obj_unique_value = {}
+                        for field_name in unique_fields:
+                            if hasattr(obj, field_name):
+                                obj_unique_value[field_name] = getattr(obj, field_name)
+                        
+                        # Check if this record already exists
+                        if obj_unique_value:
+                            existing_q = Q()
+                            for field_name, value in obj_unique_value.items():
+                                existing_q &= Q(**{field_name: value})
+                            
+                            if model_cls.objects.filter(existing_q).exists():
+                                existing_records.append(obj)
+                            else:
+                                new_records.append(obj)
+                        else:
+                            # If we can't determine uniqueness, treat as new
+                            new_records.append(obj)
+                else:
+                    # If no unique fields, treat all as new
+                    new_records = objs
+                
+                # Run appropriate AFTER hooks based on what actually happened
+                if new_records:
+                    engine.run(model_cls, AFTER_CREATE, new_records, ctx=ctx)
+                if existing_records:
+                    engine.run(model_cls, AFTER_UPDATE, existing_records, ctx=ctx)
+            else:
+                # For regular create operations, run create hooks after DB ops
+                engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
 
         return result
 
