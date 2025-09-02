@@ -619,11 +619,23 @@ class HookQuerySetMixin:
                             key = tuple(getattr(db_record, field) for field in unique_fields)
                             existing_db_map[key] = db_record
                         
-                        # For existing records, set auto_now fields using Django's pre_save method
+                        # For existing records, populate all fields from database and set auto_now fields
                         for obj in existing_records:
                             key = tuple(getattr(obj, field) for field in unique_fields)
                             if key in existing_db_map:
-                                # Use Django's pre_save method to set auto_now fields (like updated_at)
+                                db_record = existing_db_map[key]
+                                # Copy all fields from the database record to ensure completeness
+                                populated_fields = []
+                                for field in model_cls._meta.local_fields:
+                                    if field.name != 'id':  # Don't overwrite the ID
+                                        db_value = getattr(db_record, field.name)
+                                        if db_value is not None:  # Only set non-None values
+                                            setattr(obj, field.name, db_value)
+                                            populated_fields.append(field.name)
+                                print(f"DEBUG: Populated {len(populated_fields)} fields for existing record: {populated_fields}")
+                                logger.debug(f"Populated {len(populated_fields)} fields for existing record: {populated_fields}")
+                                
+                                # Now set auto_now fields using Django's pre_save method
                                 for field in model_cls._meta.local_fields:
                                     if hasattr(field, "auto_now") and field.auto_now:
                                         field.pre_save(obj, add=False)  # add=False for updates
