@@ -142,11 +142,20 @@ class TestSelectRelatedDecorator:
     """Test the select_related decorator."""
 
     def setup_method(self):
-        # Create test data
-        self.user = UserModel.objects.create(
-            username="testuser", email="test@example.com"
-        )
-        self.category = Category.objects.create(name="Test Category")
+        # Create test data - use bulk_create to avoid RETURNING clause issues
+        from django.utils import timezone
+
+        # Create UserModel using bulk_create which doesn't trigger RETURNING issues
+        users = UserModel.objects.bulk_create([
+            UserModel(username="testuser", email="test@example.com", is_active=True, created_at=timezone.now())
+        ])
+        self.user = users[0]
+
+        # Create Category using bulk_create
+        categories = Category.objects.bulk_create([
+            Category(name="Test Category", description="", is_active=True)
+        ])
+        self.category = categories[0]
 
         # Create test instances with foreign keys
         self.test_instances = [
@@ -305,11 +314,7 @@ class TestSelectRelatedDecorator:
 
     def test_select_related_with_username_field(self):
         """Test select_related with username field access."""
-        # Create a user with a username
-        self.user = UserModel.objects.create(
-            username="testuser2", email="test2@example.com"
-        )
-
+        # Use the existing user from setup_method
         # Create test instances
         test_instances = [
             HookModel(name="Test 1", created_by=self.user),
@@ -347,11 +352,20 @@ class TestDecoratorIntegration:
     """Integration tests for decorators."""
 
     def setup_method(self):
+        from django.utils import timezone
+
         self.tracker = HookTracker()
-        self.user = UserModel.objects.create(
-            username="testuser", email="test@example.com"
-        )
-        self.category = Category.objects.create(name="Test Category")
+
+        # Create test data using bulk_create to avoid RETURNING issues
+        users = UserModel.objects.bulk_create([
+            UserModel(username="testuser", email="test@example.com", is_active=True, created_at=timezone.now())
+        ])
+        self.user = users[0]
+
+        categories = Category.objects.bulk_create([
+            Category(name="Test Category", description="", is_active=True)
+        ])
+        self.category = categories[0]
 
         # Clear the registry to prevent interference between tests
         from django_bulk_hooks.registry import clear_hooks

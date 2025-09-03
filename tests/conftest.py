@@ -29,3 +29,31 @@ def db_access_without_rollback_and_truncate(django_db_blocker):
     django_db_blocker.unblock()
     yield
     django_db_blocker.restore()
+
+
+@pytest.fixture(scope="function", autouse=True)
+def clear_sql_compiler_cache():
+    """Clear Django's SQL compiler cache to prevent model registry corruption."""
+    from django.db import connection
+
+    # Clear any cached SQL compilers
+    if hasattr(connection, 'cursor'):
+        # Force Django to clear its internal caches
+        from django.apps import apps
+        from django.db.models.sql.compiler import SQLCompiler
+
+        # Clear any cached compilers
+        if hasattr(SQLCompiler, '_cache'):
+            SQLCompiler._cache.clear()
+
+        # Force recreation of model metadata by clearing apps cache
+        for app_config in apps.get_app_configs():
+            if hasattr(app_config, 'models') and hasattr(app_config.models, '_cache'):
+                app_config.models._cache.clear()
+
+    yield
+
+    # Clear again after test
+    if hasattr(connection, 'cursor'):
+        if hasattr(SQLCompiler, '_cache'):
+            SQLCompiler._cache.clear()
