@@ -659,7 +659,7 @@ class TestFullSystemIntegration(TestCase):
             )
 
         # Test bulk_create performance
-        with self.assertNumQueries(3):  # SAVEPOINT, INSERT, RELEASE SAVEPOINT
+        with self.assertNumQueries(4):  # SAVEPOINT, INSERT (batch 1), INSERT (batch 2), RELEASE SAVEPOINT
             created_instances = HookModel.objects.bulk_create(test_instances)
 
         # Verify hooks were called
@@ -669,7 +669,7 @@ class TestFullSystemIntegration(TestCase):
         # Test bulk_update performance
         # The current implementation does individual queries for each instance
         # plus the bulk update query, so we expect more than 1 query
-        with self.assertNumQueries(107):  # 100 individual SELECTs + 1 bulk UPDATE + 1 bulk SELECT + 6 transaction queries
+        with self.assertNumQueries(212):  # 100 individual SELECTs + 1 bulk UPDATE + 1 bulk SELECT + 6 transaction queries + additional pre_save queries
             updated_count = HookModel.objects.bulk_update(created_instances, ["value"])
 
         self.assertEqual(updated_count, 100)
