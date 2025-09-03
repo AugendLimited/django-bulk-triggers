@@ -17,53 +17,66 @@ class TestManagerCoverage(TestCase):
     
     def test_get_queryset_with_existing_hook_queryset(self):
         """Test get_queryset when base queryset already has hook functionality."""
-        # Mock base queryset that already has hook functionality
+        # Mock the base queryset that will be returned by super().get_queryset()
         mock_base_qs = Mock()
         mock_base_qs.model = HookModel
-        
-        # Mock the base queryset to appear as if it has hook functionality
-        with patch.object(self.manager, 'get_queryset') as mock_get_qs:
-            mock_get_qs.return_value = mock_base_qs
-            
-            # Mock isinstance check to return True
-            with patch('django_bulk_hooks.manager.HookQuerySetMixin', return_value=True):
-                with patch('isinstance', return_value=True):
-                    result = self.manager.get_queryset()
-                    
-                    # Should return the base queryset as-is
-                    self.assertEqual(result, mock_base_qs)
+
+        # Mock the super().get_queryset() call to return our mock queryset
+        with patch('django_bulk_hooks.manager.super') as mock_super:
+            mock_super_instance = Mock()
+            mock_super_instance.get_queryset.return_value = mock_base_qs
+            mock_super.return_value = mock_super_instance
+
+            # Mock isinstance to return True for our mock queryset
+            with patch('django_bulk_hooks.manager.isinstance', return_value=True) as mock_isinstance:
+                result = self.manager.get_queryset()
+
+                # Should return the base queryset as-is when isinstance returns True
+                self.assertEqual(result, mock_base_qs)
+                mock_isinstance.assert_called_once()
     
     def test_save_with_existing_pk(self):
         """Test save method with existing object."""
-        # Create a mock object with existing PK
+        # Create a mock object with existing PK and _meta.fields
         mock_obj = Mock()
         mock_obj.pk = 1
-        
+
+        # Mock _meta.fields to simulate Django model fields
+        mock_field1 = Mock()
+        mock_field1.name = 'name'
+        mock_field2 = Mock()
+        mock_field2.name = 'id'
+        mock_field3 = Mock()
+        mock_field3.name = 'value'
+
+        mock_obj._meta.fields = [mock_field1, mock_field2, mock_field3]
+
         # Mock the bulk_update method
         with patch.object(self.manager, 'bulk_update') as mock_bulk_update:
             mock_bulk_update.return_value = 1
-            
+
             result = self.manager.save(mock_obj)
-            
-            # Should call bulk_update
-            mock_bulk_update.assert_called_once()
-            self.assertEqual(result, 1)
+
+            # Should call bulk_update with correct fields (excluding 'id')
+            mock_bulk_update.assert_called_once_with([mock_obj], fields=['name', 'value'])
+            self.assertEqual(result, mock_obj)
     
     def test_save_with_new_object(self):
         """Test save method with new object."""
         # Create a mock object without PK
         mock_obj = Mock()
         mock_obj.pk = None
-        
+
         # Mock the bulk_create method
         with patch.object(self.manager, 'bulk_create') as mock_bulk_create:
             mock_bulk_create.return_value = [mock_obj]
-            
+
             result = self.manager.save(mock_obj)
-            
+
             # Should call bulk_create
             mock_bulk_create.assert_called_once()
-            self.assertEqual(result, 1)
+            # save method returns the object itself, not a count
+            self.assertEqual(result, mock_obj)
     
     def test_save_with_error_handling(self):
         """Test save method error handling."""
