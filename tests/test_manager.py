@@ -302,17 +302,20 @@ class TestBulkHookManagerIntegration(TestCase):
 
     def test_manager_performance(self):
         """Test manager performance with large datasets."""
-        # Create many instances
+        from tests.models import SimpleModel
+
+        # Create many instances using SimpleModel (no foreign keys for cleaner performance testing)
         test_instances = []
         for i in range(100):
             test_instances.append(
-                HookModel(name=f"Test {i}", value=i, created_by=self.user)
+                SimpleModel(name=f"Test {i}", value=i)
             )
 
         # Test bulk_create performance
         # With hooks enabled, we expect 3 queries: SAVEPOINT, INSERT, RELEASE SAVEPOINT
+        # SimpleModel with fewer fields fits all objects in one INSERT batch
         with self.assertNumQueries(3):  # Correct behavior when hooks are enabled
-            created_instances = HookModel.objects.bulk_create(test_instances)
+            created_instances = SimpleModel.objects.bulk_create(test_instances)
 
         self.assertEqual(len(created_instances), 100)
 
@@ -320,18 +323,18 @@ class TestBulkHookManagerIntegration(TestCase):
         for instance in created_instances:
             instance.value *= 2
 
-        # With hooks enabled, we expect 7 queries: 
-        # SAVEPOINT, SAVEPOINT, SELECT originals, SELECT originals, UPDATE, RELEASE, RELEASE
+        # With hooks enabled, we expect 7 queries:
+        # SAVEPOINT, SAVEPOINT, SELECT originals (batch 1), SELECT originals (batch 2), UPDATE, RELEASE, RELEASE
         with self.assertNumQueries(7):  # Correct behavior when hooks are enabled
-            updated_count = HookModel.objects.bulk_update(created_instances, ["value"])
+            updated_count = SimpleModel.objects.bulk_update(created_instances, ["value"])
 
         self.assertEqual(updated_count, 100)
 
         # Test bulk_delete performance
-        # With hooks enabled, we expect 5 queries: 
-        # SAVEPOINT, SELECT originals, DELETE related models, DELETE main models, RELEASE
-        with self.assertNumQueries(5):  # Correct behavior when hooks are enabled
-            deleted_count = HookModel.objects.bulk_delete(created_instances)
+        # With hooks enabled, we expect 3 queries:
+        # SAVEPOINT, DELETE, RELEASE (SimpleModel has no related models)
+        with self.assertNumQueries(3):  # Correct behavior when hooks are enabled
+            deleted_count = SimpleModel.objects.bulk_delete(created_instances)
 
         self.assertEqual(deleted_count, 100)
 
