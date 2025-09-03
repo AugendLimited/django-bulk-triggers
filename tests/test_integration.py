@@ -295,9 +295,20 @@ class TestFullSystemIntegration(TestCase):
     """Test the entire system working together."""
 
     def setUp(self):
+        from django.utils import timezone
+
         self.tracker = HookTracker()
-        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
-        self.category = Category.objects.create(name="Test Category")
+
+        # Create test data using bulk_create to avoid RETURNING clause issues
+        users = UserModel.objects.bulk_create([
+            UserModel(username="testuser", email="test@example.com", is_active=True, created_at=timezone.now())
+        ])
+        self.user = users[0]
+
+        categories = Category.objects.bulk_create([
+            Category(name="Test Category", description="", is_active=True)
+        ])
+        self.category = categories[0]
         
         # Reset the trackers for each test
         _create_tracker.reset()
@@ -676,8 +687,18 @@ class TestRealWorldScenarios(TestCase):
     """Test real-world usage scenarios."""
 
     def setUp(self):
-        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
-        self.category = Category.objects.create(name="Test Category")
+        from django.utils import timezone
+
+        # Create test data using bulk_create to avoid RETURNING clause issues
+        users = UserModel.objects.bulk_create([
+            UserModel(username="testuser", email="test@example.com", is_active=True, created_at=timezone.now())
+        ])
+        self.user = users[0]
+
+        categories = Category.objects.bulk_create([
+            Category(name="Test Category", description="", is_active=True)
+        ])
+        self.category = categories[0]
         
         # Reset hook class variables
         AuditHook.audit_log.clear()

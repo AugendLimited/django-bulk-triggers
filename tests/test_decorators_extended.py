@@ -12,28 +12,49 @@ from tests.utils import HookTracker
 
 class TestBulkHookDecoratorExtended(TestCase):
     """Extended tests for bulk_hook decorator to increase coverage."""
-    
+
     def setUp(self):
-        self.category = Category.objects.create(name="Test Category")
-        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
+        from django.utils import timezone
+
+        # Create test data using bulk_create to avoid RETURNING clause issues
+        categories = Category.objects.bulk_create([
+            Category(name="Test Category", description="", is_active=True)
+        ])
+        self.category = categories[0]
+
+        users = UserModel.objects.bulk_create([
+            UserModel(username="testuser", email="test@example.com", is_active=True, created_at=timezone.now())
+        ])
+        self.user = users[0]
+
+        # Create test instances
         self.instances = []
+        instances_to_create = []
         for i in range(3):
-            instance = HookModel.objects.create(
-                name=f"Test Instance {i}",
-                value=i * 10,
-                category=self.category,
-                created_by=self.user
+            instances_to_create.append(
+                HookModel(
+                    name=f"Test Instance {i}",
+                    value=i * 10,
+                    category=self.category,
+                    created_by=self.user
+                )
             )
-            self.instances.append(instance)
+
+        # Bulk create all instances at once
+        created_instances = HookModel.objects.bulk_create(instances_to_create)
+        self.instances = list(created_instances)
         
         # Clear hooks before each test
         from django_bulk_hooks.registry import clear_hooks
         clear_hooks()
     
     def tearDown(self):
-        HookModel.objects.all().delete()
-        Category.objects.all().delete()
-        UserModel.objects.all().delete()
+        # Use raw SQL to avoid model registry issues during cleanup
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute('DELETE FROM "tests_hookmodel"')
+            cursor.execute('DELETE FROM "tests_category"')
+            cursor.execute('DELETE FROM "tests_usermodel"')
         from django_bulk_hooks.registry import clear_hooks
         clear_hooks()
     
@@ -138,33 +159,60 @@ class TestBulkHookDecoratorExtended(TestCase):
 
 class TestSelectRelatedDecoratorExtended(TestCase):
     """Extended tests for select_related decorator to increase coverage."""
-    
+
     def setUp(self):
-        self.category = Category.objects.create(name="Test Category")
-        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
+        from django.utils import timezone
+
+        # Create test data using bulk_create to avoid RETURNING clause issues
+        categories = Category.objects.bulk_create([
+            Category(name="Test Category", description="", is_active=True)
+        ])
+        self.category = categories[0]
+
+        users = UserModel.objects.bulk_create([
+            UserModel(username="testuser", email="test@example.com", is_active=True, created_at=timezone.now())
+        ])
+        self.user = users[0]
+
+        # Create test instances
         self.instances = []
+        instances_to_create = []
         for i in range(3):
-            instance = HookModel.objects.create(
-                name=f"Test Instance {i}",
-                value=i * 10,
-                category=self.category,
-                created_by=self.user
+            instances_to_create.append(
+                HookModel(
+                    name=f"Test Instance {i}",
+                    value=i * 10,
+                    category=self.category,
+                    created_by=self.user
+                )
             )
-            self.instances.append(instance)
+
+        # Bulk create all instances at once
+        created_instances = HookModel.objects.bulk_create(instances_to_create)
+        self.instances = list(created_instances)
         
-        # Create related models
-        for instance in self.instances:
-            RelatedModel.objects.create(
-                hook_model=instance,
-                amount=i * 5,
-                description=f"Related {i}"
+        # Create related models using bulk_create with proper foreign key IDs
+        from django.utils import timezone
+        related_models = []
+        for i, instance in enumerate(self.instances):
+            related_models.append(
+                RelatedModel(
+                    hook_model_id=instance.id,
+                    amount=i * 5,
+                    description=f"Related {i}",
+                    created_at=timezone.now()
+                )
             )
+        RelatedModel.objects.bulk_create(related_models)
     
     def tearDown(self):
-        RelatedModel.objects.all().delete()
-        HookModel.objects.all().delete()
-        Category.objects.all().delete()
-        UserModel.objects.all().delete()
+        # Use raw SQL to avoid model registry issues during cleanup
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute('DELETE FROM "tests_relatedmodel"')
+            cursor.execute('DELETE FROM "tests_hookmodel"')
+            cursor.execute('DELETE FROM "tests_category"')
+            cursor.execute('DELETE FROM "tests_usermodel"')
     
     def test_select_related_with_valid_fields(self):
         """Test select_related decorator with valid field names."""
