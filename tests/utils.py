@@ -182,257 +182,85 @@ def re_register_test_hooks():
     This is needed because the test setup calls clear_hooks() which removes
     all registered hooks, but the hook classes are already defined.
     """
-    from django_bulk_hooks.registry import register_hook
-    from tests.test_integration import (
-        BulkCreateTestHook,
-        BulkUpdateTestHook,
-        BulkDeleteTestHook,
-        ConditionalTestHook,
-        ComplexConditionalTestHook,
-        ErrorTestHook,
-        PerformanceTestHook,
-        RelatedTestHook,
-        TransactionTestHook,
-        MultiModelTestHook,
-        PriorityTestHook,
-        InventoryHook,
-        AuditHook,
-        UserRegistrationHook,
-    )
-    
-    # Clear the registry first to ensure clean state
-    from django_bulk_hooks.registry import clear_hooks
-    clear_hooks()
-    
-    # Manually register the hooks for each class
-    # BulkCreateTestHook
-    register_hook(
-        model=HookModel,
-        event=BEFORE_CREATE,
-        handler_cls=BulkCreateTestHook,
-        method_name="on_before_create",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    register_hook(
-        model=HookModel,
-        event=AFTER_CREATE,
-        handler_cls=BulkCreateTestHook,
-        method_name="on_after_create",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # BulkUpdateTestHook
-    register_hook(
-        model=HookModel,
-        event=BEFORE_UPDATE,
-        handler_cls=BulkUpdateTestHook,
-        method_name="on_before_update",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    register_hook(
-        model=HookModel,
-        event=AFTER_UPDATE,
-        handler_cls=BulkUpdateTestHook,
-        method_name="on_after_update",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # BulkDeleteTestHook
-    register_hook(
-        model=HookModel,
-        event=BEFORE_DELETE,
-        handler_cls=BulkDeleteTestHook,
-        method_name="on_before_delete",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    register_hook(
-        model=HookModel,
-        event=AFTER_DELETE,
-        handler_cls=BulkDeleteTestHook,
-        method_name="on_after_delete",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # ConditionalTestHook
+    from django_bulk_hooks.registry import register_hook, clear_hooks
     from django_bulk_hooks.conditions import IsEqual, HasChanged
-    register_hook(
-        model=HookModel,
-        event=BEFORE_CREATE,
-        handler_cls=ConditionalTestHook,
-        method_name="on_active_create",
-        condition=IsEqual("status", "active"),
-        priority=Priority.NORMAL,
-    )
-    register_hook(
-        model=HookModel,
-        event=BEFORE_UPDATE,
-        handler_cls=ConditionalTestHook,
-        method_name="on_status_change",
-        condition=HasChanged("status"),
-        priority=Priority.NORMAL,
-    )
-    
-    # ComplexConditionalTestHook
-    from django_bulk_hooks.conditions import HasChanged
-    register_hook(
-        model=HookModel,
-        event=BEFORE_UPDATE,
-        handler_cls=ComplexConditionalTestHook,
-        method_name="on_status_change",
-        condition=HasChanged("status"),
-        priority=Priority.NORMAL,
-    )
-    
-    # ErrorTestHook
-    register_hook(
-        model=HookModel,
-        event=BEFORE_CREATE,
-        handler_cls=ErrorTestHook,
-        method_name="on_before_create",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # PerformanceTestHook
-    register_hook(
-        model=HookModel,
-        event=BEFORE_CREATE,
-        handler_cls=PerformanceTestHook,
-        method_name="on_before_create",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # RelatedTestHook
-    register_hook(
-        model=HookModel,
-        event=AFTER_CREATE,
-        handler_cls=RelatedTestHook,
-        method_name="on_after_create",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # TransactionTestHook
-    register_hook(
-        model=HookModel,
-        event=AFTER_CREATE,
-        handler_cls=TransactionTestHook,
-        method_name="on_after_create",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # MultiModelTestHook
     from tests.models import SimpleModel
-    register_hook(
-        model=HookModel,
-        event=BEFORE_CREATE,
-        handler_cls=MultiModelTestHook,
-        method_name="on_test_model_create",
-        condition=None,
-        priority=Priority.NORMAL,
+    from tests.test_integration import (
+        BulkCreateTestHook, BulkUpdateTestHook, BulkDeleteTestHook,
+        ConditionalTestHook, ComplexConditionalTestHook, ErrorTestHook,
+        PerformanceTestHook, RelatedTestHook, TransactionTestHook,
+        MultiModelTestHook, PriorityTestHook, InventoryHook,
+        AuditHook, UserRegistrationHook,
     )
-    register_hook(
-        model=SimpleModel,
-        event=BEFORE_CREATE,
-        handler_cls=MultiModelTestHook,
-        method_name="on_simple_model_create",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # PriorityTestHook
-    register_hook(
-        model=HookModel,
-        event=BEFORE_CREATE,
-        handler_cls=PriorityTestHook,
-        method_name="high_priority",
-        condition=None,
-        priority=Priority.HIGH,
-    )
-    register_hook(
-        model=HookModel,
-        event=BEFORE_CREATE,
-        handler_cls=PriorityTestHook,
-        method_name="normal_priority",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    register_hook(
-        model=HookModel,
-        event=BEFORE_CREATE,
-        handler_cls=PriorityTestHook,
-        method_name="low_priority",
-        condition=None,
-        priority=Priority.LOW,
-    )
-    
-    # InventoryHook
-    register_hook(
-        model=HookModel,
-        event=BEFORE_UPDATE,
-        handler_cls=InventoryHook,
-        method_name="check_stock_levels",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    register_hook(
-        model=HookModel,
-        event=AFTER_DELETE,
-        handler_cls=InventoryHook,
-        method_name="log_deletion",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # AuditHook
-    register_hook(
-        model=HookModel,
-        event=AFTER_CREATE,
-        handler_cls=AuditHook,
-        method_name="log_creation",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    register_hook(
-        model=HookModel,
-        event=AFTER_UPDATE,
-        handler_cls=AuditHook,
-        method_name="log_status_change",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    register_hook(
-        model=HookModel,
-        event=AFTER_DELETE,
-        handler_cls=AuditHook,
-        method_name="log_deletion",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    
-    # UserRegistrationHook
-    from tests.models import SimpleModel
-    register_hook(
-        model=SimpleModel,
-        event=BEFORE_CREATE,
-        handler_cls=UserRegistrationHook,
-        method_name="validate_user",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
-    register_hook(
-        model=SimpleModel,
-        event=AFTER_CREATE,
-        handler_cls=UserRegistrationHook,
-        method_name="send_welcome_email",
-        condition=None,
-        priority=Priority.NORMAL,
-    )
+
+    # Clear the registry first to ensure clean state
+    clear_hooks()
+
+    # Define all hook registrations in a data structure for maintainability
+    hook_registrations = [
+        # (model, event, handler_cls, method_name, condition, priority)
+
+        # BulkCreateTestHook
+        (HookModel, BEFORE_CREATE, BulkCreateTestHook, "on_before_create", None, Priority.NORMAL),
+        (HookModel, AFTER_CREATE, BulkCreateTestHook, "on_after_create", None, Priority.NORMAL),
+
+        # BulkUpdateTestHook
+        (HookModel, BEFORE_UPDATE, BulkUpdateTestHook, "on_before_update", None, Priority.NORMAL),
+        (HookModel, AFTER_UPDATE, BulkUpdateTestHook, "on_after_update", None, Priority.NORMAL),
+
+        # BulkDeleteTestHook
+        (HookModel, BEFORE_DELETE, BulkDeleteTestHook, "on_before_delete", None, Priority.NORMAL),
+        (HookModel, AFTER_DELETE, BulkDeleteTestHook, "on_after_delete", None, Priority.NORMAL),
+
+        # ConditionalTestHook
+        (HookModel, BEFORE_CREATE, ConditionalTestHook, "on_active_create", IsEqual("status", "active"), Priority.NORMAL),
+        (HookModel, BEFORE_UPDATE, ConditionalTestHook, "on_status_change", HasChanged("status"), Priority.NORMAL),
+
+        # ComplexConditionalTestHook
+        (HookModel, BEFORE_UPDATE, ComplexConditionalTestHook, "on_status_change", HasChanged("status"), Priority.NORMAL),
+
+        # ErrorTestHook
+        (HookModel, BEFORE_CREATE, ErrorTestHook, "on_before_create", None, Priority.NORMAL),
+
+        # PerformanceTestHook
+        (HookModel, BEFORE_CREATE, PerformanceTestHook, "on_before_create", None, Priority.NORMAL),
+
+        # RelatedTestHook
+        (HookModel, AFTER_CREATE, RelatedTestHook, "on_after_create", None, Priority.NORMAL),
+
+        # TransactionTestHook
+        (HookModel, AFTER_CREATE, TransactionTestHook, "on_after_create", None, Priority.NORMAL),
+
+        # MultiModelTestHook
+        (HookModel, BEFORE_CREATE, MultiModelTestHook, "on_test_model_create", None, Priority.NORMAL),
+        (SimpleModel, BEFORE_CREATE, MultiModelTestHook, "on_simple_model_create", None, Priority.NORMAL),
+
+        # PriorityTestHook
+        (HookModel, BEFORE_CREATE, PriorityTestHook, "high_priority", None, Priority.HIGH),
+        (HookModel, BEFORE_CREATE, PriorityTestHook, "normal_priority", None, Priority.NORMAL),
+        (HookModel, BEFORE_CREATE, PriorityTestHook, "low_priority", None, Priority.LOW),
+
+        # InventoryHook
+        (HookModel, BEFORE_UPDATE, InventoryHook, "check_stock_levels", None, Priority.NORMAL),
+        (HookModel, AFTER_DELETE, InventoryHook, "log_deletion", None, Priority.NORMAL),
+
+        # AuditHook
+        (HookModel, AFTER_CREATE, AuditHook, "log_creation", None, Priority.NORMAL),
+        (HookModel, AFTER_UPDATE, AuditHook, "log_status_change", None, Priority.NORMAL),
+        (HookModel, AFTER_DELETE, AuditHook, "log_deletion", None, Priority.NORMAL),
+
+        # UserRegistrationHook
+        (SimpleModel, BEFORE_CREATE, UserRegistrationHook, "validate_user", None, Priority.NORMAL),
+        (SimpleModel, AFTER_CREATE, UserRegistrationHook, "send_welcome_email", None, Priority.NORMAL),
+    ]
+
+    # Register all hooks in a loop
+    for model, event, handler_cls, method_name, condition, priority in hook_registrations:
+        register_hook(
+            model=model,
+            event=event,
+            handler_cls=handler_cls,
+            method_name=method_name,
+            condition=condition,
+            priority=priority,
+        )

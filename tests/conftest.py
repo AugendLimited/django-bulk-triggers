@@ -57,3 +57,87 @@ def clear_sql_compiler_cache():
     if hasattr(connection, 'cursor'):
         if hasattr(SQLCompiler, '_cache'):
             SQLCompiler._cache.clear()
+
+
+@pytest.fixture
+def test_user():
+    """Create a test user for testing."""
+    import uuid
+    from django.db import connection
+    from django.utils import timezone
+
+    # Use raw SQL to avoid RETURNING clause issues completely
+    # Generate unique values to avoid conflicts
+    unique_id = str(uuid.uuid4())[:8]
+    username = f"testuser_{unique_id}"
+    email = f"test_{unique_id}@example.com"
+
+    with connection.cursor() as cursor:
+        created_at = timezone.now()
+        cursor.execute(
+            'INSERT INTO "tests_usermodel" ("username", "email", "is_active", "created_at") VALUES (?, ?, ?, ?)',
+            [username, email, True, created_at]
+        )
+        user_id = cursor.lastrowid
+
+    # Get the created user
+    from tests.models import UserModel
+    user = UserModel.objects.get(id=user_id)
+    yield user
+    user.delete()
+
+
+@pytest.fixture
+def test_category():
+    """Create a test category for testing."""
+    import uuid
+    from django.db import connection
+
+    # Use raw SQL to avoid RETURNING clause issues completely
+    # Generate unique values to avoid conflicts
+    unique_id = str(uuid.uuid4())[:8]
+    name = f"Test Category {unique_id}"
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'INSERT INTO "tests_category" ("name", "description", "is_active") VALUES (?, ?, ?)',
+            [name, "Test category description", True]
+        )
+        category_id = cursor.lastrowid
+
+    # Get the created category
+    from tests.models import Category
+    category = Category.objects.get(id=category_id)
+    yield category
+    category.delete()
+
+
+@pytest.fixture
+def test_hook_instances(test_user, test_category):
+    """Create test hook model instances for testing."""
+    from tests.models import HookModel
+
+    instances = []
+    for i in range(3):
+        instance = HookModel.objects.create(
+            name=f"Test Instance {i}",
+            value=i * 10,
+            category=test_category,
+            created_by=test_user
+        )
+        instances.append(instance)
+
+    yield instances
+
+    # Clean up
+    for instance in instances:
+        instance.delete()
+
+
+@pytest.fixture
+def hook_tracker():
+    """Create a hook tracker for testing hook calls."""
+    from tests.utils import HookTracker
+
+    tracker = HookTracker()
+    yield tracker

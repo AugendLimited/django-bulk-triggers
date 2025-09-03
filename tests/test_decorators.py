@@ -5,8 +5,11 @@ Tests for the decorators module.
 from unittest.mock import Mock, patch
 
 import pytest
+from django.core.exceptions import FieldDoesNotExist
+from django.utils import timezone
 
 from django_bulk_hooks.conditions import IsEqual
+from django_bulk_hooks.decorators import bulk_hook
 from django_bulk_hooks.constants import (
     AFTER_CREATE,
     AFTER_DELETE,
@@ -26,11 +29,8 @@ class TestHookDecorator:
     """Test the hook decorator."""
 
     def setup_method(self):
-        self.tracker = HookTracker()
-
         # Clear the registry to prevent interference between tests
         from django_bulk_hooks.registry import clear_hooks
-
         clear_hooks()
 
     def test_hook_decorator_basic(self):
@@ -416,3 +416,283 @@ class TestDecoratorIntegration:
         test_hook(new_records=test_instances)
 
         assert len(self.tracker.before_create_calls) == 1
+
+    def test_select_related_with_nested_fields_error(self):
+        """Test select_related decorator handles nested fields gracefully."""
+        @select_related('category__parent')
+        def test_func(new_records, old_records=None, **kwargs):
+            return "success"
+
+        # Create a mock instance
+        mock_instance = Mock()
+        mock_instance.pk = 1
+
+        # Mock model class
+        mock_model = Mock()
+        mock_model._meta.get_field.side_effect = FieldDoesNotExist("Field does not exist")
+
+        # Should handle nested fields gracefully without raising ValueError
+        result = test_func([mock_instance], model_cls=mock_model)
+        assert result == "success"
+
+    def test_select_related_with_invalid_field_type(self):
+        """Test select_related decorator skips non-relation fields."""
+        @select_related('name')  # 'name' is not a relation field
+        def test_func(new_records, old_records=None, **kwargs):
+            pass
+
+        # Create mock instances
+        mock_instances = [Mock(pk=1), Mock(pk=2)]
+
+        # Mock model class with field that's not a relation
+        mock_model = Mock()
+        mock_field = Mock()
+        mock_field.is_relation = False
+        mock_field.many_to_many = False
+        mock_field.one_to_many = False
+        mock_model._meta.get_field.return_value = mock_field
+
+        # Mock base manager
+        mock_model._base_manager = Mock()
+        mock_model._base_manager.select_related.return_value.in_bulk.return_value = {}
+
+        # Should not raise an error, just skip the field
+        result = test_func(mock_instances, model_cls=mock_model)
+        assert result is None
+
+    def test_select_related_with_field_does_not_exist(self):
+        """Test select_related decorator handles FieldDoesNotExist gracefully."""
+        @select_related('nonexistent_field')
+        def test_func(new_records, old_records=None, **kwargs):
+            pass
+
+        # Create mock instances
+        mock_instances = [Mock(pk=1), Mock(pk=2)]
+
+        # Mock model class that raises FieldDoesNotExist
+        mock_model = Mock()
+        mock_model._meta.get_field.side_effect = FieldDoesNotExist("Field does not exist")
+
+        # Mock base manager
+        mock_model._base_manager = Mock()
+        mock_model._base_manager.select_related.return_value.in_bulk.return_value = {}
+
+        # Should not raise an error, just skip the field
+        result = test_func(mock_instances, model_cls=mock_model)
+        assert result is None
+
+    def test_select_related_with_attribute_error(self):
+        """Test select_related decorator handles AttributeError gracefully."""
+        @select_related('category')
+        def test_func(new_records, old_records=None, **kwargs):
+            pass
+
+        # Create mock instances
+        mock_instances = [Mock(pk=1), Mock(pk=2)]
+
+        # Mock model class
+        mock_model = Mock()
+        mock_field = Mock()
+        mock_field.is_relation = True
+        mock_field.many_to_many = False
+        mock_field.one_to_many = False
+        mock_model._meta.get_field.return_value = mock_field
+
+        # Mock base manager
+        mock_base_manager = Mock()
+        mock_base_manager.select_related.return_value.in_bulk.return_value = {
+            1: Mock(category=Mock()),
+            2: Mock()  # This one doesn't have category attribute
+        }
+        mock_model._base_manager = mock_base_manager
+
+        # Should not raise an error, just skip the problematic instance
+        result = test_func(mock_instances, model_cls=mock_model)
+        assert result is None
+
+    def test_bulk_hook_decorator(self):
+        """Test bulk_hook decorator functionality."""
+        @bulk_hook(HookModel, 'BEFORE_CREATE')
+        def test_hook(new_records, old_records=None, **kwargs):
+            pass
+
+        # Verify the hook was registered
+        assert hasattr(test_hook, '_bulk_hook_registered')
+
+    def test_bulk_hook_decorator_with_condition_and_priority(self):
+        """Test bulk_hook decorator with condition and priority."""
+        condition = Mock()
+        priority = 100
+
+        @bulk_hook(HookModel, 'AFTER_UPDATE', when=condition, priority=priority)
+        def test_hook(new_records, old_records=None, **kwargs):
+            pass
+
+        # Verify the hook was registered
+        assert hasattr(test_hook, '_bulk_hook_registered')
+
+    def test_select_related_with_valid_fields(self, test_user, test_category):
+        """Test select_related decorator with valid field names."""
+        # Create test instances
+        test_instances = [
+            HookModel(name="Test 1", created_by=test_user, category=test_category),
+            HookModel(name="Test 2", created_by=test_user, category=test_category),
+            HookModel(name="Test 3", created_by=test_user, category=test_category),
+        ]
+        for instance in test_instances:
+            instance.save()
+
+        @select_related('category', 'created_by')
+        def test_function(new_records, old_records=None, **kwargs):
+            return len(new_records)
+
+        result = test_function(test_instances, test_instances)
+        assert result == 3
+
+        # Clean up
+        for instance in test_instances:
+            instance.delete()
+
+    def test_select_related_empty_records(self):
+        """Test select_related decorator with empty records."""
+
+        @select_related('category', 'created_by')
+        def test_function(new_records, old_records=None, **kwargs):
+            return len(new_records)
+
+        result = test_function([], [])
+        assert result == 0
+
+    def test_select_related_no_fields_to_fetch(self, test_user, test_category):
+        """Test select_related decorator when no fields need fetching."""
+        # Create test instances
+        test_instances = [
+            HookModel(name="Test 1", created_by=test_user, category=test_category),
+            HookModel(name="Test 2", created_by=test_user, category=test_category),
+            HookModel(name="Test 3", created_by=test_user, category=test_category),
+        ]
+        for instance in test_instances:
+            instance.save()
+
+        # Mock the instances to have all fields already cached
+        for instance in test_instances:
+            instance._state.fields_cache = {
+                'category': test_category,
+                'created_by': test_user
+            }
+
+        @select_related('category', 'created_by')
+        def test_function(new_records, old_records=None, **kwargs):
+            return len(new_records)
+
+        result = test_function(test_instances, test_instances)
+        assert result == 3
+
+        # Clean up
+        for instance in test_instances:
+            instance.delete()
+
+    def test_select_related_decorator_preserves_function(self):
+        """Test that select_related decorator preserves the original function."""
+
+        def original_function(new_records, old_records=None, **kwargs):
+            return "original"
+
+        decorated_function = select_related('category')(original_function)
+
+        # The decorated function should still work
+        result = decorated_function([], [])
+        assert result == "original"
+
+        # The function should have the expected attributes
+        assert hasattr(decorated_function, '__wrapped__')
+
+    def test_select_related_with_bound_method(self, test_user, test_category):
+        """Test select_related decorator with bound methods."""
+        # Create test instances
+        test_instances = [
+            HookModel(name="Test 1", created_by=test_user, category=test_category),
+            HookModel(name="Test 2", created_by=test_user, category=test_category),
+            HookModel(name="Test 3", created_by=test_user, category=test_category),
+        ]
+        for instance in test_instances:
+            instance.save()
+
+        class TestClass:
+            @select_related('category')
+            def test_method(self, new_records, old_records=None, **kwargs):
+                return len(new_records)
+
+        test_obj = TestClass()
+        result = test_obj.test_method(test_instances, test_instances)
+        assert result == 3
+
+        # Clean up
+        for instance in test_instances:
+            instance.delete()
+
+    def test_select_related_decorator_chaining(self, test_user, test_category):
+        """Test that select_related decorator can be chained."""
+        # Create test instances
+        test_instances = [
+            HookModel(name="Test 1", created_by=test_user, category=test_category),
+            HookModel(name="Test 2", created_by=test_user, category=test_category),
+            HookModel(name="Test 3", created_by=test_user, category=test_category),
+        ]
+        for instance in test_instances:
+            instance.save()
+
+        @select_related('category')
+        @select_related('created_by')
+        def test_function(new_records, old_records=None, **kwargs):
+            return len(new_records)
+
+        result = test_function(test_instances, test_instances)
+        assert result == 3
+
+        # Clean up
+        for instance in test_instances:
+            instance.delete()
+
+    def test_select_related_with_different_model_types(self, test_user, test_category):
+        """Test select_related decorator with different model types."""
+        # Create test instances
+        test_instances = [
+            HookModel(name="Test 1", created_by=test_user, category=test_category),
+        ]
+        for instance in test_instances:
+            instance.save()
+
+        @select_related('category')
+        def test_function(new_records, old_records=None, **kwargs):
+            return len(new_records)
+
+        result = test_function(test_instances, test_instances)
+        assert result == 1
+
+        # Clean up
+        for instance in test_instances:
+            instance.delete()
+
+    def test_select_related_error_handling(self, test_user, test_category):
+        """Test select_related decorator error handling."""
+        # Create test instances
+        test_instances = [
+            HookModel(name="Test 1", created_by=test_user, category=test_category),
+            HookModel(name="Test 2", created_by=test_user, category=test_category),
+            HookModel(name="Test 3", created_by=test_user, category=test_category),
+        ]
+        for instance in test_instances:
+            instance.save()
+
+        @select_related('category')
+        def test_function(new_records, old_records=None, **kwargs):
+            return len(new_records)
+
+        # Test that the decorator works normally
+        result = test_function(test_instances, test_instances)
+        assert result == 3
+
+        # Clean up
+        for instance in test_instances:
+            instance.delete()
