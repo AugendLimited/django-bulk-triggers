@@ -1119,11 +1119,18 @@ class HookQuerySetMixin:
             result = self._mti_bulk_update(objs, list(fields_set), **kwargs)
         else:
             # For single-table models, use Django's built-in bulk_update
-            django_kwargs = {
-                k: v
-                for k, v in kwargs.items()
-                if k not in ["bypass_hooks", "bypass_validation"]
-            }
+            # Filter out parameters that are not supported by Django's bulk_update
+            unsupported_params = ["unique_fields", "update_conflicts", "update_fields", "ignore_conflicts"]
+            django_kwargs = {}
+            for k, v in kwargs.items():
+                if k in unsupported_params:
+                    logger.warning(
+                        f"Parameter '{k}' is not supported by bulk_update. "
+                        f"This parameter is only available in bulk_create for UPSERT operations."
+                    )
+                    print(f"WARNING: Parameter '{k}' is not supported by bulk_update")
+                elif k not in ["bypass_hooks", "bypass_validation"]:
+                    django_kwargs[k] = v
             logger.debug("Calling Django bulk_update")
             print("DEBUG: Calling Django bulk_update")
             # Build a per-object concrete value map to avoid leaking expressions into hooks
@@ -1483,12 +1490,18 @@ class HookQuerySetMixin:
         if inheritance_chain is None:
             inheritance_chain = self._get_inheritance_chain()
 
-        # Remove custom hook kwargs before passing to Django internals
-        django_kwargs = {
-            k: v
-            for k, v in kwargs.items()
-            if k not in ["bypass_hooks", "bypass_validation"]
-        }
+        # Remove custom hook kwargs and unsupported parameters before passing to Django internals
+        unsupported_params = ["unique_fields", "update_conflicts", "update_fields", "ignore_conflicts"]
+        django_kwargs = {}
+        for k, v in kwargs.items():
+            if k in unsupported_params:
+                logger.warning(
+                    f"Parameter '{k}' is not supported by bulk_update. "
+                    f"This parameter is only available in bulk_create for UPSERT operations."
+                )
+                print(f"WARNING: Parameter '{k}' is not supported by bulk_update")
+            elif k not in ["bypass_hooks", "bypass_validation"]:
+                django_kwargs[k] = v
 
         # Safety check to prevent infinite recursion
         if len(inheritance_chain) > 10:  # Arbitrary limit to prevent infinite loops

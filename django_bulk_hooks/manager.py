@@ -56,6 +56,10 @@ class BulkHookManager(models.Manager):
         """
         Delegate to QuerySet's bulk_update implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.
+
+        Note: Parameters like unique_fields, update_conflicts, update_fields, and ignore_conflicts
+        are not supported by bulk_update and will be ignored with a warning.
+        These parameters are only available in bulk_create for UPSERT operations.
         """
         return self.get_queryset().bulk_update(
             objs,
