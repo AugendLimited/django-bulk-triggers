@@ -486,11 +486,14 @@ class HookQuerySetMixin:
         passed through to the correct logic. For MTI, only a subset of options may be supported.
         """
         model_cls, ctx, originals = self._setup_bulk_operation(
-            objs, "bulk_create", require_pks=False,
-            bypass_hooks=bypass_hooks, bypass_validation=bypass_validation,
+            objs,
+            "bulk_create",
+            require_pks=False,
+            bypass_hooks=bypass_hooks,
+            bypass_validation=bypass_validation,
             update_conflicts=update_conflicts,
             unique_fields=unique_fields,
-            update_fields=update_fields
+            update_fields=update_fields,
         )
 
         # When you bulk insert you don't get the primary keys back (if it's an
@@ -524,9 +527,7 @@ class HookQuerySetMixin:
                 existing_records = []
                 new_records = []
 
-                # Store the records for AFTER hooks to avoid duplicate queries
-                ctx.upsert_existing_records = existing_records
-                ctx.upsert_new_records = new_records
+                # We'll store the records for AFTER hooks after classification is complete
 
                 # Build a filter to check which records already exist
                 unique_values = []
@@ -535,10 +536,12 @@ class HookQuerySetMixin:
                     query_fields = {}  # Track which database field to use for each unique field
                     for field_name in unique_fields:
                         # First check for _id field (more reliable for ForeignKeys)
-                        if hasattr(obj, field_name + '_id'):
+                        if hasattr(obj, field_name + "_id"):
                             # Handle ForeignKey fields where _id suffix is used
-                            unique_value[field_name] = getattr(obj, field_name + '_id')
-                            query_fields[field_name] = field_name + '_id'  # Use _id field for query
+                            unique_value[field_name] = getattr(obj, field_name + "_id")
+                            query_fields[field_name] = (
+                                field_name + "_id"
+                            )  # Use _id field for query
                         elif hasattr(obj, field_name):
                             unique_value[field_name] = getattr(obj, field_name)
                             query_fields[field_name] = field_name
@@ -558,8 +561,12 @@ class HookQuerySetMixin:
                             filter_kwargs[db_field_name] = value
                         existing_filters |= Q(**filter_kwargs)
 
-                    logger.debug(f"DEBUG: Existence check query filters: {existing_filters}")
-                    logger.debug(f"DEBUG: Unique fields for values_list: {unique_fields}")
+                    logger.debug(
+                        f"DEBUG: Existence check query filters: {existing_filters}"
+                    )
+                    logger.debug(
+                        f"DEBUG: Unique fields for values_list: {unique_fields}"
+                    )
 
                     # Get all existing records in one query and create a lookup set
                     # We need to use the original unique_fields for values_list to maintain consistency
@@ -579,51 +586,76 @@ class HookQuerySetMixin:
                         converted_record = []
                         for i, field_name in enumerate(unique_fields):
                             db_value = existing_record[i]
-                            # Check if this field uses _id suffix in the query
-                            query_field_name = query_fields[field_name]
-                            if query_field_name.endswith('_id'):
-                                # Convert to string to match how we extract from objects
-                                converted_record.append(str(db_value))
-                            else:
-                                converted_record.append(db_value)
+                            # Convert all values to strings for consistent comparison
+                            # This ensures all database values are strings like object values
+                            converted_record.append(str(db_value))
                         converted_tuple = tuple(converted_record)
                         existing_records_lookup.add(converted_tuple)
 
-                    logger.debug(f"DEBUG: Found {len(raw_existing)} existing records from DB")
-                    logger.debug(f"DEBUG: Existing records lookup set: {existing_records_lookup}")
+                    logger.debug(
+                        f"DEBUG: Found {len(raw_existing)} existing records from DB"
+                    )
+                    logger.debug(
+                        f"DEBUG: Existing records lookup set: {existing_records_lookup}"
+                    )
 
                     # Separate records based on whether they already exist
                     for obj in objs:
                         obj_unique_value = {}
                         for field_name in unique_fields:
                             # First check for _id field (more reliable for ForeignKeys)
-                            if hasattr(obj, field_name + '_id'):
+                            if hasattr(obj, field_name + "_id"):
                                 # Handle ForeignKey fields where _id suffix is used
-                                obj_unique_value[field_name] = getattr(obj, field_name + '_id')
+                                obj_unique_value[field_name] = getattr(
+                                    obj, field_name + "_id"
+                                )
                             elif hasattr(obj, field_name):
                                 obj_unique_value[field_name] = getattr(obj, field_name)
 
                         # Check if this record already exists using our bulk lookup
                         if obj_unique_value:
                             # Convert object values to tuple for comparison with existing records
-                            obj_unique_tuple = tuple(
-                                obj_unique_value[field_name]
-                                for field_name in unique_fields
+                            # Apply the same type conversion as we did for database values
+                            obj_unique_tuple = []
+                            for field_name in unique_fields:
+                                value = obj_unique_value[field_name]
+                                # Check if this field uses _id suffix in the query
+                                query_field_name = query_fields[field_name]
+                                if query_field_name.endswith("_id"):
+                                    # Convert to string to match how we convert DB values
+                                    obj_unique_tuple.append(str(value))
+                                else:
+                                    # For non-_id fields, also convert to string for consistency
+                                    # This ensures all values are strings like in the database lookup
+                                    obj_unique_tuple.append(str(value))
+                            obj_unique_tuple = tuple(obj_unique_tuple)
+
+                            logger.debug(
+                                f"DEBUG: Object unique tuple: {obj_unique_tuple}"
                             )
-                            logger.debug(f"DEBUG: Object unique tuple: {obj_unique_tuple}")
-                            logger.debug(f"DEBUG: Object unique value: {obj_unique_value}")
+                            logger.debug(
+                                f"DEBUG: Object unique value: {obj_unique_value}"
+                            )
                             if obj_unique_tuple in existing_records_lookup:
                                 existing_records.append(obj)
-                                logger.debug(f"DEBUG: Found existing record for tuple: {obj_unique_tuple}")
+                                logger.debug(
+                                    f"DEBUG: Found existing record for tuple: {obj_unique_tuple}"
+                                )
                             else:
                                 new_records.append(obj)
-                                logger.debug(f"DEBUG: No existing record found for tuple: {obj_unique_tuple}")
+                                logger.debug(
+                                    f"DEBUG: No existing record found for tuple: {obj_unique_tuple}"
+                                )
                         else:
                             # If we can't determine uniqueness, treat as new
                             new_records.append(obj)
                 else:
                     # If no unique fields, treat all as new
                     new_records = objs
+
+                # Store the classified records for AFTER hooks to avoid duplicate queries
+                ctx.upsert_existing_records = existing_records
+                ctx.upsert_new_records = new_records
 
                 # Handle auto_now fields intelligently for upsert operations
                 # Only set auto_now fields on records that will actually be created
@@ -992,7 +1024,9 @@ class HookQuerySetMixin:
 
         changed_fields = self._detect_changed_fields(objs)
         is_mti = self._is_multi_table_inheritance()
-        hook_context, originals = self._init_hook_context(bypass_hooks, objs, "bulk_update")
+        hook_context, originals = self._init_hook_context(
+            bypass_hooks, objs, "bulk_update"
+        )
 
         fields_set, auto_now_fields, custom_update_fields = self._prepare_update_fields(
             changed_fields
@@ -1175,7 +1209,9 @@ class HookQuerySetMixin:
             operation_name,
         )
 
-    def _init_hook_context(self, bypass_hooks: bool, objs, operation_name="bulk_update"):
+    def _init_hook_context(
+        self, bypass_hooks: bool, objs, operation_name="bulk_update"
+    ):
         """
         Initialize the hook context for bulk operations.
 
@@ -1192,7 +1228,9 @@ class HookQuerySetMixin:
         model_cls = self.model
 
         if bypass_hooks:
-            logger.debug("%s: hooks bypassed for %s", operation_name, model_cls.__name__)
+            logger.debug(
+                "%s: hooks bypassed for %s", operation_name, model_cls.__name__
+            )
             ctx = HookContext(model_cls, bypass_hooks=True)
         else:
             logger.debug("%s: hooks enabled for %s", operation_name, model_cls.__name__)
@@ -1311,7 +1349,18 @@ class HookQuerySetMixin:
 
         return list(set(handled_fields))  # Remove duplicates
 
-    def _execute_hooks_with_operation(self, operation_func, validate_hook, before_hook, after_hook, objs, originals=None, ctx=None, bypass_hooks=False, bypass_validation=False):
+    def _execute_hooks_with_operation(
+        self,
+        operation_func,
+        validate_hook,
+        before_hook,
+        after_hook,
+        objs,
+        originals=None,
+        ctx=None,
+        bypass_hooks=False,
+        bypass_validation=False,
+    ):
         """
         Execute the complete hook lifecycle around a database operation.
 
@@ -1371,10 +1420,21 @@ class HookQuerySetMixin:
             param_str = f", {', '.join(param_parts)}"
 
         # Use both print and logger for consistency with existing patterns
-        print(f"DEBUG: {operation_name} called for {model_cls.__name__} with {len(objs)} objects{param_str}")
-        logger.debug(f"{operation_name} called for {model_cls.__name__} with {len(objs)} objects{param_str}")
+        print(
+            f"DEBUG: {operation_name} called for {model_cls.__name__} with {len(objs)} objects{param_str}"
+        )
+        logger.debug(
+            f"{operation_name} called for {model_cls.__name__} with {len(objs)} objects{param_str}"
+        )
 
-    def _execute_delete_hooks_with_operation(self, operation_func, objs, ctx=None, bypass_hooks=False, bypass_validation=False):
+    def _execute_delete_hooks_with_operation(
+        self,
+        operation_func,
+        objs,
+        ctx=None,
+        bypass_hooks=False,
+        bypass_validation=False,
+    ):
         """
         Execute hooks for delete operations with special field caching logic.
 
@@ -1426,7 +1486,15 @@ class HookQuerySetMixin:
 
         return result
 
-    def _setup_bulk_operation(self, objs, operation_name, require_pks=False, bypass_hooks=False, bypass_validation=False, **log_kwargs):
+    def _setup_bulk_operation(
+        self,
+        objs,
+        operation_name,
+        require_pks=False,
+        bypass_hooks=False,
+        bypass_validation=False,
+        **log_kwargs,
+    ):
         """
         Common setup logic for bulk operations.
 
@@ -1445,7 +1513,9 @@ class HookQuerySetMixin:
         self._log_bulk_operation_start(operation_name, objs, **log_kwargs)
 
         # Validate objects
-        self._validate_objects(objs, require_pks=require_pks, operation_name=operation_name)
+        self._validate_objects(
+            objs, require_pks=require_pks, operation_name=operation_name
+        )
 
         # Initialize hook context
         ctx, originals = self._init_hook_context(bypass_hooks, objs, operation_name)
@@ -1986,8 +2056,11 @@ class HookQuerySetMixin:
             return 0
 
         model_cls, ctx, _ = self._setup_bulk_operation(
-            objs, "bulk_delete", require_pks=True,
-            bypass_hooks=bypass_hooks, bypass_validation=bypass_validation
+            objs,
+            "bulk_delete",
+            require_pks=True,
+            bypass_hooks=bypass_hooks,
+            bypass_validation=bypass_validation,
         )
 
         # Execute the database operation with hooks
@@ -2000,8 +2073,11 @@ class HookQuerySetMixin:
                 return 0
 
         result = self._execute_delete_hooks_with_operation(
-            delete_operation, objs, ctx=ctx,
-            bypass_hooks=bypass_hooks, bypass_validation=bypass_validation
+            delete_operation,
+            objs,
+            ctx=ctx,
+            bypass_hooks=bypass_hooks,
+            bypass_validation=bypass_validation,
         )
 
         return result
