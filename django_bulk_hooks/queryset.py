@@ -534,13 +534,14 @@ class HookQuerySetMixin:
                     unique_value = {}
                     query_fields = {}  # Track which database field to use for each unique field
                     for field_name in unique_fields:
-                        if hasattr(obj, field_name):
-                            unique_value[field_name] = getattr(obj, field_name)
-                            query_fields[field_name] = field_name
-                        elif hasattr(obj, field_name + '_id'):
+                        # First check for _id field (more reliable for ForeignKeys)
+                        if hasattr(obj, field_name + '_id'):
                             # Handle ForeignKey fields where _id suffix is used
                             unique_value[field_name] = getattr(obj, field_name + '_id')
                             query_fields[field_name] = field_name + '_id'  # Use _id field for query
+                        elif hasattr(obj, field_name):
+                            unique_value[field_name] = getattr(obj, field_name)
+                            query_fields[field_name] = field_name
                     if unique_value:
                         unique_values.append((unique_value, query_fields))
 
@@ -574,11 +575,12 @@ class HookQuerySetMixin:
                     for obj in objs:
                         obj_unique_value = {}
                         for field_name in unique_fields:
-                            if hasattr(obj, field_name):
-                                obj_unique_value[field_name] = getattr(obj, field_name)
-                            elif hasattr(obj, field_name + '_id'):
+                            # First check for _id field (more reliable for ForeignKeys)
+                            if hasattr(obj, field_name + '_id'):
                                 # Handle ForeignKey fields where _id suffix is used
                                 obj_unique_value[field_name] = getattr(obj, field_name + '_id')
+                            elif hasattr(obj, field_name):
+                                obj_unique_value[field_name] = getattr(obj, field_name)
 
                         # Check if this record already exists using our bulk lookup
                         if obj_unique_value:
