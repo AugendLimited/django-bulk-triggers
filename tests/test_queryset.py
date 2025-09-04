@@ -381,16 +381,37 @@ class TestHookQuerySetMixinIntegration(HookQuerySetTestCase):
         # Use the decorator approach instead of register_hook
         from django_bulk_hooks.decorators import bulk_hook
 
+        # Track hook calls
+        hook_calls = []
+
         @bulk_hook(HookModel, AFTER_UPDATE)
         def track_update(new_records, old_records=None, **kwargs):
-            pass
+            hook_calls.append((len(new_records), old_records is not None))
 
         try:
-            # fields are now auto-detected
-            result = self.queryset.bulk_update(self.instances)
+            # First save the instances to get primary keys
+            for instance in self.instances:
+                instance.save()
+
+            # Modify some fields so there's something to update
+            for i, instance in enumerate(self.instances):
+                instance.value = instance.value + 10  # Change the value field
+                instance.status = f"updated_{i}"  # Change the status field
+
+            # Clear hook calls to start fresh
+            hook_calls.clear()
+
+            # Now perform bulk_update using the manager (which has hook integration)
+            result = HookModel.objects.bulk_update(self.instances)
             self.assertEqual(result, 3)
+
+            # Verify hooks were called
+            self.assertEqual(len(hook_calls), 1)
+            self.assertEqual(hook_calls[0][0], 3)  # 3 records updated
+            self.assertTrue(hook_calls[0][1])  # old_records should be provided
+
         finally:
-            # Clean up the hook
+            # Clean up the hook - the decorator should handle this automatically
             pass
 
     @patch("django_bulk_hooks.queryset.engine.run")

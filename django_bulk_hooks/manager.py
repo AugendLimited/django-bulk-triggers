@@ -8,18 +8,18 @@ class BulkHookManager(models.Manager):
         # Use super().get_queryset() to let Django and MRO build the queryset
         # This ensures cooperation with other managers
         base_queryset = super().get_queryset()
-        
+
         # If the base queryset already has hook functionality, return it as-is
         if isinstance(base_queryset, HookQuerySetMixin):
             return base_queryset
-        
+
         # Otherwise, create a new HookQuerySet with the same parameters
         # This is much simpler and avoids dynamic class creation issues
         return HookQuerySet(
             model=base_queryset.model,
             query=base_queryset.query,
             using=base_queryset._db,
-            hints=base_queryset._hints
+            hints=base_queryset._hints,
         )
 
     def bulk_create(
@@ -50,9 +50,7 @@ class BulkHookManager(models.Manager):
             **kwargs,
         )
 
-    def bulk_update(
-        self, objs, bypass_hooks=False, bypass_validation=False, **kwargs
-    ):
+    def bulk_update(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
         """
         Delegate to QuerySet's bulk_update implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.
