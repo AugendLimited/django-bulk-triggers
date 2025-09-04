@@ -485,19 +485,12 @@ class HookQuerySetMixin:
         but supports multi-table inheritance (MTI) models and hooks. All arguments are supported and
         passed through to the correct logic. For MTI, only a subset of options may be supported.
         """
-        model_cls = self.model
-
-        print(
-            f"DEBUG: bulk_create called for {model_cls.__name__} with {len(objs)} objects"
-        )
-        print(
-            f"DEBUG: update_conflicts={update_conflicts}, unique_fields={unique_fields}, update_fields={update_fields}"
-        )
-        logger.debug(
-            f"bulk_create called for {model_cls.__name__} with {len(objs)} objects"
-        )
-        logger.debug(
-            f"update_conflicts={update_conflicts}, unique_fields={unique_fields}, update_fields={update_fields}"
+        model_cls, ctx, originals = self._setup_bulk_operation(
+            objs, "bulk_create", require_pks=False,
+            bypass_hooks=bypass_hooks, bypass_validation=bypass_validation,
+            update_conflicts=update_conflicts,
+            unique_fields=unique_fields,
+            update_fields=update_fields
         )
 
         # When you bulk insert you don't get the primary keys back (if it's an
@@ -525,8 +518,6 @@ class HookQuerySetMixin:
 
         # Fire hooks before DB ops
         if not bypass_hooks:
-            ctx = HookContext(model_cls, bypass_hooks=False)  # Pass bypass_hooks
-
             if update_conflicts and unique_fields:
                 # For upsert operations, we need to determine which records will be created vs updated
                 # Check which records already exist in the database based on unique fields
@@ -726,7 +717,6 @@ class HookQuerySetMixin:
                     engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
                 engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
         else:
-            ctx = HookContext(model_cls, bypass_hooks=True)  # Pass bypass_hooks
             logger.debug("bulk_create bypassed hooks")
 
         # For MTI models, we need to handle them specially
@@ -1278,6 +1268,147 @@ class HookQuerySetMixin:
 
         return list(set(handled_fields))  # Remove duplicates
 
+    def _execute_hooks_with_operation(self, operation_func, validate_hook, before_hook, after_hook, objs, originals=None, ctx=None, bypass_hooks=False, bypass_validation=False):
+        """
+        Execute the complete hook lifecycle around a database operation.
+
+        Args:
+            operation_func (callable): The database operation to execute
+            validate_hook: Hook constant for validation
+            before_hook: Hook constant for before operation
+            after_hook: Hook constant for after operation
+            objs (list): Objects being operated on
+            originals (list, optional): Original objects for comparison hooks
+            ctx: Hook context
+            bypass_hooks (bool): Whether to skip hooks
+            bypass_validation (bool): Whether to skip validation hooks
+
+        Returns:
+            The result of the database operation
+        """
+        model_cls = self.model
+
+        # Run validation hooks first (if not bypassed)
+        if not bypass_validation and validate_hook:
+            engine.run(model_cls, validate_hook, objs, ctx=ctx)
+
+        # Run before hooks (if not bypassed)
+        if not bypass_hooks and before_hook:
+            engine.run(model_cls, before_hook, objs, originals, ctx=ctx)
+
+        # Execute the database operation
+        result = operation_func()
+
+        # Run after hooks (if not bypassed)
+        if not bypass_hooks and after_hook:
+            engine.run(model_cls, after_hook, objs, originals, ctx=ctx)
+
+        return result
+
+    def _log_bulk_operation_start(self, operation_name, objs, **kwargs):
+        """
+        Log the start of a bulk operation with consistent formatting.
+
+        Args:
+            operation_name (str): Name of the operation (e.g., "bulk_create")
+            objs (list): Objects being operated on
+            **kwargs: Additional parameters to log
+        """
+        model_cls = self.model
+
+        # Build parameter string for additional kwargs
+        param_str = ""
+        if kwargs:
+            param_parts = []
+            for key, value in kwargs.items():
+                if isinstance(value, (list, tuple)):
+                    param_parts.append(f"{key}={value}")
+                else:
+                    param_parts.append(f"{key}={value}")
+            param_str = f", {', '.join(param_parts)}"
+
+        # Use both print and logger for consistency with existing patterns
+        print(f"DEBUG: {operation_name} called for {model_cls.__name__} with {len(objs)} objects{param_str}")
+        logger.debug(f"{operation_name} called for {model_cls.__name__} with {len(objs)} objects{param_str}")
+
+    def _execute_delete_hooks_with_operation(self, operation_func, objs, ctx=None, bypass_hooks=False, bypass_validation=False):
+        """
+        Execute hooks for delete operations with special field caching logic.
+
+        Args:
+            operation_func (callable): The delete operation to execute
+            objs (list): Objects being deleted
+            ctx: Hook context
+            bypass_hooks (bool): Whether to skip hooks
+            bypass_validation (bool): Whether to skip validation hooks
+
+        Returns:
+            The result of the delete operation
+        """
+        model_cls = self.model
+
+        # Run validation hooks first (if not bypassed)
+        if not bypass_validation:
+            engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
+
+        # Run before hooks (if not bypassed)
+        if not bypass_hooks:
+            engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
+
+            # Before deletion, ensure all related fields are properly cached
+            # to avoid DoesNotExist errors in AFTER_DELETE hooks
+            for obj in objs:
+                if obj.pk is not None:
+                    # Cache all foreign key relationships by accessing them
+                    for field in model_cls._meta.fields:
+                        if (
+                            field.is_relation
+                            and not field.many_to_many
+                            and not field.one_to_many
+                        ):
+                            try:
+                                # Access the related field to cache it before deletion
+                                getattr(obj, field.name)
+                            except Exception:
+                                # If we can't access the field (e.g., already deleted, no permission, etc.)
+                                # continue with other fields
+                                pass
+
+        # Execute the database operation
+        result = operation_func()
+
+        # Run after hooks (if not bypassed)
+        if not bypass_hooks:
+            engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
+
+        return result
+
+    def _setup_bulk_operation(self, objs, operation_name, require_pks=False, bypass_hooks=False, bypass_validation=False, **log_kwargs):
+        """
+        Common setup logic for bulk operations.
+
+        Args:
+            objs (list): Objects to operate on
+            operation_name (str): Name of the operation for logging and validation
+            require_pks (bool): Whether objects must have primary keys
+            bypass_hooks (bool): Whether to bypass hooks
+            bypass_validation (bool): Whether to bypass validation
+            **log_kwargs: Additional parameters to log
+
+        Returns:
+            tuple: (model_cls, ctx, originals)
+        """
+        # Log operation start
+        self._log_bulk_operation_start(operation_name, objs, **log_kwargs)
+
+        # Validate objects
+        self._validate_objects(objs, require_pks=require_pks, operation_name=operation_name)
+
+        # Initialize hook context
+        ctx, originals = self._init_hook_context(bypass_hooks, objs, operation_name)
+
+        return self.model, ctx, originals
+
     def _is_multi_table_inheritance(self) -> bool:
         """
         Determine whether this model uses multi-table inheritance (MTI).
@@ -1811,50 +1942,24 @@ class HookQuerySetMixin:
         if not objs:
             return 0
 
-        self._validate_objects(objs, require_pks=True, operation_name="bulk_delete")
-
-        logger.debug(
-            f"bulk_delete {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)}"
+        model_cls, ctx, _ = self._setup_bulk_operation(
+            objs, "bulk_delete", require_pks=True,
+            bypass_hooks=bypass_hooks, bypass_validation=bypass_validation
         )
 
-        # Fire hooks before DB ops
-        ctx, _ = self._init_hook_context(bypass_hooks, objs, "bulk_delete")
-        if not bypass_hooks:
-            if not bypass_validation:
-                engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
-            engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
+        # Execute the database operation with hooks
+        def delete_operation():
+            pks = [obj.pk for obj in objs if obj.pk is not None]
+            if pks:
+                # Use the base manager to avoid recursion
+                return self.model._base_manager.filter(pk__in=pks).delete()[0]
+            else:
+                return 0
 
-        # Before deletion, ensure all related fields are properly cached
-        # to avoid DoesNotExist errors in AFTER_DELETE hooks
-        if not bypass_hooks:
-            for obj in objs:
-                if obj.pk is not None:
-                    # Cache all foreign key relationships by accessing them
-                    for field in model_cls._meta.fields:
-                        if (
-                            field.is_relation
-                            and not field.many_to_many
-                            and not field.one_to_many
-                        ):
-                            try:
-                                # Access the related field to cache it before deletion
-                                getattr(obj, field.name)
-                            except Exception:
-                                # If we can't access the field (e.g., already deleted, no permission, etc.)
-                                # continue with other fields
-                                pass
-
-        # Use Django's standard delete() method on the queryset
-        pks = [obj.pk for obj in objs if obj.pk is not None]
-        if pks:
-            # Use the base manager to avoid recursion
-            result = self.model._base_manager.filter(pk__in=pks).delete()[0]
-        else:
-            result = 0
-
-        # Fire AFTER_DELETE hooks
-        if not bypass_hooks:
-            engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
+        result = self._execute_delete_hooks_with_operation(
+            delete_operation, objs, ctx=ctx,
+            bypass_hooks=bypass_hooks, bypass_validation=bypass_validation
+        )
 
         return result
 
