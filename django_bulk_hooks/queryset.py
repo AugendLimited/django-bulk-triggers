@@ -532,27 +532,33 @@ class HookQuerySetMixin:
                 unique_values = []
                 for obj in objs:
                     unique_value = {}
+                    query_fields = {}  # Track which database field to use for each unique field
                     for field_name in unique_fields:
                         if hasattr(obj, field_name):
                             unique_value[field_name] = getattr(obj, field_name)
+                            query_fields[field_name] = field_name
                         elif hasattr(obj, field_name + '_id'):
                             # Handle ForeignKey fields where _id suffix is used
                             unique_value[field_name] = getattr(obj, field_name + '_id')
+                            query_fields[field_name] = field_name + '_id'  # Use _id field for query
                     if unique_value:
-                        unique_values.append(unique_value)
+                        unique_values.append((unique_value, query_fields))
 
                 if unique_values:
                     # Query the database to see which records already exist - SINGLE BULK QUERY
                     from django.db.models import Q
 
                     existing_filters = Q()
-                    for unique_value in unique_values:
+                    for unique_value, query_fields in unique_values:
                         filter_kwargs = {}
                         for field_name, value in unique_value.items():
-                            filter_kwargs[field_name] = value
+                            # Use the correct database field name (may include _id suffix)
+                            db_field_name = query_fields[field_name]
+                            filter_kwargs[db_field_name] = value
                         existing_filters |= Q(**filter_kwargs)
 
                     # Get all existing records in one query and create a lookup set
+                    # We need to use the original unique_fields for values_list to maintain consistency
                     existing_records_lookup = set()
                     for existing_record in model_cls.objects.filter(
                         existing_filters
