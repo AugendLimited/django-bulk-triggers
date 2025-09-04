@@ -186,8 +186,8 @@ def bulk_hook(model_cls, event, when=None, priority=None):
             def __init__(self):
                 self.func = func
 
-            def handle(self, new_instances, original_instances):
-                return self.func(new_instances, original_instances)
+            def handle(self, new_records=None, old_records=None, **kwargs):
+                return self.func(new_records, old_records)
 
         # Register the hook using the registry
         register_hook(
