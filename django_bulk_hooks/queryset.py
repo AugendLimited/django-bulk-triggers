@@ -518,21 +518,10 @@ class HookQuerySetMixin:
         if not objs:
             return objs
 
-        if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(
-                f"bulk_create expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
-            )
+        self._validate_objects(objs, require_pks=False, operation_name="bulk_create")
 
         # Check for MTI - if we detect multi-table inheritance, we need special handling
-        # This follows Django's approach: check that the parents share the same concrete model
-        # with our model to detect the inheritance pattern ConcreteGrandParent ->
-        # MultiTableParent -> ProxyChild. Simply checking self.model._meta.proxy would not
-        # identify that case as involving multiple tables.
-        is_mti = False
-        for parent in model_cls._meta.all_parents:
-            if parent._meta.concrete_model is not model_cls._meta.concrete_model:
-                is_mti = True
-                break
+        is_mti = self._is_multi_table_inheritance()
 
         # Fire hooks before DB ops
         if not bypass_hooks:
@@ -604,13 +593,7 @@ class HookQuerySetMixin:
 
                 # Handle auto_now fields intelligently for upsert operations
                 # Only set auto_now fields on records that will actually be created
-                for obj in new_records:
-                    for field in model_cls._meta.local_fields:
-                        if hasattr(field, "auto_now") and field.auto_now:
-                            field.pre_save(obj, add=True)
-                        elif hasattr(field, "auto_now_add") and field.auto_now_add:
-                            if getattr(obj, field.name) is None:
-                                field.pre_save(obj, add=True)
+                self._handle_auto_now_fields(new_records, add=True)
 
                 # For existing records, preserve their original auto_now values
                 # We'll need to fetch them from the database to preserve the timestamps
@@ -737,13 +720,7 @@ class HookQuerySetMixin:
             else:
                 # For regular create operations, run create hooks before DB ops
                 # Handle auto_now fields normally for new records
-                for obj in objs:
-                    for field in model_cls._meta.local_fields:
-                        if hasattr(field, "auto_now") and field.auto_now:
-                            field.pre_save(obj, add=True)
-                        elif hasattr(field, "auto_now_add") and field.auto_now_add:
-                            if getattr(obj, field.name) is None:
-                                field.pre_save(obj, add=True)
+                self._handle_auto_now_fields(objs, add=True)
 
                 if not bypass_validation:
                     engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
@@ -978,11 +955,11 @@ class HookQuerySetMixin:
         if not objs:
             return []
 
-        self._validate_objects(objs)
+        self._validate_objects(objs, require_pks=True, operation_name="bulk_update")
 
         changed_fields = self._detect_changed_fields(objs)
         is_mti = self._is_multi_table_inheritance()
-        hook_context, originals = self._init_hook_context(bypass_hooks, objs)
+        hook_context, originals = self._init_hook_context(bypass_hooks, objs, "bulk_update")
 
         fields_set, auto_now_fields, custom_update_fields = self._prepare_update_fields(
             changed_fields
@@ -1128,10 +1105,14 @@ class HookQuerySetMixin:
         logger.debug("Built value_map for %d objects", len(value_map))
         return value_map
 
-    def _validate_objects(self, objs):
+    def _validate_objects(self, objs, require_pks=False, operation_name="bulk_update"):
         """
-        Validate that all objects are instances of this queryset's model
-        and that they have primary keys (cannot bulk update unsaved objects).
+        Validate that all objects are instances of this queryset's model.
+
+        Args:
+            objs (list): Objects to validate
+            require_pks (bool): Whether to validate that objects have primary keys
+            operation_name (str): Name of the operation for error messages
         """
         model_cls = self.model
 
@@ -1141,27 +1122,34 @@ class HookQuerySetMixin:
         }
         if invalid_types:
             raise TypeError(
-                f"bulk_update expected instances of {model_cls.__name__}, "
+                f"{operation_name} expected instances of {model_cls.__name__}, "
                 f"but got {invalid_types}"
             )
 
-        # Primary key check
-        missing_pks = [obj for obj in objs if obj.pk is None]
-        if missing_pks:
-            raise ValueError(
-                f"bulk_update cannot operate on unsaved {model_cls.__name__} instances. "
-                f"{len(missing_pks)} object(s) have no primary key."
-            )
+        # Primary key check (optional, for operations that require saved objects)
+        if require_pks:
+            missing_pks = [obj for obj in objs if obj.pk is None]
+            if missing_pks:
+                raise ValueError(
+                    f"{operation_name} cannot operate on unsaved {model_cls.__name__} instances. "
+                    f"{len(missing_pks)} object(s) have no primary key."
+                )
 
         logger.debug(
-            "Validated %d %s objects for bulk_update",
+            "Validated %d %s objects for %s",
             len(objs),
             model_cls.__name__,
+            operation_name,
         )
 
-    def _init_hook_context(self, bypass_hooks: bool, objs):
+    def _init_hook_context(self, bypass_hooks: bool, objs, operation_name="bulk_update"):
         """
-        Initialize the hook context for bulk_update.
+        Initialize the hook context for bulk operations.
+
+        Args:
+            bypass_hooks (bool): Whether to bypass hooks
+            objs (list): List of objects being operated on
+            operation_name (str): Name of the operation for logging
 
         Returns:
             (HookContext, list): The hook context and a placeholder list
@@ -1171,10 +1159,10 @@ class HookQuerySetMixin:
         model_cls = self.model
 
         if bypass_hooks:
-            logger.debug("bulk_update: hooks bypassed for %s", model_cls.__name__)
+            logger.debug("%s: hooks bypassed for %s", operation_name, model_cls.__name__)
             ctx = HookContext(model_cls, bypass_hooks=True)
         else:
-            logger.debug("bulk_update: hooks enabled for %s", model_cls.__name__)
+            logger.debug("%s: hooks enabled for %s", operation_name, model_cls.__name__)
             ctx = HookContext(model_cls, bypass_hooks=False)
 
         # Keep `originals` aligned with objs to support later hook execution.
@@ -1234,13 +1222,14 @@ class HookQuerySetMixin:
 
         return fields_set, auto_now_fields, custom_update_fields
 
-    def _apply_auto_now_fields(self, objs, auto_now_fields):
+    def _apply_auto_now_fields(self, objs, auto_now_fields, add=False):
         """
         Apply the current timestamp to all auto_now fields on each object.
 
         Args:
-            objs (list[Model]): The model instances being updated.
+            objs (list[Model]): The model instances being processed.
             auto_now_fields (list[str]): Field names that require auto_now behavior.
+            add (bool): Whether this is for creation (add=True) or update (add=False).
         """
         if not auto_now_fields:
             return
@@ -1250,15 +1239,44 @@ class HookQuerySetMixin:
         current_time = timezone.now()
 
         logger.debug(
-            "Setting auto_now fields %s to %s for %d objects",
+            "Setting auto_now fields %s to %s for %d objects (add=%s)",
             auto_now_fields,
             current_time,
             len(objs),
+            add,
         )
 
         for obj in objs:
             for field_name in auto_now_fields:
                 setattr(obj, field_name, current_time)
+
+    def _handle_auto_now_fields(self, objs, add=False):
+        """
+        Handle auto_now and auto_now_add fields for objects.
+
+        Args:
+            objs (list[Model]): The model instances being processed.
+            add (bool): Whether this is for creation (add=True) or update (add=False).
+
+        Returns:
+            list[str]: Names of auto_now fields that were handled.
+        """
+        model_cls = self.model
+        handled_fields = []
+
+        for obj in objs:
+            for field in model_cls._meta.local_fields:
+                # Handle auto_now_add only during creation
+                if add and hasattr(field, "auto_now_add") and field.auto_now_add:
+                    if getattr(obj, field.name) is None:
+                        field.pre_save(obj, add=True)
+                    handled_fields.append(field.name)
+                # Handle auto_now during creation or update
+                elif hasattr(field, "auto_now") and field.auto_now:
+                    field.pre_save(obj, add=add)
+                    handled_fields.append(field.name)
+
+        return list(set(handled_fields))  # Remove duplicates
 
     def _is_multi_table_inheritance(self) -> bool:
         """
@@ -1271,7 +1289,7 @@ class HookQuerySetMixin:
                 logger.debug(
                     "%s detected as MTI model (parent: %s)",
                     model_cls.__name__,
-                    parent.__name__,
+                    getattr(parent, "__name__", str(parent)),
                 )
                 return True
 
@@ -1793,24 +1811,18 @@ class HookQuerySetMixin:
         if not objs:
             return 0
 
-        if any(not isinstance(obj, model_cls) for obj in objs):
-            raise TypeError(
-                f"bulk_delete expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
-            )
+        self._validate_objects(objs, require_pks=True, operation_name="bulk_delete")
 
         logger.debug(
             f"bulk_delete {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)}"
         )
 
         # Fire hooks before DB ops
+        ctx, _ = self._init_hook_context(bypass_hooks, objs, "bulk_delete")
         if not bypass_hooks:
-            ctx = HookContext(model_cls, bypass_hooks=False)
             if not bypass_validation:
                 engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
             engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
-        else:
-            ctx = HookContext(model_cls, bypass_hooks=True)
-            logger.debug("bulk_delete bypassed hooks")
 
         # Before deletion, ensure all related fields are properly cached
         # to avoid DoesNotExist errors in AFTER_DELETE hooks
