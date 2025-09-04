@@ -51,7 +51,7 @@ class BulkHookManager(models.Manager):
         )
 
     def bulk_update(
-        self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs
+        self, objs, bypass_hooks=False, bypass_validation=False, **kwargs
     ):
         """
         Delegate to QuerySet's bulk_update implementation.
@@ -59,7 +59,6 @@ class BulkHookManager(models.Manager):
         """
         return self.get_queryset().bulk_update(
             objs,
-            fields,
             bypass_hooks=bypass_hooks,
             bypass_validation=bypass_validation,
             **kwargs,
@@ -104,10 +103,8 @@ class BulkHookManager(models.Manager):
         Save a single object using the appropriate bulk operation.
         """
         if obj.pk:
-            self.bulk_update(
-                [obj],
-                fields=[field.name for field in obj._meta.fields if field.name != "id"],
-            )
+            # bulk_update now auto-detects changed fields
+            self.bulk_update([obj])
         else:
             self.bulk_create([obj])
         return obj

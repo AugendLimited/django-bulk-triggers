@@ -386,8 +386,8 @@ class TestHookQuerySetMixinIntegration(HookQuerySetTestCase):
             pass
 
         try:
-            fields = ["name", "value"]
-            result = self.queryset.bulk_update(self.instances, fields)
+            # fields are now auto-detected
+            result = self.queryset.bulk_update(self.instances)
             self.assertEqual(result, 3)
         finally:
             # Clean up the hook

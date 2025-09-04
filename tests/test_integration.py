@@ -393,10 +393,8 @@ class TestFullSystemIntegration(TestCase):
             instance.value *= 2
             instance.status = "updated"
 
-        # Perform bulk_update
-        updated_count = HookModel.objects.bulk_update(
-            created_instances, ["value", "status"]
-        )
+        # Perform bulk_update - fields are auto-detected
+        updated_count = HookModel.objects.bulk_update(created_instances)
 
         # Verify hooks were called
         self.assertEqual(len(hook_instance.tracker.before_update_calls), 1)
@@ -469,7 +467,7 @@ class TestFullSystemIntegration(TestCase):
             # i == 2: No change
 
         # Only changed instances should trigger the hook
-        HookModel.objects.bulk_update(created_instances, ["status"])
+        HookModel.objects.bulk_update(created_instances)
         self.assertEqual(len(hook_instance.tracker.before_update_calls), 1)
 
     def test_hooks_with_priorities(self):
@@ -613,11 +611,11 @@ class TestFullSystemIntegration(TestCase):
         created_instances[1].status = "inactive"
 
         # Only the changed instances should trigger the hook
-        HookModel.objects.bulk_update(created_instances, ["status"])
+        HookModel.objects.bulk_update(created_instances)
         self.assertEqual(len(hook_instance.tracker.before_update_calls), 1)
 
         # Update again without changes
-        HookModel.objects.bulk_update(created_instances, ["status"])
+        HookModel.objects.bulk_update(created_instances)
         self.assertEqual(
             len(hook_instance.tracker.before_update_calls), 1
         )  # No additional calls
@@ -667,10 +665,10 @@ class TestFullSystemIntegration(TestCase):
         self.assertEqual(len(created_instances), 100)
 
         # Test bulk_update performance
-        # The current implementation does individual queries for each instance
-        # plus the bulk update query, so we expect more than 1 query
-        with self.assertNumQueries(212):  # 100 individual SELECTs + 1 bulk UPDATE + 1 bulk SELECT + 6 transaction queries + additional pre_save queries
-            updated_count = HookModel.objects.bulk_update(created_instances, ["value"])
+        # The auto-detection implementation does additional queries to detect changes
+        # plus the bulk update query, so we expect more queries
+        with self.assertNumQueries(313):  # Additional SELECT for auto-detection + previous queries
+            updated_count = HookModel.objects.bulk_update(created_instances)
 
         self.assertEqual(updated_count, 100)
 
@@ -764,7 +762,7 @@ class TestRealWorldScenarios(TestCase):
         created_items[1].value = 8  # Goes below 10
         created_items[2].value = 20  # Stays above 10
 
-        HookModel.objects.bulk_update(created_items, ["value"])
+        HookModel.objects.bulk_update(created_items)
 
         # Verify low stock alerts
         self.assertEqual(len(InventoryHook.low_stock_alerts), 2)
@@ -796,7 +794,7 @@ class TestRealWorldScenarios(TestCase):
         # Update statuses
         created_records[0].status = "published"
         created_records[1].status = "archived"
-        HookModel.objects.bulk_update(created_records, ["status"])
+        HookModel.objects.bulk_update(created_records)
 
         # Delete one record
         HookModel.objects.bulk_delete([created_records[0]])

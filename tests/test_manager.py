@@ -72,16 +72,14 @@ class TestBulkHookManager(TestCase):
     def test_bulk_update_delegates_to_queryset(self):
         """Test that bulk_update delegates to queryset."""
         test_instances = create_test_instances(HookModel, 3)
-        fields = ["name", "value"]
-
         with patch.object(self.manager, "get_queryset") as mock_get_queryset:
             mock_queryset = MagicMock()
             mock_get_queryset.return_value = mock_queryset
 
-            self.manager.bulk_update(test_instances, fields, bypass_hooks=False)
+            self.manager.bulk_update(test_instances, bypass_hooks=False)
 
             mock_queryset.bulk_update.assert_called_once_with(
-                test_instances, fields, bypass_hooks=False, bypass_validation=False
+                test_instances, bypass_hooks=False, bypass_validation=False
             )
 
     def test_bulk_delete_delegates_to_queryset(self):
@@ -153,7 +151,6 @@ class TestBulkHookManager(TestCase):
     def test_bulk_update_with_all_parameters(self):
         """Test bulk_update with all possible parameters."""
         test_instances = create_test_instances(HookModel, 3)
-        fields = ["name", "value"]
 
         with patch.object(self.manager, "get_queryset") as mock_get_queryset:
             mock_queryset = MagicMock()
@@ -161,7 +158,6 @@ class TestBulkHookManager(TestCase):
 
             self.manager.bulk_update(
                 test_instances,
-                fields,
                 batch_size=50,
                 bypass_hooks=True,
                 bypass_validation=True,
@@ -169,7 +165,6 @@ class TestBulkHookManager(TestCase):
 
             mock_queryset.bulk_update.assert_called_once_with(
                 test_instances,
-                fields,
                 batch_size=50,
                 bypass_hooks=True,
                 bypass_validation=True,
@@ -207,7 +202,7 @@ class TestBulkHookManagerIntegration(TestCase):
         for instance in created_instances:
             instance.value *= 2
 
-        updated_count = HookModel.objects.bulk_update(created_instances, ["value"])
+        updated_count = HookModel.objects.bulk_update(created_instances)
         self.assertEqual(updated_count, 3)
 
         # Verify updates
@@ -323,10 +318,10 @@ class TestBulkHookManagerIntegration(TestCase):
         for instance in created_instances:
             instance.value *= 2
 
-        # With hooks enabled, we expect 7 queries:
-        # SAVEPOINT, SAVEPOINT, SELECT originals (batch 1), SELECT originals (batch 2), UPDATE, RELEASE, RELEASE
-        with self.assertNumQueries(7):  # Correct behavior when hooks are enabled
-            updated_count = SimpleModel.objects.bulk_update(created_instances, ["value"])
+        # With hooks enabled, we expect 8 queries (auto-detection adds 1 query):
+        # SAVEPOINT, SAVEPOINT, SELECT originals (batch 1), SELECT originals (batch 2), SELECT for auto-detection, UPDATE, RELEASE, RELEASE
+        with self.assertNumQueries(8):  # Correct behavior when hooks are enabled
+            updated_count = SimpleModel.objects.bulk_update(created_instances)
 
         self.assertEqual(updated_count, 100)
 
@@ -356,7 +351,7 @@ class TestBulkHookManagerEdgeCases(TestCase):
         self.assertEqual(result, [])
 
         # Test bulk_update with empty list
-        result = self.manager.bulk_update([], ["name"])
+        result = self.manager.bulk_update([])
         self.assertEqual(result, [])  # Current implementation returns [] for empty lists
 
         # Test bulk_delete with empty list

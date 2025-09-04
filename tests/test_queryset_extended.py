@@ -763,8 +763,8 @@ class AutoNowFieldIntegrationTest(IntegrationTestBase):
                 )
                 test_objs.append(obj)
 
-            # Perform bulk_update with auto_now fields in field list
-            result = HookModel.objects.bulk_update(test_objs, ['name', 'updated_at'])
+            # Perform bulk_update - fields are auto-detected
+            result = HookModel.objects.bulk_update(test_objs)
 
             self.assertEqual(result, 2)
 
@@ -1488,8 +1488,8 @@ class MTIIntegrationTest(IntegrationTestBase):
             obj1 = HookModel.objects.create(name="MTI Update 1", value=100, category=self.category1)
             obj2 = HookModel.objects.create(name="MTI Update 2", value=200, category=self.category2)
 
-            # Update using bulk_update
-            result = HookModel.objects.bulk_update([obj1, obj2], ['value'])
+            # Update using bulk_update - fields are auto-detected
+            result = HookModel.objects.bulk_update([obj1, obj2])
 
             self.assertEqual(result, 2)
 

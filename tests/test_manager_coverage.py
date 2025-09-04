@@ -57,8 +57,8 @@ class TestManagerCoverage(TestCase):
 
             result = self.manager.save(mock_obj)
 
-            # Should call bulk_update with correct fields (excluding 'id')
-            mock_bulk_update.assert_called_once_with([mock_obj], fields=['name', 'value'])
+            # Should call bulk_update (fields are auto-detected)
+            mock_bulk_update.assert_called_once_with([mock_obj])
             self.assertEqual(result, mock_obj)
     
     def test_save_with_new_object(self):

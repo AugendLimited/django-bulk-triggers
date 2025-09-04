@@ -846,12 +846,70 @@ class HookQuerySetMixin:
 
         return result
 
+    def _detect_changed_fields(self, objs):
+        """
+        Auto-detect which fields have changed by comparing objects with database values.
+        Returns a set of field names that have changed across all objects.
+        """
+        if not objs:
+            return set()
+
+        model_cls = self.model
+        changed_fields = set()
+
+        # Get primary key field names
+        pk_fields = [f.name for f in model_cls._meta.pk_fields]
+        if not pk_fields:
+            pk_fields = ['pk']
+
+        # Get all object PKs
+        obj_pks = []
+        for obj in objs:
+            if hasattr(obj, 'pk') and obj.pk is not None:
+                obj_pks.append(obj.pk)
+            else:
+                # Skip objects without PKs
+                continue
+
+        if not obj_pks:
+            return set()
+
+        # Fetch current database values for all objects
+        existing_objs = {obj.pk: obj for obj in model_cls.objects.filter(pk__in=obj_pks)}
+
+        # Compare each object's current values with database values
+        for obj in objs:
+            if obj.pk not in existing_objs:
+                continue
+
+            db_obj = existing_objs[obj.pk]
+
+            # Check all concrete fields for changes
+            for field in model_cls._meta.concrete_fields:
+                field_name = field.name
+
+                # Skip primary key fields
+                if field_name in pk_fields:
+                    continue
+
+                # Get current value from object
+                current_value = getattr(obj, field_name, None)
+                # Get database value
+                db_value = getattr(db_obj, field_name, None)
+
+                # Compare values (handle None cases)
+                if current_value != db_value:
+                    changed_fields.add(field_name)
+
+        return changed_fields
+
     @transaction.atomic
     def bulk_update(
-        self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs
+        self, objs, bypass_hooks=False, bypass_validation=False, **kwargs
     ):
         """
         Bulk update objects in the database with MTI support.
+        Automatically detects which fields have changed by comparing with database values.
         """
         model_cls = self.model
 
@@ -863,10 +921,14 @@ class HookQuerySetMixin:
                 f"bulk_update expected instances of {model_cls.__name__}, but got {set(type(obj).__name__ for obj in objs)}"
             )
 
+        # Auto-detect changed fields by comparing with database values
+        changed_fields = self._detect_changed_fields(objs)
+        logger.debug(f"Auto-detected changed fields: {changed_fields}")
+
         logger.debug(
-            f"bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)} fields={fields}"
+            f"bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)} changed_fields={changed_fields}"
         )
-        print(f"DEBUG: bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)} fields={fields}")
+        print(f"DEBUG: bulk_update {model_cls.__name__} bypass_hooks={bypass_hooks} objs={len(objs)} changed_fields={changed_fields}")
 
         # Check for MTI
         is_mti = False
@@ -887,7 +949,7 @@ class HookQuerySetMixin:
             )  # Ensure originals is defined for after_update call
 
         # Handle auto_now fields like Django's update_or_create does
-        fields_set = set(fields)
+        fields_set = set(changed_fields)
         pk_fields = model_cls._meta.pk_fields
         pk_field_names = [f.name for f in pk_fields]
         auto_now_fields = []
@@ -921,7 +983,6 @@ class HookQuerySetMixin:
         
         logger.debug(f"Auto_now fields detected: {auto_now_fields}")
         print(f"DEBUG: Auto_now fields detected: {auto_now_fields}")
-        fields = list(fields_set)
         
         # Set auto_now field values to current timestamp
         if auto_now_fields:
@@ -949,7 +1010,6 @@ class HookQuerySetMixin:
                             # Add this field to the update fields if it's not already there and not a primary key
                             if field.name not in fields_set and field.name not in pk_field_names:
                                 fields_set.add(field.name)
-                                fields.append(field.name)
                             logger.debug(f"Custom field {field.name} updated via pre_save() for object {obj.pk}")
                             print(f"DEBUG: Custom field {field.name} updated via pre_save() for object {obj.pk}")
                     except Exception as e:
@@ -958,7 +1018,7 @@ class HookQuerySetMixin:
 
         # Handle MTI models differently
         if is_mti:
-            result = self._mti_bulk_update(objs, fields, **kwargs)
+            result = self._mti_bulk_update(objs, list(fields_set), **kwargs)
         else:
             # For single-table models, use Django's built-in bulk_update
             django_kwargs = {
@@ -970,12 +1030,12 @@ class HookQuerySetMixin:
             print("DEBUG: Calling Django bulk_update")
             # Build a per-object concrete value map to avoid leaking expressions into hooks
             value_map = {}
-            logger.debug(f"Building value map for {len(objs)} objects with fields: {fields}")
+            logger.debug(f"Building value map for {len(objs)} objects with fields: {list(fields_set)}")
             for obj in objs:
                 if obj.pk is None:
                     continue
                 field_values = {}
-                for field_name in fields:
+                for field_name in fields_set:
                     # Capture raw values assigned on the object (not expressions)
                     field_values[field_name] = getattr(obj, field_name)
                     if field_name in auto_now_fields:
@@ -988,7 +1048,7 @@ class HookQuerySetMixin:
                 set_bulk_update_value_map(value_map)
 
             try:
-                result = super().bulk_update(objs, fields, **django_kwargs)
+                result = super().bulk_update(objs, list(fields_set), **django_kwargs)
             finally:
                 # Always clear after the internal update() path finishes
                 set_bulk_update_value_map(None)
