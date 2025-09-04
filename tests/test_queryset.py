@@ -331,6 +331,18 @@ class TestHookQuerySetMixin(HookQuerySetTestCase):
         # No hooks should run for invalid types
         self.assertEqual(mock_run.call_count, 0)
 
+    def test_bulk_create_batch_size_validation(self):
+        """Test bulk_create method validates batch_size parameter."""
+        new_instances = create_test_instances(HookModel, 2)
+
+        # Test negative batch size - this should raise ValueError from line 504
+        with self.assertRaises(ValueError):
+            self.queryset.bulk_create(new_instances, batch_size=-1)
+
+        # Test zero batch size - this should also raise ValueError from line 504
+        with self.assertRaises(ValueError):
+            self.queryset.bulk_create(new_instances, batch_size=0)
+
     @patch("django_bulk_hooks.queryset.engine.run")
     def test_bulk_create_transaction_rollback(self, mock_run):
         """Test bulk_create method rolls back transaction on error."""
@@ -380,3 +392,102 @@ class TestHookQuerySetMixinIntegration(HookQuerySetTestCase):
         finally:
             # Clean up the hook
             pass
+
+    @patch("django_bulk_hooks.queryset.engine.run")
+    def test_delete_with_empty_queryset(self, mock_run):
+        """Test delete method with empty queryset."""
+        # Mock empty queryset by setting empty instances
+        self.queryset._instances = []
+        result = self.queryset.delete()
+
+        # No hooks should run for empty queryset
+        self.assertEqual(mock_run.call_count, 0)
+        self.assertEqual(result, 0)
+        # Restore instances for other tests
+        self.queryset._instances = self.instances
+
+    @patch("django_bulk_hooks.queryset.engine.run")
+    def test_update_with_empty_queryset(self, mock_run):
+        """Test update method with empty queryset."""
+        # Mock empty queryset by setting empty instances
+        self.queryset._instances = []
+        result = self.queryset.update(name="Updated Name")
+
+        # No hooks should run for empty queryset
+        self.assertEqual(mock_run.call_count, 0)
+        self.assertEqual(result, 0)
+        # Restore instances for other tests
+        self.queryset._instances = self.instances
+
+    @patch("django_bulk_hooks.queryset.engine.run")
+    def test_update_bypass_hooks(self, mock_run):
+        """Test update method respects bypass_hooks context."""
+        # Use the context manager from django_bulk_hooks.context
+        from django_bulk_hooks.context import set_bypass_hooks
+
+        # Set bypass hooks
+        set_bypass_hooks(True)
+
+        try:
+            result = self.queryset.update(name="Updated Name")
+
+            # No hooks should run when bypassing
+            self.assertEqual(mock_run.call_count, 0)
+            self.assertEqual(result, 3)
+        finally:
+            # Clean up
+            set_bypass_hooks(False)
+
+    @patch("django_bulk_hooks.queryset.engine.run")
+    def test_bulk_create_empty_objects(self, mock_run):
+        """Test bulk_create method with empty objects list."""
+        result = self.queryset.bulk_create([])
+
+        # No hooks should run for empty objects
+        self.assertEqual(mock_run.call_count, 0)
+        self.assertEqual(result, [])
+
+    @patch("django_bulk_hooks.queryset.engine.run")
+    def test_bulk_create_bypass_hooks(self, mock_run):
+        """Test bulk_create method respects bypass_hooks parameter."""
+        new_instances = create_test_instances(HookModel, 2)
+
+        result = self.queryset.bulk_create(new_instances, bypass_hooks=True)
+
+        # No hooks should run when bypassing
+        self.assertEqual(mock_run.call_count, 0)
+        self.assertEqual(result, new_instances)
+
+    @patch("django_bulk_hooks.queryset.engine.run")
+    def test_bulk_create_bypass_validation(self, mock_run):
+        """Test bulk_create method respects bypass_validation parameter."""
+        new_instances = create_test_instances(HookModel, 2)
+
+        result = self.queryset.bulk_create(new_instances, bypass_validation=True)
+
+        # Only BEFORE_CREATE should run
+        self.assertEqual(mock_run.call_count, 2)  # BEFORE_CREATE, AFTER_CREATE
+        self.assertEqual(result, new_instances)
+
+    @patch("django_bulk_hooks.queryset.engine.run")
+    def test_bulk_create_wrong_model_type(self, mock_run):
+        """Test bulk_create method validates model types."""
+        wrong_instances = [Mock()]  # Wrong type
+
+        with self.assertRaises(TypeError):
+            self.queryset.bulk_create(wrong_instances)
+
+        # No hooks should run for invalid types
+        self.assertEqual(mock_run.call_count, 0)
+
+    def test_bulk_create_batch_size_validation(self):
+        """Test bulk_create method validates batch_size parameter."""
+        new_instances = create_test_instances(HookModel, 2)
+
+        # Test negative batch size - this should raise ValueError from line 504
+        with self.assertRaises(ValueError):
+            self.queryset.bulk_create(new_instances, batch_size=-1)
+
+        # Test zero batch size - this should also raise ValueError from line 504
+        with self.assertRaises(ValueError):
+            self.queryset.bulk_create(new_instances, batch_size=0)
