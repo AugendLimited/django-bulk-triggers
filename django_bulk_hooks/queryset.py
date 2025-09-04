@@ -571,13 +571,25 @@ class HookQuerySetMixin:
                     raw_existing = list(existing_query.values_list(*unique_fields))
                     logger.debug(f"DEBUG: Raw existing records from DB: {raw_existing}")
 
-                    existing_records_found = []
+                    # Convert database values to match object types for comparison
+                    # This handles cases where object values are strings but DB values are integers
+                    existing_records_lookup = set()
                     for existing_record in raw_existing:
-                        # Convert tuple to a hashable key for lookup
-                        existing_records_lookup.add(existing_record)
-                        existing_records_found.append(existing_record)
+                        # Convert each value in the tuple to match the type from object extraction
+                        converted_record = []
+                        for i, field_name in enumerate(unique_fields):
+                            db_value = existing_record[i]
+                            # Check if this field uses _id suffix in the query
+                            query_field_name = query_fields[field_name]
+                            if query_field_name.endswith('_id'):
+                                # Convert to string to match how we extract from objects
+                                converted_record.append(str(db_value))
+                            else:
+                                converted_record.append(db_value)
+                        converted_tuple = tuple(converted_record)
+                        existing_records_lookup.add(converted_tuple)
 
-                    logger.debug(f"DEBUG: Found {len(existing_records_found)} existing records: {existing_records_found}")
+                    logger.debug(f"DEBUG: Found {len(raw_existing)} existing records from DB")
                     logger.debug(f"DEBUG: Existing records lookup set: {existing_records_lookup}")
 
                     # Separate records based on whether they already exist
