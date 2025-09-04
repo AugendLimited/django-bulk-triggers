@@ -557,12 +557,16 @@ class HookQuerySetMixin:
                             filter_kwargs[db_field_name] = value
                         existing_filters |= Q(**filter_kwargs)
 
+                    logger.debug(f"DEBUG: Existence check query filters: {existing_filters}")
+                    logger.debug(f"DEBUG: Unique fields for values_list: {unique_fields}")
+
                     # Get all existing records in one query and create a lookup set
                     # We need to use the original unique_fields for values_list to maintain consistency
                     existing_records_lookup = set()
-                    for existing_record in model_cls.objects.filter(
-                        existing_filters
-                    ).values_list(*unique_fields):
+                    existing_query = model_cls.objects.filter(existing_filters)
+                    logger.debug(f"DEBUG: Existence check SQL: {existing_query.query}")
+
+                    for existing_record in existing_query.values_list(*unique_fields):
                         # Convert tuple to a hashable key for lookup
                         existing_records_lookup.add(existing_record)
 
