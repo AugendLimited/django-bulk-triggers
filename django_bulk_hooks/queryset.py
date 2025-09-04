@@ -567,9 +567,18 @@ class HookQuerySetMixin:
                     existing_query = model_cls.objects.filter(existing_filters)
                     logger.debug(f"DEBUG: Existence check SQL: {existing_query.query}")
 
-                    for existing_record in existing_query.values_list(*unique_fields):
+                    # Also get the raw database values for debugging
+                    raw_existing = list(existing_query.values_list(*unique_fields))
+                    logger.debug(f"DEBUG: Raw existing records from DB: {raw_existing}")
+
+                    existing_records_found = []
+                    for existing_record in raw_existing:
                         # Convert tuple to a hashable key for lookup
                         existing_records_lookup.add(existing_record)
+                        existing_records_found.append(existing_record)
+
+                    logger.debug(f"DEBUG: Found {len(existing_records_found)} existing records: {existing_records_found}")
+                    logger.debug(f"DEBUG: Existing records lookup set: {existing_records_lookup}")
 
                     # Separate records based on whether they already exist
                     for obj in objs:
@@ -589,10 +598,14 @@ class HookQuerySetMixin:
                                 obj_unique_value[field_name]
                                 for field_name in unique_fields
                             )
+                            logger.debug(f"DEBUG: Object unique tuple: {obj_unique_tuple}")
+                            logger.debug(f"DEBUG: Object unique value: {obj_unique_value}")
                             if obj_unique_tuple in existing_records_lookup:
                                 existing_records.append(obj)
+                                logger.debug(f"DEBUG: Found existing record for tuple: {obj_unique_tuple}")
                             else:
                                 new_records.append(obj)
+                                logger.debug(f"DEBUG: No existing record found for tuple: {obj_unique_tuple}")
                         else:
                             # If we can't determine uniqueness, treat as new
                             new_records.append(obj)
