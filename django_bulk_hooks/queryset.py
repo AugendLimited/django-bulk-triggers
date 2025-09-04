@@ -535,6 +535,9 @@ class HookQuerySetMixin:
                     for field_name in unique_fields:
                         if hasattr(obj, field_name):
                             unique_value[field_name] = getattr(obj, field_name)
+                        elif hasattr(obj, field_name + '_id'):
+                            # Handle ForeignKey fields where _id suffix is used
+                            unique_value[field_name] = getattr(obj, field_name + '_id')
                     if unique_value:
                         unique_values.append(unique_value)
 
@@ -563,6 +566,9 @@ class HookQuerySetMixin:
                         for field_name in unique_fields:
                             if hasattr(obj, field_name):
                                 obj_unique_value[field_name] = getattr(obj, field_name)
+                            elif hasattr(obj, field_name + '_id'):
+                                # Handle ForeignKey fields where _id suffix is used
+                                obj_unique_value[field_name] = getattr(obj, field_name + '_id')
 
                         # Check if this record already exists using our bulk lookup
                         if obj_unique_value:
