@@ -1718,7 +1718,21 @@ class HookQuerySetMixin:
                         engine.run(model_class, BEFORE_UPDATE, [parent_obj], ctx=ctx)
 
                     # Update the existing parent object
-                    parent_obj.save(update_fields=kwargs.get("update_fields"))
+                    # Filter update_fields to only include fields that exist in the parent model
+                    parent_update_fields = kwargs.get("update_fields")
+                    if parent_update_fields:
+                        # Only include fields that exist in the parent model
+                        parent_model_fields = {
+                            field.name for field in model_class._meta.local_fields
+                        }
+                        filtered_update_fields = [
+                            field
+                            for field in parent_update_fields
+                            if field in parent_model_fields
+                        ]
+                        parent_obj.save(update_fields=filtered_update_fields)
+                    else:
+                        parent_obj.save()
 
                     # Fire AFTER_UPDATE hooks for parent
                     if not bypass_hooks:
