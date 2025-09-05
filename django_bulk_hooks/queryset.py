@@ -1773,16 +1773,47 @@ class HookQuerySetMixin:
                 current_parent = parent_obj
             parent_objects_map[id(obj)] = parent_instances
 
-        # Step 2: Create all child objects and do single bulk insert into childmost table
+        # Step 2: Handle child objects - create new ones and update existing ones
         child_model = inheritance_chain[-1]
         all_child_objects = []
-        for obj in batch:
-            child_obj = self._create_child_instance(
-                obj, child_model, parent_objects_map.get(id(obj), {})
-            )
-            all_child_objects.append(child_obj)
+        existing_child_objects = []
 
-        # Step 2.5: Use Django's internal bulk_create infrastructure
+        for obj in batch:
+            is_existing_record = obj in existing_records_list
+
+            if is_existing_record:
+                # For existing records, update the child object
+                child_obj = self._create_child_instance(
+                    obj, child_model, parent_objects_map.get(id(obj), {})
+                )
+                existing_child_objects.append(child_obj)
+            else:
+                # For new records, create the child object
+                child_obj = self._create_child_instance(
+                    obj, child_model, parent_objects_map.get(id(obj), {})
+                )
+                all_child_objects.append(child_obj)
+
+        # Step 2.5: Update existing child objects
+        if existing_child_objects:
+            for child_obj in existing_child_objects:
+                # Filter update_fields to only include fields that exist in the child model
+                child_update_fields = kwargs.get("update_fields")
+                if child_update_fields:
+                    # Only include fields that exist in the child model
+                    child_model_fields = {
+                        field.name for field in child_model._meta.local_fields
+                    }
+                    filtered_child_update_fields = [
+                        field
+                        for field in child_update_fields
+                        if field in child_model_fields
+                    ]
+                    child_obj.save(update_fields=filtered_child_update_fields)
+                else:
+                    child_obj.save()
+
+        # Step 2.6: Use Django's internal bulk_create infrastructure for new child objects
         if all_child_objects:
             # Get the base manager's queryset
             base_qs = child_model._base_manager.using(self.db)
@@ -1844,11 +1875,20 @@ class HookQuerySetMixin:
 
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
+
+        # Handle new objects
         for orig_obj, child_obj in zip(batch, all_child_objects):
             child_pk = getattr(child_obj, pk_field_name)
             setattr(orig_obj, pk_field_name, child_pk)
             orig_obj._state.adding = False
             orig_obj._state.db = self.db
+
+        # Handle existing objects (they already have PKs, just update state)
+        for orig_obj in batch:
+            is_existing_record = orig_obj in existing_records_list
+            if is_existing_record:
+                orig_obj._state.adding = False
+                orig_obj._state.db = self.db
 
         return batch
 
