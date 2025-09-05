@@ -698,9 +698,16 @@ class HookQuerySetMixin:
                             if key in existing_db_map:
                                 db_record = existing_db_map[key]
                                 # Copy all fields from the database record to ensure completeness
+                                # but exclude auto_now_add fields which should never be updated
                                 populated_fields = []
                                 for field in model_cls._meta.local_fields:
                                     if field.name != "id":  # Don't overwrite the ID
+                                        # Skip auto_now_add fields for existing records
+                                        if (
+                                            hasattr(field, "auto_now_add")
+                                            and field.auto_now_add
+                                        ):
+                                            continue
                                         db_value = getattr(db_record, field.name)
                                         if (
                                             db_value is not None
