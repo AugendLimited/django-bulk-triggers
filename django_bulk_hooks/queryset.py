@@ -1899,7 +1899,22 @@ class HookQuerySetMixin:
             if hasattr(source_obj, field.name):
                 value = getattr(source_obj, field.name, None)
                 if value is not None:
-                    setattr(parent_obj, field.name, value)
+                    # Handle foreign key fields properly
+                    if (
+                        field.is_relation
+                        and not field.many_to_many
+                        and not field.one_to_many
+                    ):
+                        # For foreign key fields, extract the ID if we have a model instance
+                        if hasattr(value, "pk") and value.pk is not None:
+                            # Set the foreign key ID field (e.g., loan_account_id)
+                            setattr(parent_obj, field.attname, value.pk)
+                        else:
+                            # If it's already an ID or None, use it as-is
+                            setattr(parent_obj, field.attname, value)
+                    else:
+                        # For non-relation fields, copy the value directly
+                        setattr(parent_obj, field.name, value)
         if current_parent is not None:
             for field in parent_model._meta.local_fields:
                 if (
@@ -1932,7 +1947,22 @@ class HookQuerySetMixin:
             if hasattr(source_obj, field.name):
                 value = getattr(source_obj, field.name, None)
                 if value is not None:
-                    setattr(child_obj, field.name, value)
+                    # Handle foreign key fields properly
+                    if (
+                        field.is_relation
+                        and not field.many_to_many
+                        and not field.one_to_many
+                    ):
+                        # For foreign key fields, extract the ID if we have a model instance
+                        if hasattr(value, "pk") and value.pk is not None:
+                            # Set the foreign key ID field (e.g., loan_account_id)
+                            setattr(child_obj, field.attname, value.pk)
+                        else:
+                            # If it's already an ID or None, use it as-is
+                            setattr(child_obj, field.attname, value)
+                    else:
+                        # For non-relation fields, copy the value directly
+                        setattr(child_obj, field.name, value)
 
         # Set parent links for MTI
         for parent_model, parent_instance in parent_instances.items():
