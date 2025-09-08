@@ -1,7 +1,7 @@
 import threading
 from collections import deque
-from django_bulk_triggers.handler import trigger_vars
 
+from django_bulk_triggers.handler import trigger_vars
 
 _trigger_context = threading.local()
 
@@ -42,8 +42,8 @@ class TriggerContext:
     def __init__(self, model, bypass_triggers=False):
         self.model = model
         self.bypass_triggers = bypass_triggers
-        # Set the thread-local bypass state when creating a context
-        set_bypass_triggers(bypass_triggers)
+        # Don't automatically set thread-local state - let each operation decide
+        # set_bypass_triggers(bypass_triggers)
 
     @property
     def is_executing(self):
