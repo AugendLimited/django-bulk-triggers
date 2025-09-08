@@ -39,7 +39,7 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
     if hasattr(trigger_vars, "executing_triggers"):
         if trigger_key in trigger_vars.executing_triggers:
             logger.debug(
-                f"engine.run skipping {trigger_key} - already executing (Salesforce-style recursion prevention)"
+                f"FRAMEWORK DEBUG: engine.run skipping {trigger_key} - already executing (Salesforce-style recursion prevention)"
             )
             return
     else:
@@ -47,6 +47,9 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
 
     # Mark this trigger as executing
     trigger_vars.executing_triggers.add(trigger_key)
+    logger.debug(
+        f"FRAMEWORK DEBUG: Added {trigger_key} to executing_triggers set. Current set: {trigger_vars.executing_triggers}"
+    )
 
     try:
         # For BEFORE_* events, run model.clean() first for validation
@@ -99,3 +102,6 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
         # Always remove this trigger from the executing set (Salesforce-style cleanup)
         if hasattr(trigger_vars, "executing_triggers"):
             trigger_vars.executing_triggers.discard(trigger_key)
+            logger.debug(
+                f"FRAMEWORK DEBUG: Removed {trigger_key} from executing_triggers set. Current set: {trigger_vars.executing_triggers}"
+            )

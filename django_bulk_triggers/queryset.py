@@ -4,17 +4,16 @@ from django.db import models, transaction
 
 from django_bulk_triggers import engine
 from django_bulk_triggers.bulk_operations import BulkOperationsMixin
-from django_bulk_triggers.field_operations import FieldOperationsMixin
-from django_bulk_triggers.mti_operations import MTIOperationsMixin
-from django_bulk_triggers.trigger_operations import TriggerOperationsMixin
-from django_bulk_triggers.validation_operations import ValidationOperationsMixin
-
 from django_bulk_triggers.constants import (
     AFTER_DELETE,
     BEFORE_DELETE,
     VALIDATE_DELETE,
 )
 from django_bulk_triggers.context import TriggerContext
+from django_bulk_triggers.field_operations import FieldOperationsMixin
+from django_bulk_triggers.mti_operations import MTIOperationsMixin
+from django_bulk_triggers.trigger_operations import TriggerOperationsMixin
+from django_bulk_triggers.validation_operations import ValidationOperationsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +128,14 @@ class TriggerQuerySetMixin(
             logger.debug(
                 f"Detected Subquery in update: {[k for k, v in kwargs.items() if isinstance(v, Subquery)]}"
             )
+            logger.debug(
+                f"FRAMEWORK DEBUG: Subquery update detected for {model_cls.__name__}"
+            )
+            logger.debug(f"FRAMEWORK DEBUG: Subquery kwargs = {list(kwargs.keys())}")
+            for key, value in kwargs.items():
+                logger.debug(
+                    f"FRAMEWORK DEBUG: Subquery {key} = {type(value).__name__}"
+                )
         else:
             # Check if we missed any Subquery objects
             for k, v in kwargs.items():
@@ -411,6 +418,9 @@ class TriggerQuerySetMixin(
         try:
             update_count = super().update(**safe_kwargs)
             logger.debug(f"Super update successful, count: {update_count}")
+            logger.debug(
+                f"FRAMEWORK DEBUG: Super update completed for {model_cls.__name__} with count {update_count}"
+            )
         except Exception as e:
             logger.error(f"Super update failed: {e}")
             logger.error(f"Exception type: {type(e).__name__}")
@@ -423,6 +433,9 @@ class TriggerQuerySetMixin(
             logger.debug(
                 "Refreshing instances with Subquery computed values before running triggers"
             )
+            logger.debug(
+                f"FRAMEWORK DEBUG: Refreshing {len(instances)} instances for {model_cls.__name__} after Subquery update"
+            )
             # Simple refresh of model fields without fetching related objects
             # Subquery updates only affect the model's own fields, not relationships
             refreshed_instances = {
@@ -434,13 +447,20 @@ class TriggerQuerySetMixin(
             for instance in instances:
                 if instance.pk in refreshed_instances:
                     refreshed_instance = refreshed_instances[instance.pk]
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: Refreshing instance pk={instance.pk}"
+                    )
                     # Save current state before modifying for trigger comparison
                     pre_trigger_values = {}
                     for field in model_cls._meta.fields:
                         if field.name != "id":
-                            pre_trigger_values[field.name] = getattr(
-                                refreshed_instance, field.name
-                            )
+                            old_value = getattr(instance, field.name, None)
+                            new_value = getattr(refreshed_instance, field.name, None)
+                            if old_value != new_value:
+                                logger.debug(
+                                    f"FRAMEWORK DEBUG: Field {field.name} changed from {old_value} to {new_value}"
+                                )
+                            pre_trigger_values[field.name] = new_value
                             setattr(
                                 instance,
                                 field.name,
@@ -469,16 +489,45 @@ class TriggerQuerySetMixin(
                 )
                 # Use bulk_update to persist trigger modifications
                 # Let Django handle recursion naturally - triggers will detect if they're already executing
-                model_cls.objects.bulk_update(
+                logger.debug(
+                    f"FRAMEWORK DEBUG: About to call bulk_update with bypass_triggers=False for {model_cls.__name__}"
+                )
+                logger.debug(
+                    f"FRAMEWORK DEBUG: trigger_modified_fields = {trigger_modified_fields}"
+                )
+                logger.debug(f"FRAMEWORK DEBUG: instances count = {len(instances)}")
+                for i, instance in enumerate(instances):
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: instance {i} pk={getattr(instance, 'pk', 'No PK')}"
+                    )
+
+                result = model_cls.objects.bulk_update(
                     instances, trigger_modified_fields, bypass_triggers=False
                 )
+                logger.debug(f"FRAMEWORK DEBUG: bulk_update result = {result}")
+
+            # Run AFTER_UPDATE triggers for the Subquery update now that instances are refreshed
+            # and any trigger modifications have been persisted
+            logger.debug(
+                "Running AFTER_UPDATE triggers after Subquery update and refresh"
+            )
+            from django_bulk_triggers.constants import AFTER_UPDATE
+
+            engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
 
         # Salesforce-style: Always run AFTER_UPDATE triggers unless explicitly bypassed
         from django_bulk_triggers.constants import AFTER_UPDATE
 
         if not current_bypass_triggers:
-            logger.debug("update: running AFTER_UPDATE")
-            engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
+            # For Subquery updates, AFTER_UPDATE triggers have already been run above
+            if not has_subquery:
+                logger.debug("update: running AFTER_UPDATE")
+                logger.debug(
+                    f"FRAMEWORK DEBUG: Running AFTER_UPDATE for {model_cls.__name__} with {len(instances)} instances"
+                )
+                engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
+            else:
+                logger.debug("update: AFTER_UPDATE already run for Subquery update")
         else:
             logger.debug("update: AFTER_UPDATE explicitly bypassed")
 
