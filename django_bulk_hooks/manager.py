@@ -8,18 +8,18 @@ class BulkHookManager(models.Manager):
         # Use super().get_queryset() to let Django and MRO build the queryset
         # This ensures cooperation with other managers
         base_queryset = super().get_queryset()
-        
+
         # If the base queryset already has hook functionality, return it as-is
         if isinstance(base_queryset, HookQuerySetMixin):
             return base_queryset
-        
+
         # Otherwise, create a new HookQuerySet with the same parameters
         # This is much simpler and avoids dynamic class creation issues
         return HookQuerySet(
             model=base_queryset.model,
             query=base_queryset.query,
             using=base_queryset._db,
-            hints=base_queryset._hints
+            hints=base_queryset._hints,
         )
 
     def bulk_create(
@@ -50,16 +50,17 @@ class BulkHookManager(models.Manager):
             **kwargs,
         )
 
-    def bulk_update(
-        self, objs, fields, bypass_hooks=False, bypass_validation=False, **kwargs
-    ):
+    def bulk_update(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
         """
         Delegate to QuerySet's bulk_update implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.
+
+        Note: Parameters like unique_fields, update_conflicts, update_fields, and ignore_conflicts
+        are not supported by bulk_update and will be ignored with a warning.
+        These parameters are only available in bulk_create for UPSERT operations.
         """
         return self.get_queryset().bulk_update(
             objs,
-            fields,
             bypass_hooks=bypass_hooks,
             bypass_validation=bypass_validation,
             **kwargs,
@@ -104,10 +105,8 @@ class BulkHookManager(models.Manager):
         Save a single object using the appropriate bulk operation.
         """
         if obj.pk:
-            self.bulk_update(
-                [obj],
-                fields=[field.name for field in obj._meta.fields if field.name != "id"],
-            )
+            # bulk_update now auto-detects changed fields
+            self.bulk_update([obj])
         else:
             self.bulk_create([obj])
         return obj

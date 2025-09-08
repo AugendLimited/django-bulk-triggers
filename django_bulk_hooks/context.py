@@ -22,6 +22,22 @@ def get_bypass_hooks():
     return getattr(_hook_context, 'bypass_hooks', False)
 
 
+# Thread-local storage for passing per-object field values from bulk_update -> update
+def set_bulk_update_value_map(value_map):
+    """Store a mapping of {pk: {field_name: value}} for the current thread.
+
+    This allows the internal update() call (triggered by Django's bulk_update)
+    to populate in-memory instances with the concrete values that will be
+    written to the database, instead of Django expression objects like Case/Cast.
+    """
+    _hook_context.bulk_update_value_map = value_map
+
+
+def get_bulk_update_value_map():
+    """Retrieve the mapping {pk: {field_name: value}} for the current thread, if any."""
+    return getattr(_hook_context, 'bulk_update_value_map', None)
+
+
 class HookContext:
     def __init__(self, model, bypass_hooks=False):
         self.model = model

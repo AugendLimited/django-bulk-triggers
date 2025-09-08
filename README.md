@@ -95,7 +95,7 @@ Account.objects.bulk_create(accounts)
 # Bulk update - triggers BEFORE_UPDATE and AFTER_UPDATE hooks
 for account in accounts:
     account.balance *= 1.1
-Account.objects.bulk_update(accounts, ['balance'])
+Account.objects.bulk_update(accounts)  # fields are auto-detected
 
 # Bulk delete - triggers BEFORE_DELETE and AFTER_DELETE hooks
 Account.objects.bulk_delete(accounts)
@@ -181,7 +181,7 @@ account.delete()
 ```python
 # These also trigger hooks
 Account.objects.bulk_create(accounts)
-Account.objects.bulk_update(accounts, ['balance'])
+Account.objects.bulk_update(accounts)  # fields are auto-detected
 Account.objects.bulk_delete(accounts)
 ```
 
@@ -220,7 +220,7 @@ accounts = [account1, account2, account3]  # IDs: 1, 2, 3
 reordered = [account3, account1, account2]  # IDs: 3, 1, 2
 
 # The hook will still receive properly paired old/new records
-LoanAccount.objects.bulk_update(reordered, ['balance'])
+LoanAccount.objects.bulk_update(reordered)  # fields are auto-detected
 ```
 
 ## 🧩 Integration with Other Managers
