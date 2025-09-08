@@ -66,6 +66,9 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
             # Safely get handler class name
             handler_name = getattr(handler_cls, "__name__", str(handler_cls))
             logger.debug(f"Processing {handler_name}.{method_name}")
+            logger.debug(
+                f"FRAMEWORK DEBUG: Trigger {handler_name}.{method_name} - condition: {condition}, priority: {priority}"
+            )
             handler_instance = handler_cls()
             func = getattr(handler_instance, method_name)
 
@@ -80,23 +83,48 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                 if not condition:
                     to_process_new.append(new)
                     to_process_old.append(original)
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: No condition for {handler_name}.{method_name}, adding record pk={getattr(new, 'pk', 'No PK')}"
+                    )
                 else:
                     condition_result = condition.check(new, original)
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: Condition check for {handler_name}.{method_name} on record pk={getattr(new, 'pk', 'No PK')}: {condition_result}"
+                    )
                     if condition_result:
                         to_process_new.append(new)
                         to_process_old.append(original)
+                        logger.debug(
+                            f"FRAMEWORK DEBUG: Condition passed, adding record pk={getattr(new, 'pk', 'No PK')}"
+                        )
+                    else:
+                        logger.debug(
+                            f"FRAMEWORK DEBUG: Condition failed, skipping record pk={getattr(new, 'pk', 'No PK')}"
+                        )
 
             if to_process_new:
                 logger.debug(
                     f"Executing {handler_name}.{method_name} for {len(to_process_new)} records"
+                )
+                logger.debug(
+                    f"FRAMEWORK DEBUG: About to execute {handler_name}.{method_name}"
+                )
+                logger.debug(
+                    f"FRAMEWORK DEBUG: Records to process: {[getattr(r, 'pk', 'No PK') for r in to_process_new]}"
                 )
                 try:
                     func(
                         new_records=to_process_new,
                         old_records=to_process_old if any(to_process_old) else None,
                     )
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: Successfully executed {handler_name}.{method_name}"
+                    )
                 except Exception as e:
                     logger.debug(f"Trigger execution failed: {e}")
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: Exception in {handler_name}.{method_name}: {e}"
+                    )
                     raise
     finally:
         # Always remove this trigger from the executing set (Salesforce-style cleanup)

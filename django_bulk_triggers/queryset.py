@@ -136,6 +136,13 @@ class TriggerQuerySetMixin(
                 logger.debug(
                     f"FRAMEWORK DEBUG: Subquery {key} = {type(value).__name__}"
                 )
+                if isinstance(value, Subquery):
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: Subquery {key} detected (contains OuterRef - cannot log query string)"
+                    )
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: Subquery {key} output_field: {getattr(value, 'output_field', 'None')}"
+                    )
         else:
             # Check if we missed any Subquery objects
             for k, v in kwargs.items():
@@ -421,6 +428,11 @@ class TriggerQuerySetMixin(
             logger.debug(
                 f"FRAMEWORK DEBUG: Super update completed for {model_cls.__name__} with count {update_count}"
             )
+            if has_subquery:
+                logger.debug("FRAMEWORK DEBUG: Subquery update completed successfully")
+                logger.debug(
+                    "FRAMEWORK DEBUG: About to refresh instances to get computed values"
+                )
         except Exception as e:
             logger.error(f"Super update failed: {e}")
             logger.error(f"Exception type: {type(e).__name__}")
@@ -467,6 +479,13 @@ class TriggerQuerySetMixin(
                                 getattr(refreshed_instance, field.name),
                             )
                     pre_trigger_state[instance.pk] = pre_trigger_values
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: Instance pk={instance.pk} refreshed successfully"
+                    )
+                else:
+                    logger.warning(
+                        f"FRAMEWORK DEBUG: Could not find refreshed instance for pk={instance.pk}"
+                    )
 
             # Now run BEFORE_UPDATE triggers with refreshed instances so conditions work
             logger.debug("Running BEFORE_UPDATE triggers after Subquery refresh")
@@ -511,9 +530,33 @@ class TriggerQuerySetMixin(
             logger.debug(
                 "Running AFTER_UPDATE triggers after Subquery update and refresh"
             )
+            logger.debug(
+                "FRAMEWORK DEBUG: About to run AFTER_UPDATE for %s with %d instances",
+                model_cls.__name__,
+                len(instances),
+            )
+            logger.debug(f"FRAMEWORK DEBUG: Instance data before AFTER_UPDATE:")
+            for i, instance in enumerate(instances):
+                logger.debug(f"FRAMEWORK DEBUG: Instance {i} pk={instance.pk}")
+                # Log key fields that might be relevant for aggregates
+                for field_name in [
+                    "disbursement",
+                    "disbursements",
+                    "amount",
+                    "balance",
+                ]:
+                    if hasattr(instance, field_name):
+                        value = getattr(instance, field_name)
+                        logger.debug(
+                            f"FRAMEWORK DEBUG: Instance {i} {field_name}={value} (type: {type(value).__name__})"
+                        )
+
             from django_bulk_triggers.constants import AFTER_UPDATE
 
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
+            logger.debug(
+                f"FRAMEWORK DEBUG: AFTER_UPDATE completed for {model_cls.__name__}"
+            )
 
         # Salesforce-style: Always run AFTER_UPDATE triggers unless explicitly bypassed
         from django_bulk_triggers.constants import AFTER_UPDATE
