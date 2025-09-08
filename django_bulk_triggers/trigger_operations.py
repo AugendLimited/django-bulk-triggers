@@ -6,7 +6,6 @@ that were extracted from queryset.py for better maintainability and testing.
 """
 
 import logging
-from typing import List, Any, Optional, Callable
 
 from django_bulk_triggers import engine
 from django_bulk_triggers.constants import (
@@ -14,7 +13,6 @@ from django_bulk_triggers.constants import (
     BEFORE_DELETE,
     VALIDATE_DELETE,
 )
-from django_bulk_triggers.context import TriggerContext
 
 logger = logging.getLogger(__name__)
 

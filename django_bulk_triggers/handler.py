@@ -152,7 +152,9 @@ class Trigger(metaclass=TriggerMeta):
                         condition.check(n, o) for n, o in zip(new_local, old_local)
                     ]
                     if not any(checks):
-                        logger.debug(f"Condition failed for {handler_cls.__name__}.{method_name}")
+                        logger.debug(
+                            f"Condition failed for {handler_cls.__name__}.{method_name}"
+                        )
                         continue
 
                 handler = handler_cls()
@@ -165,14 +167,18 @@ class Trigger(metaclass=TriggerMeta):
                         old_records=old_local,
                         **kwargs,
                     )
-                    logger.debug(f"Successfully executed {handler_cls.__name__}.{method_name}")
+                    logger.debug(
+                        f"Successfully executed {handler_cls.__name__}.{method_name}"
+                    )
                 except Exception:
                     logger.exception(
                         "Error in trigger %s.%s", handler_cls.__name__, method_name
                     )
 
         conn = transaction.get_connection()
-        logger.debug(f"Transaction in_atomic_block: {conn.in_atomic_block}, event: {event}")
+        logger.debug(
+            f"Transaction in_atomic_block: {conn.in_atomic_block}, event: {event}"
+        )
         try:
             if conn.in_atomic_block and event.startswith("after_"):
                 logger.debug(f"Deferring {event} to on_commit")

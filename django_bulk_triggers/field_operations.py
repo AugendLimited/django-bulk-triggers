@@ -6,7 +6,6 @@ that were extracted from queryset.py for better maintainability and testing.
 """
 
 import logging
-from typing import List, Set, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 

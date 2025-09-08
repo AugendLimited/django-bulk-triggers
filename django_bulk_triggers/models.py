@@ -59,7 +59,9 @@ class TriggerModelMixin(models.Model):
     def save(self, *args, bypass_triggers=False, **kwargs):
         # If bypass_triggers is True, use base manager to avoid triggering triggers
         if bypass_triggers:
-            logger.debug(f"save() called with bypass_triggers=True for {self.__class__.__name__} pk={self.pk}")
+            logger.debug(
+                f"save() called with bypass_triggers=True for {self.__class__.__name__} pk={self.pk}"
+            )
             return self.__class__._base_manager.save(self, *args, **kwargs)
 
         is_create = self.pk is None
@@ -74,7 +76,9 @@ class TriggerModelMixin(models.Model):
 
             run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
         else:
-            logger.debug(f"save() updating existing {self.__class__.__name__} instance pk={self.pk}")
+            logger.debug(
+                f"save() updating existing {self.__class__.__name__} instance pk={self.pk}"
+            )
             # For update operations, we need to get the old record
             try:
                 # Use _base_manager to avoid triggering triggers recursively

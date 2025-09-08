@@ -9,13 +9,14 @@ from django_bulk_triggers.mti_operations import MTIOperationsMixin
 from django_bulk_triggers.trigger_operations import TriggerOperationsMixin
 from django_bulk_triggers.validation_operations import ValidationOperationsMixin
 
-logger = logging.getLogger(__name__)
 from django_bulk_triggers.constants import (
     AFTER_DELETE,
     BEFORE_DELETE,
     VALIDATE_DELETE,
 )
 from django_bulk_triggers.context import TriggerContext
+
+logger = logging.getLogger(__name__)
 
 
 class TriggerQuerySetMixin(
@@ -148,6 +149,7 @@ class TriggerQuerySetMixin(
         # to in-memory instances before running BEFORE_UPDATE triggers. Triggers must not
         # receive unresolved expression objects.
         from django_bulk_triggers.context import get_bulk_update_value_map
+
         per_object_values = get_bulk_update_value_map()
 
         # For Subquery updates, skip all in-memory field assignments to prevent
@@ -168,6 +170,7 @@ class TriggerQuerySetMixin(
                         if is_expression_like:
                             # Special-case Value() which can be unwrapped safely
                             from django.db.models import Value
+
                             if isinstance(value, Value):
                                 try:
                                     setattr(obj, field, value.value)
@@ -198,7 +201,8 @@ class TriggerQuerySetMixin(
             ctx = TriggerContext(model_cls, bypass_triggers=False)
 
             # Run validation triggers first
-            from django_bulk_triggers.constants import VALIDATE_UPDATE, BEFORE_UPDATE
+            from django_bulk_triggers.constants import BEFORE_UPDATE, VALIDATE_UPDATE
+
             engine.run(model_cls, VALIDATE_UPDATE, instances, originals, ctx=ctx)
 
             # For Subquery updates, skip BEFORE_UPDATE triggers here - they'll run after refresh
@@ -217,7 +221,8 @@ class TriggerQuerySetMixin(
                 extra_fields = []  # Skip for Subquery updates
 
             if extra_fields:
-                from django.db.models import Case, When, Value
+                from django.db.models import Case, Value, When
+
                 case_statements = {}
                 for field_name in extra_fields:
                     try:
@@ -469,6 +474,7 @@ class TriggerQuerySetMixin(
 
         # Salesforce-style: Always run AFTER_UPDATE triggers unless explicitly bypassed
         from django_bulk_triggers.constants import AFTER_UPDATE
+
         if not current_bypass_triggers:
             logger.debug("update: running AFTER_UPDATE")
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)

@@ -50,7 +50,9 @@ class BulkTriggerManager(models.Manager):
             **kwargs,
         )
 
-    def bulk_update(self, objs, bypass_triggers=False, bypass_validation=False, **kwargs):
+    def bulk_update(
+        self, objs, bypass_triggers=False, bypass_validation=False, **kwargs
+    ):
         """
         Delegate to QuerySet's bulk_update implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.

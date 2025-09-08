@@ -6,10 +6,8 @@ for better maintainability and testing.
 """
 
 import logging
-from typing import List, Set
 
-from django.db import models, transaction
-from django.db.models import Field
+from django.db import transaction
 
 from django_bulk_triggers import engine
 from django_bulk_triggers.constants import (
@@ -147,7 +145,9 @@ class BulkOperationsMixin:
 
                                 # Try to get the value from existing object
                                 if hasattr(existing_obj, field_name + "_id"):
-                                    existing_value = getattr(existing_obj, field_name + "_id")
+                                    existing_value = getattr(
+                                        existing_obj, field_name + "_id"
+                                    )
                                 elif hasattr(existing_obj, field_name):
                                     existing_value = getattr(existing_obj, field_name)
 
@@ -171,7 +171,9 @@ class BulkOperationsMixin:
                 # Fire BEFORE and VALIDATE triggers for existing records (treated as updates)
                 if existing_records:
                     if not bypass_validation:
-                        engine.run(model_cls, VALIDATE_UPDATE, existing_records, ctx=ctx)
+                        engine.run(
+                            model_cls, VALIDATE_UPDATE, existing_records, ctx=ctx
+                        )
                     engine.run(model_cls, BEFORE_UPDATE, existing_records, ctx=ctx)
 
                 # Fire BEFORE and VALIDATE triggers for new records
@@ -246,7 +248,9 @@ class BulkOperationsMixin:
         return result
 
     @transaction.atomic
-    def bulk_update(self, objs, bypass_triggers=False, bypass_validation=False, **kwargs):
+    def bulk_update(
+        self, objs, bypass_triggers=False, bypass_validation=False, **kwargs
+    ):
         if not objs:
             return []
 
@@ -273,7 +277,9 @@ class BulkOperationsMixin:
             )
 
     @transaction.atomic
-    def bulk_delete(self, objs, bypass_triggers=False, bypass_validation=False, **kwargs):
+    def bulk_delete(
+        self, objs, bypass_triggers=False, bypass_validation=False, **kwargs
+    ):
         """
         Bulk delete objects in the database.
         """
@@ -384,6 +390,7 @@ class BulkOperationsMixin:
         if value_map:
             # Import here to avoid circular imports
             from django_bulk_triggers.context import set_bulk_update_value_map
+
             set_bulk_update_value_map(value_map)
 
         try:
@@ -396,4 +403,5 @@ class BulkOperationsMixin:
         finally:
             # Always clear thread-local state
             from django_bulk_triggers.context import set_bulk_update_value_map
+
             set_bulk_update_value_map(None)

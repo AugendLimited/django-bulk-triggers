@@ -24,11 +24,11 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
 
     stack = traceback.format_stack()
     # Safely get model name, fallback to str representation if __name__ not available
-    model_name = getattr(model_cls, '__name__', str(model_cls))
+    model_name = getattr(model_cls, "__name__", str(model_cls))
     logger.debug(f"engine.run {model_name}.{event} {len(new_records)} records")
-    
+
     # Check if we're in a bypass context
-    if ctx and hasattr(ctx, 'bypass_triggers') and ctx.bypass_triggers:
+    if ctx and hasattr(ctx, "bypass_triggers") and ctx.bypass_triggers:
         logger.debug("engine.run bypassed")
         return
 
@@ -44,7 +44,7 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
     # Process triggers
     for handler_cls, method_name, condition, priority in triggers:
         # Safely get handler class name
-        handler_name = getattr(handler_cls, '__name__', str(handler_cls))
+        handler_name = getattr(handler_cls, "__name__", str(handler_cls))
         logger.debug(f"Processing {handler_name}.{method_name}")
         handler_instance = handler_cls()
         func = getattr(handler_instance, method_name)
@@ -67,7 +67,9 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                     to_process_old.append(original)
 
         if to_process_new:
-            logger.debug(f"Executing {handler_name}.{method_name} for {len(to_process_new)} records")
+            logger.debug(
+                f"Executing {handler_name}.{method_name} for {len(to_process_new)} records"
+            )
             try:
                 func(
                     new_records=to_process_new,

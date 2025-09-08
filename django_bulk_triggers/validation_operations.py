@@ -6,7 +6,6 @@ from queryset.py for better maintainability and testing.
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Tuple
 
 from django_bulk_triggers.context import TriggerContext
 
@@ -94,7 +93,9 @@ class ValidationOperationsMixin:
         )
 
         # Initialize trigger context
-        ctx, originals = self._init_trigger_context(bypass_triggers, objs, operation_name)
+        ctx, originals = self._init_trigger_context(
+            bypass_triggers, objs, operation_name
+        )
 
         return self.model, ctx, originals
 
@@ -122,7 +123,9 @@ class ValidationOperationsMixin:
             )
             ctx = TriggerContext(model_cls, bypass_triggers=True)
         else:
-            logger.debug("%s: triggers enabled for %s", operation_name, model_cls.__name__)
+            logger.debug(
+                "%s: triggers enabled for %s", operation_name, model_cls.__name__
+            )
             ctx = TriggerContext(model_cls, bypass_triggers=False)
 
         # Keep `originals` aligned with objs to support later trigger execution.

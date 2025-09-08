@@ -73,14 +73,16 @@ class HasChanged(TriggerCondition):
     def check(self, instance, original_instance=None):
         if not original_instance:
             return False
-        
+
         current = resolve_dotted_attr(instance, self.field)
         previous = resolve_dotted_attr(original_instance, self.field)
-        
+
         result = (current != previous) == self.has_changed
         # Only log when there's an actual change to reduce noise
         if result:
-            logger.debug(f"HasChanged {self.field} detected change on instance {getattr(instance, 'pk', 'No PK')}")
+            logger.debug(
+                f"HasChanged {self.field} detected change on instance {getattr(instance, 'pk', 'No PK')}"
+            )
         return result
 
 

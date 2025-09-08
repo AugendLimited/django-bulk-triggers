@@ -19,7 +19,7 @@ def set_bypass_triggers(bypass_triggers):
 
 def get_bypass_triggers():
     """Get the current bypass_triggers state for the current thread."""
-    return getattr(_trigger_context, 'bypass_triggers', False)
+    return getattr(_trigger_context, "bypass_triggers", False)
 
 
 # Thread-local storage for passing per-object field values from bulk_update -> update
@@ -35,7 +35,7 @@ def set_bulk_update_value_map(value_map):
 
 def get_bulk_update_value_map():
     """Retrieve the mapping {pk: {field_name: value}} for the current thread, if any."""
-    return getattr(_trigger_context, 'bulk_update_value_map', None)
+    return getattr(_trigger_context, "bulk_update_value_map", None)
 
 
 class TriggerContext:
@@ -52,18 +52,18 @@ class TriggerContext:
         Similar to Salesforce's Trigger.isExecuting.
         Use this to prevent infinite recursion in triggers.
         """
-        return hasattr(trigger_vars, 'event') and trigger_vars.event is not None
+        return hasattr(trigger_vars, "event") and trigger_vars.event is not None
 
     @property
     def current_event(self):
         """
         Get the current trigger event being executed.
         """
-        return getattr(trigger_vars, 'event', None)
+        return getattr(trigger_vars, "event", None)
 
     @property
     def execution_depth(self):
         """
         Get the current execution depth to detect deep recursion.
         """
-        return getattr(trigger_vars, 'depth', 0)
+        return getattr(trigger_vars, "depth", 0)

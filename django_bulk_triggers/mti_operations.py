@@ -6,9 +6,8 @@ for better maintainability and testing.
 """
 
 import logging
-from typing import List, Dict, Any, Optional
 
-from django.db import models, transaction
+from django.db import transaction
 from django.db.models import AutoField, Case, Value, When
 
 from django_bulk_triggers import engine
@@ -163,7 +162,9 @@ class MTIOperationsMixin:
                 if getattr(parent_obj, field.name) is None:
                     field.pre_save(parent_obj, add=True)
                     # Explicitly set the value to ensure it's not None
-                    setattr(parent_obj, field.attname, field.value_from_object(parent_obj))
+                    setattr(
+                        parent_obj, field.attname, field.value_from_object(parent_obj)
+                    )
             elif hasattr(field, "auto_now") and field.auto_now:
                 field.pre_save(parent_obj, add=True)
 
@@ -215,7 +216,9 @@ class MTIOperationsMixin:
                 if getattr(child_obj, field.name) is None:
                     field.pre_save(child_obj, add=True)
                     # Explicitly set the value to ensure it's not None
-                    setattr(child_obj, field.attname, field.value_from_object(child_obj))
+                    setattr(
+                        child_obj, field.attname, field.value_from_object(child_obj)
+                    )
             elif hasattr(field, "auto_now") and field.auto_now:
                 field.pre_save(child_obj, add=True)
 
