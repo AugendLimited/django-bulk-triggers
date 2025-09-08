@@ -467,9 +467,10 @@ class TriggerQuerySetMixin(
                 logger.debug(
                     f"Running bulk_update for trigger-modified fields: {trigger_modified_fields}"
                 )
-                # Use bulk_update to persist trigger modifications, bypassing triggers to avoid recursion
+                # Use bulk_update to persist trigger modifications
+                # Let Django handle recursion naturally - triggers will detect if they're already executing
                 model_cls.objects.bulk_update(
-                    instances, trigger_modified_fields, bypass_triggers=True
+                    instances, trigger_modified_fields, bypass_triggers=False
                 )
 
         # Salesforce-style: Always run AFTER_UPDATE triggers unless explicitly bypassed
