@@ -182,9 +182,14 @@ class Trigger(metaclass=TriggerMeta):
         try:
             if conn.in_atomic_block and event.startswith("after_"):
                 logger.debug(f"Deferring {event} to on_commit")
+                logger.debug(f"DEBUG: Handler deferring {event} to on_commit")
                 transaction.on_commit(_execute)
+                logger.debug(
+                    f"DEBUG: Handler registered on_commit callback for {event}"
+                )
             else:
                 logger.debug(f"Executing {event} immediately")
+                logger.debug(f"DEBUG: Handler executing {event} immediately")
                 _execute()
         finally:
             trigger_vars.new = None

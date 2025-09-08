@@ -79,14 +79,27 @@ class TriggerModelMixin(models.Model):
             from django.db import transaction
 
             def run_after_create():
+                logger.debug(
+                    "DEBUG: on_commit callback executing - running deferred AFTER_CREATE trigger"
+                )
                 run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
+                logger.debug(
+                    "DEBUG: on_commit callback completed - AFTER_CREATE trigger finished"
+                )
 
             if transaction.get_connection().in_atomic_block:
                 logger.debug(
                     "Deferring AFTER_CREATE trigger to on_commit for subquery visibility"
                 )
+                logger.debug(
+                    "DEBUG: Registering on_commit callback for AFTER_CREATE trigger"
+                )
                 transaction.on_commit(run_after_create)
+                logger.debug("DEBUG: on_commit callback registered successfully")
             else:
+                logger.debug(
+                    "DEBUG: Not in atomic block, running AFTER_CREATE trigger immediately"
+                )
                 run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
         else:
             logger.debug(
