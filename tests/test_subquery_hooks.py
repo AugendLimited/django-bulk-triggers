@@ -2,22 +2,22 @@
 Test to verify that Subquery objects in update operations work correctly with triggers.
 """
 
+from django.db import models
 from django.db.models import OuterRef, Subquery, Sum
 from django.test import TestCase
-from django.db import models
-from django_bulk_triggers.queryset import TriggerQuerySetMixin
-from django_bulk_triggers.manager import BulkTriggerManager
-from tests.models import TriggerModel, UserModel
 
 from django_bulk_triggers import TriggerClass
 from django_bulk_triggers.constants import AFTER_UPDATE
+from django_bulk_triggers.context import TriggerContext
 from django_bulk_triggers.decorators import trigger
-from tests.models import RelatedModel, TriggerModel
+from django_bulk_triggers.manager import BulkTriggerManager
+from django_bulk_triggers.queryset import TriggerQuerySetMixin
+from tests.models import RelatedModel, TriggerModel, UserModel
 
 
 class SubqueryTriggerTest(TriggerClass):
     """Trigger to test Subquery functionality."""
-    
+
     after_update_called = False  # Class variable to persist across instances
     computed_values = []  # Class variable to persist across instances
     foreign_key_values = []  # Class variable to persist across instances
@@ -37,9 +37,13 @@ class SubqueryTriggerTest(TriggerClass):
         SubqueryTriggerTest.after_update_called = True  # Use class variable
         for record in new_records:
             # This should now contain the computed value, not the Subquery object
-            SubqueryTriggerTest.computed_values.append(record.computed_value)  # Use class variable
+            SubqueryTriggerTest.computed_values.append(
+                record.computed_value
+            )  # Use class variable
             # This should contain the User instance, not a raw ID
-            SubqueryTriggerTest.foreign_key_values.append(record.created_by)  # Use class variable
+            SubqueryTriggerTest.foreign_key_values.append(
+                record.created_by
+            )  # Use class variable
 
 
 class SubqueryTriggersTestCase(TestCase):
@@ -48,8 +52,9 @@ class SubqueryTriggersTestCase(TestCase):
     def setUp(self):
         # Clear the registry to prevent interference between tests
         from django_bulk_triggers.registry import clear_triggers
+
         clear_triggers()
-        
+
         # Create test data
         self.user = UserModel.objects.create(username="testuser")
         self.trigger_model = TriggerModel.objects.create(
@@ -64,18 +69,19 @@ class SubqueryTriggersTestCase(TestCase):
 
         # Create trigger instance and manually register it
         self.trigger = SubqueryTriggerTest()
-        
+
         # Manually register the trigger since the metaclass registration was cleared
         from django_bulk_triggers.registry import register_trigger
+
         register_trigger(
             model=TriggerModel,
             event=AFTER_UPDATE,
             handler_cls=SubqueryTriggerTest,
             method_name="test_subquery_access",
             condition=None,
-            priority=50
+            priority=50,
         )
-        
+
         # Reset trigger state before each test
         self.trigger.reset()
 
@@ -174,3 +180,48 @@ class SubqueryTriggersTestCase(TestCase):
         self.assertEqual(len(self.trigger.foreign_key_values), 1)
         self.assertIsInstance(self.trigger.foreign_key_values[0], UserModel)
         self.assertEqual(self.trigger.foreign_key_values[0].username, "testuser")
+
+    @trigger(AFTER_UPDATE, model=TriggerModel)
+    def modify_status_after_update(self, new_records, old_records):
+        """Trigger method to modify status field in AFTER_UPDATE."""
+        for record in new_records:
+            # Modify the status field in the AFTER_UPDATE trigger
+            record.status = "modified_by_after_trigger"
+
+    def test_after_update_trigger_modifications_persisted(self):
+        """Test that AFTER_UPDATE trigger modifications are persisted to the database."""
+
+        try:
+            # Manually register the trigger
+            from django_bulk_triggers.registry import register_trigger
+
+            register_trigger(
+                model=TriggerModel,
+                event=AFTER_UPDATE,
+                handler_cls=self.__class__,
+                method_name="modify_status_after_update",
+                condition=None,
+                priority=50,
+            )
+
+            # Perform update with Subquery to trigger the AFTER_UPDATE flow
+            TriggerModel.objects.filter(pk=self.trigger_model.pk).update(
+                computed_value=Subquery(
+                    RelatedModel.objects.filter(trigger_model=OuterRef("pk"))
+                    .values("trigger_model")
+                    .annotate(total=Sum("amount"))
+                    .values("total")[:1]
+                )
+            )
+
+            # Refresh the instance from the database
+            self.trigger_model.refresh_from_db()
+
+            # Verify that the AFTER_UPDATE trigger modification was persisted
+            self.assertEqual(self.trigger_model.status, "modified_by_after_trigger")
+
+        finally:
+            # Clean up the trigger
+            from django_bulk_triggers.registry import clear_triggers
+
+            clear_triggers()

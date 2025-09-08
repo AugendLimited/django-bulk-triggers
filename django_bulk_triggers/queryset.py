@@ -581,10 +581,62 @@ class TriggerQuerySetMixin(
 
             from django_bulk_triggers.constants import AFTER_UPDATE
 
+            # Save state before AFTER_UPDATE triggers so we can detect modifications
+            pre_after_trigger_state = {}
+            for instance in instances:
+                if instance.pk is not None:
+                    pre_after_trigger_values = {}
+                    for field in model_cls._meta.fields:
+                        if field.name != "id":
+                            pre_after_trigger_values[field.name] = getattr(
+                                instance, field.name, None
+                            )
+                    pre_after_trigger_state[instance.pk] = pre_after_trigger_values
+
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
             logger.debug(
                 f"FRAMEWORK DEBUG: AFTER_UPDATE completed for {model_cls.__name__}"
             )
+
+            # Check if AFTER_UPDATE triggers modified any fields and persist them with bulk_update
+            after_trigger_modified_fields = set()
+            for instance in instances:
+                if instance.pk in pre_after_trigger_state:
+                    pre_after_trigger_values = pre_after_trigger_state[instance.pk]
+                    for (
+                        field_name,
+                        pre_after_trigger_value,
+                    ) in pre_after_trigger_values.items():
+                        current_value = getattr(instance, field_name)
+                        if current_value != pre_after_trigger_value:
+                            after_trigger_modified_fields.add(field_name)
+
+            after_trigger_modified_fields = list(after_trigger_modified_fields)
+            if after_trigger_modified_fields:
+                logger.debug(
+                    f"Running bulk_update for AFTER_UPDATE trigger-modified fields: {after_trigger_modified_fields}"
+                )
+                # Use bulk_update to persist AFTER_UPDATE trigger modifications
+                # Bypass triggers to prevent recursion, but allow the update to happen
+                logger.debug(
+                    f"FRAMEWORK DEBUG: About to call bulk_update with bypass_triggers=True for AFTER_UPDATE modifications on {model_cls.__name__}"
+                )
+                logger.debug(
+                    f"FRAMEWORK DEBUG: after_trigger_modified_fields = {after_trigger_modified_fields}"
+                )
+                logger.debug(f"FRAMEWORK DEBUG: instances count = {len(instances)}")
+                for i, instance in enumerate(instances):
+                    logger.debug(
+                        f"FRAMEWORK DEBUG: instance {i} pk={getattr(instance, 'pk', 'No PK')}"
+                    )
+
+                # Create a new context with bypass_triggers=True to prevent recursion
+                bypass_ctx = TriggerContext(model_cls, bypass_triggers=True)
+
+                result = model_cls.objects.bulk_update(instances, bypass_triggers=True)
+                logger.debug(
+                    f"FRAMEWORK DEBUG: AFTER_UPDATE bulk_update result = {result}"
+                )
 
         # Salesforce-style: Always run AFTER_UPDATE triggers unless explicitly bypassed
         from django_bulk_triggers.constants import AFTER_UPDATE
