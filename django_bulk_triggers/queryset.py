@@ -535,7 +535,7 @@ class TriggerQuerySetMixin(
                 model_cls.__name__,
                 len(instances),
             )
-            logger.debug(f"FRAMEWORK DEBUG: Instance data before AFTER_UPDATE:")
+            logger.debug("FRAMEWORK DEBUG: Instance data before AFTER_UPDATE:")
             for i, instance in enumerate(instances):
                 logger.debug(f"FRAMEWORK DEBUG: Instance {i} pk={instance.pk}")
                 # Log key fields that might be relevant for aggregates
