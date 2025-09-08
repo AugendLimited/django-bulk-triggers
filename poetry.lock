@@ -141,7 +141,7 @@ files = [
 [[package]]
 name = "pluggy"
 version = "1.6.0"
-description = "plugin and hook calling mechanisms for python"
+description = "plugin and trigger calling mechanisms for python"
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]

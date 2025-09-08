@@ -5,7 +5,7 @@ Tests for the priority and enums modules.
 import pytest
 from django.test import TestCase
 
-from django_bulk_hooks.constants import (
+from django_bulk_triggers.constants import (
     AFTER_CREATE,
     AFTER_DELETE,
     AFTER_UPDATE,
@@ -13,7 +13,7 @@ from django_bulk_hooks.constants import (
     BEFORE_DELETE,
     BEFORE_UPDATE,
 )
-from django_bulk_hooks.priority import Priority
+from django_bulk_triggers.priority import Priority
 
 
 class TestPriority(TestCase):
@@ -21,8 +21,8 @@ class TestPriority(TestCase):
 
     def setUp(self):
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_priority_values(self):
         """Test that priority values are correct."""
@@ -109,8 +109,8 @@ class TestConstants(TestCase):
 
     def setUp(self):
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_constant_values(self):
         """Test that constant values are correct."""
@@ -152,32 +152,32 @@ class TestPriorityAndConstantsIntegration(TestCase):
 
     def setUp(self):
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
-    def test_priority_with_hook_events(self):
-        """Test using priorities with hook events."""
-        from django_bulk_hooks import HookClass
-        from django_bulk_hooks.decorators import hook
+    def test_priority_with_trigger_events(self):
+        """Test using priorities with trigger events."""
+        from django_bulk_triggers import TriggerClass
+        from django_bulk_triggers.decorators import trigger
 
-        class HookModel:
+        class TriggerModel:
             pass
 
-        class TestHook(HookClass):
-            @hook(BEFORE_CREATE, model=HookModel, priority=Priority.HIGH)
+        class TestTrigger(TriggerClass):
+            @trigger(BEFORE_CREATE, model=TriggerModel, priority=Priority.HIGH)
             def high_priority_method(self, new_records, old_records=None, **kwargs):
                 pass
 
-            @hook(BEFORE_CREATE, model=HookModel, priority=Priority.LOW)
+            @trigger(BEFORE_CREATE, model=TriggerModel, priority=Priority.LOW)
             def low_priority_method(self, new_records, old_records=None, **kwargs):
                 pass
 
-        # Verify that the hook methods were created
-        self.assertTrue(hasattr(TestHook, "high_priority_method"))
-        self.assertTrue(hasattr(TestHook, "low_priority_method"))
+        # Verify that the trigger methods were created
+        self.assertTrue(hasattr(TestTrigger, "high_priority_method"))
+        self.assertTrue(hasattr(TestTrigger, "low_priority_method"))
 
     def test_event_validation(self):
-        """Test that hook events are valid."""
+        """Test that trigger events are valid."""
         valid_events = [
             BEFORE_CREATE,
             AFTER_CREATE,
@@ -190,11 +190,11 @@ class TestPriorityAndConstantsIntegration(TestCase):
         for event in valid_events:
             self.assertIsInstance(event, str)
 
-    def test_priority_ordering_in_hooks(self):
-        """Test that priorities work correctly in hook ordering."""
-        from django_bulk_hooks.registry import get_hooks, register_hook
+    def test_priority_ordering_in_triggers(self):
+        """Test that priorities work correctly in trigger ordering."""
+        from django_bulk_triggers.registry import get_triggers, register_trigger
 
-        class HookModel:
+        class TriggerModel:
             pass
 
         class Handler1:
@@ -209,9 +209,9 @@ class TestPriorityAndConstantsIntegration(TestCase):
             def method3(self):
                 pass
 
-        # Register hooks with different priorities
-        register_hook(
-            model=HookModel,
+        # Register triggers with different priorities
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=Handler2,
             method_name="method2",
@@ -219,8 +219,8 @@ class TestPriorityAndConstantsIntegration(TestCase):
             priority=Priority.NORMAL,
         )
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=Handler1,
             method_name="method1",
@@ -228,8 +228,8 @@ class TestPriorityAndConstantsIntegration(TestCase):
             priority=Priority.LOW,
         )
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=Handler3,
             method_name="method3",
@@ -237,16 +237,16 @@ class TestPriorityAndConstantsIntegration(TestCase):
             priority=Priority.HIGH,
         )
 
-        # Get hooks and verify ordering
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 3)
+        # Get triggers and verify ordering
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 3)
 
         # Check priority order (high priority first - lower numbers)
-        priorities = [hook[3] for hook in hooks]
+        priorities = [trigger[3] for trigger in triggers]
         self.assertEqual(priorities, [Priority.HIGH, Priority.NORMAL, Priority.LOW])
 
         # Check handler order matches priority order
-        handlers = [hook[0] for hook in hooks]
+        handlers = [trigger[0] for trigger in triggers]
         self.assertEqual(handlers, [Handler3, Handler2, Handler1])
 
 
@@ -255,8 +255,8 @@ class TestEdgeCases(TestCase):
 
     def setUp(self):
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_priority_edge_values(self):
         """Test priority edge values."""

@@ -7,10 +7,10 @@ from unittest.mock import Mock
 import pytest
 from django.test import TestCase
 
-from django_bulk_hooks.conditions import (
+from django_bulk_triggers.conditions import (
     AndCondition,
     HasChanged,
-    HookCondition,
+    TriggerCondition,
     IsEqual,
     IsNotEqual,
     NotCondition,
@@ -18,7 +18,7 @@ from django_bulk_hooks.conditions import (
     WasEqual,
     resolve_dotted_attr,
 )
-from tests.models import Category, HookModel, UserModel
+from tests.models import Category, TriggerModel, UserModel
 
 
 class TestResolveDottedAttr(TestCase):
@@ -27,7 +27,7 @@ class TestResolveDottedAttr(TestCase):
     def setUp(self):
         self.user = UserModel(username="testuser", email="test@example.com")
         self.category = Category(name="Test Category", description="Test Description")
-        self.test_model = HookModel(
+        self.test_model = TriggerModel(
             name="Test Model",
             value=42,
             status="active",
@@ -36,8 +36,8 @@ class TestResolveDottedAttr(TestCase):
         )
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_resolve_simple_attr(self):
         """Test resolving a simple attribute."""
@@ -82,19 +82,19 @@ class TestResolveDottedAttr(TestCase):
         self.assertIsNone(result)
 
 
-class TestHookCondition(TestCase):
-    """Test the base HookCondition class."""
+class TestTriggerCondition(TestCase):
+    """Test the base TriggerCondition class."""
 
-    def test_hook_condition_abstract(self):
-        """Test that HookCondition check method raises NotImplementedError."""
-        condition = HookCondition()
+    def test_trigger_condition_abstract(self):
+        """Test that TriggerCondition check method raises NotImplementedError."""
+        condition = TriggerCondition()
         with self.assertRaises(NotImplementedError):
             condition.check(None)
 
-    def test_hook_condition_callable(self):
-        """Test that HookCondition instances are callable."""
+    def test_trigger_condition_callable(self):
+        """Test that TriggerCondition instances are callable."""
 
-        class TestCondition(HookCondition):
+        class TestCondition(TriggerCondition):
             def check(self, instance, original_instance=None):
                 return True
 
@@ -107,12 +107,12 @@ class TestIsEqual(TestCase):
 
     def setUp(self):
         self.condition = IsEqual("status", "active")
-        self.test_model = HookModel(name="Test", status="active")
-        self.old_model = HookModel(name="Test", status="inactive")
+        self.test_model = TriggerModel(name="Test", status="active")
+        self.old_model = TriggerModel(name="Test", status="inactive")
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_is_equal_basic(self):
         """Test basic IsEqual functionality."""
@@ -120,7 +120,7 @@ class TestIsEqual(TestCase):
 
     def test_is_equal_false(self):
         """Test IsEqual when value doesn't match."""
-        test_model = HookModel(name="Test", status="inactive")
+        test_model = TriggerModel(name="Test", status="inactive")
         self.assertFalse(self.condition.check(test_model))
 
     def test_is_equal_with_original_instance(self):
@@ -140,7 +140,7 @@ class TestIsEqual(TestCase):
         condition = IsEqual("status", "active", only_on_change=True)
 
         # Both old and new status are 'active'
-        old_model = HookModel(name="Test", status="active")
+        old_model = TriggerModel(name="Test", status="active")
         self.assertFalse(condition.check(self.test_model, old_model))
 
     def test_is_equal_only_on_change_no_original(self):
@@ -151,7 +151,7 @@ class TestIsEqual(TestCase):
     def test_is_equal_nested_field(self):
         """Test IsEqual with nested field."""
         user = UserModel(username="testuser")
-        test_model = HookModel(name="Test", created_by=user)
+        test_model = TriggerModel(name="Test", created_by=user)
         condition = IsEqual("created_by.username", "testuser")
 
         self.assertTrue(condition.check(test_model))
@@ -162,12 +162,12 @@ class TestIsNotEqual(TestCase):
 
     def setUp(self):
         self.condition = IsNotEqual("status", "inactive")
-        self.test_model = HookModel(name="Test", status="active")
-        self.old_model = HookModel(name="Test", status="inactive")
+        self.test_model = TriggerModel(name="Test", status="active")
+        self.old_model = TriggerModel(name="Test", status="inactive")
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_is_not_equal_basic(self):
         """Test basic IsNotEqual functionality."""
@@ -175,7 +175,7 @@ class TestIsNotEqual(TestCase):
 
     def test_is_not_equal_false(self):
         """Test IsNotEqual when value matches."""
-        test_model = HookModel(name="Test", status="inactive")
+        test_model = TriggerModel(name="Test", status="inactive")
         self.assertFalse(self.condition.check(test_model))
 
     def test_is_not_equal_only_on_change_true(self):
@@ -190,7 +190,7 @@ class TestIsNotEqual(TestCase):
         condition = IsNotEqual("status", "inactive", only_on_change=True)
 
         # Both old and new status are not 'inactive'
-        old_model = HookModel(name="Test", status="active")
+        old_model = TriggerModel(name="Test", status="active")
         self.assertFalse(condition.check(self.test_model, old_model))
 
 
@@ -199,12 +199,12 @@ class TestHasChanged(TestCase):
 
     def setUp(self):
         self.condition = HasChanged("status")
-        self.test_model = HookModel(name="Test", status="active")
-        self.old_model = HookModel(name="Test", status="inactive")
+        self.test_model = TriggerModel(name="Test", status="active")
+        self.old_model = TriggerModel(name="Test", status="inactive")
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_has_changed_true(self):
         """Test HasChanged when field has changed."""
@@ -212,7 +212,7 @@ class TestHasChanged(TestCase):
 
     def test_has_changed_false(self):
         """Test HasChanged when field hasn't changed."""
-        old_model = HookModel(name="Test", status="active")
+        old_model = TriggerModel(name="Test", status="active")
         self.assertFalse(self.condition.check(self.test_model, old_model))
 
     def test_has_changed_no_original(self):
@@ -227,15 +227,15 @@ class TestHasChanged(TestCase):
         self.assertFalse(condition.check(self.test_model, self.old_model))
 
         # Field hasn't changed, and we're looking for unchanged
-        old_model = HookModel(name="Test", status="active")
+        old_model = TriggerModel(name="Test", status="active")
         self.assertTrue(condition.check(self.test_model, old_model))
 
     def test_has_changed_nested_field(self):
         """Test HasChanged with nested field."""
         user1 = UserModel(username="user1")
         user2 = UserModel(username="user2")
-        test_model = HookModel(name="Test", created_by=user1)
-        old_model = HookModel(name="Test", created_by=user2)
+        test_model = TriggerModel(name="Test", created_by=user1)
+        old_model = TriggerModel(name="Test", created_by=user2)
 
         condition = HasChanged("created_by.username")
         self.assertTrue(condition.check(test_model, old_model))
@@ -246,12 +246,12 @@ class TestWasEqual(TestCase):
 
     def setUp(self):
         self.condition = WasEqual("status", "inactive")
-        self.test_model = HookModel(name="Test", status="active")
-        self.old_model = HookModel(name="Test", status="inactive")
+        self.test_model = TriggerModel(name="Test", status="active")
+        self.old_model = TriggerModel(name="Test", status="inactive")
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_was_equal_true(self):
         """Test WasEqual when original value matches."""
@@ -259,7 +259,7 @@ class TestWasEqual(TestCase):
 
     def test_was_equal_false(self):
         """Test WasEqual when original value doesn't match."""
-        old_model = HookModel(name="Test", status="active")
+        old_model = TriggerModel(name="Test", status="active")
         self.assertFalse(self.condition.check(self.test_model, old_model))
 
     def test_was_equal_no_original(self):
@@ -278,8 +278,8 @@ class TestWasEqual(TestCase):
         condition = WasEqual("status", "inactive", only_on_change=True)
 
         # Both old and new status are 'inactive'
-        old_model = HookModel(name="Test", status="inactive")
-        test_model = HookModel(name="Test", status="inactive")
+        old_model = TriggerModel(name="Test", status="inactive")
+        test_model = TriggerModel(name="Test", status="inactive")
         self.assertFalse(condition.check(test_model, old_model))
 
 
@@ -291,11 +291,11 @@ class TestAndCondition(TestCase):
         self.condition2 = IsEqual("value", 42)
         self.and_condition = self.condition1 & self.condition2
 
-        self.test_model = HookModel(name="Test", status="active", value=42)
+        self.test_model = TriggerModel(name="Test", status="active", value=42)
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_and_condition_both_true(self):
         """Test AndCondition when both conditions are true."""
@@ -303,22 +303,22 @@ class TestAndCondition(TestCase):
 
     def test_and_condition_first_false(self):
         """Test AndCondition when first condition is false."""
-        test_model = HookModel(name="Test", status="inactive", value=42)
+        test_model = TriggerModel(name="Test", status="inactive", value=42)
         self.assertFalse(self.and_condition.check(test_model))
 
     def test_and_condition_second_false(self):
         """Test AndCondition when second condition is false."""
-        test_model = HookModel(name="Test", status="active", value=0)
+        test_model = TriggerModel(name="Test", status="active", value=0)
         self.assertFalse(self.and_condition.check(test_model))
 
     def test_and_condition_both_false(self):
         """Test AndCondition when both conditions are false."""
-        test_model = HookModel(name="Test", status="inactive", value=0)
+        test_model = TriggerModel(name="Test", status="inactive", value=0)
         self.assertFalse(self.and_condition.check(test_model))
 
     def test_and_condition_with_original_instance(self):
         """Test AndCondition with original instance."""
-        old_model = HookModel(name="Test", status="inactive", value=0)
+        old_model = TriggerModel(name="Test", status="inactive", value=0)
         self.assertTrue(self.and_condition.check(self.test_model, old_model))
 
 
@@ -331,27 +331,27 @@ class TestOrCondition(TestCase):
         self.or_condition = self.condition1 | self.condition2
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_or_condition_both_true(self):
         """Test OrCondition when both conditions are true."""
-        test_model = HookModel(name="Test", status="active", value=42)
+        test_model = TriggerModel(name="Test", status="active", value=42)
         self.assertTrue(self.or_condition.check(test_model))
 
     def test_or_condition_first_true(self):
         """Test OrCondition when first condition is true."""
-        test_model = HookModel(name="Test", status="active", value=0)
+        test_model = TriggerModel(name="Test", status="active", value=0)
         self.assertTrue(self.or_condition.check(test_model))
 
     def test_or_condition_second_true(self):
         """Test OrCondition when second condition is true."""
-        test_model = HookModel(name="Test", status="inactive", value=42)
+        test_model = TriggerModel(name="Test", status="inactive", value=42)
         self.assertTrue(self.or_condition.check(test_model))
 
     def test_or_condition_both_false(self):
         """Test OrCondition when both conditions are false."""
-        test_model = HookModel(name="Test", status="inactive", value=0)
+        test_model = TriggerModel(name="Test", status="inactive", value=0)
         self.assertFalse(self.or_condition.check(test_model))
 
 
@@ -363,17 +363,17 @@ class TestNotCondition(TestCase):
         self.not_condition = ~self.condition
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_not_condition_true_becomes_false(self):
         """Test NotCondition when original condition is true."""
-        test_model = HookModel(name="Test", status="active")
+        test_model = TriggerModel(name="Test", status="active")
         self.assertFalse(self.not_condition.check(test_model))
 
     def test_not_condition_false_becomes_true(self):
         """Test NotCondition when original condition is false."""
-        test_model = HookModel(name="Test", status="inactive")
+        test_model = TriggerModel(name="Test", status="inactive")
         self.assertTrue(self.not_condition.check(test_model))
 
 
@@ -381,12 +381,12 @@ class TestComplexConditions(TestCase):
     """Test complex condition combinations."""
 
     def setUp(self):
-        self.test_model = HookModel(name="Test", status="active", value=42)
-        self.old_model = HookModel(name="Test", status="inactive", value=0)
+        self.test_model = TriggerModel(name="Test", status="active", value=42)
+        self.old_model = TriggerModel(name="Test", status="inactive", value=0)
         
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_complex_and_or_combination(self):
         """Test complex AND/OR condition combination."""
@@ -397,11 +397,11 @@ class TestComplexConditions(TestCase):
         self.assertTrue(condition.check(self.test_model))
 
         # Test with different value
-        test_model2 = HookModel(name="Test", status="active", value=100)
+        test_model2 = TriggerModel(name="Test", status="active", value=100)
         self.assertTrue(condition.check(test_model2))
 
         # Test with wrong status
-        test_model3 = HookModel(name="Test", status="inactive", value=42)
+        test_model3 = TriggerModel(name="Test", status="inactive", value=42)
         self.assertFalse(condition.check(test_model3))
 
     def test_complex_not_combination(self):
@@ -411,7 +411,7 @@ class TestComplexConditions(TestCase):
         self.assertTrue(condition.check(self.test_model))
 
         # Test with inactive status
-        test_model2 = HookModel(name="Test", status="inactive", value=42)
+        test_model2 = TriggerModel(name="Test", status="inactive", value=42)
         self.assertFalse(condition.check(test_model2))
 
     def test_complex_change_detection(self):
@@ -425,7 +425,7 @@ class TestComplexConditions(TestCase):
         self.assertTrue(condition.check(self.test_model, self.old_model))
 
         # Test without change
-        old_model2 = HookModel(name="Test", status="active", value=0)
+        old_model2 = TriggerModel(name="Test", status="active", value=0)
         self.assertFalse(condition.check(self.test_model, old_model2))
 
 
@@ -434,33 +434,33 @@ class TestConditionEdgeCases(TestCase):
 
     def setUp(self):
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
     def test_condition_with_none_values(self):
         """Test conditions with None values."""
-        test_model = HookModel(name="Test", created_by=None)
+        test_model = TriggerModel(name="Test", created_by=None)
         condition = IsEqual("created_by", None)
 
         self.assertTrue(condition.check(test_model))
 
     def test_condition_with_empty_string(self):
         """Test conditions with empty string values."""
-        test_model = HookModel(name="", status="active")
+        test_model = TriggerModel(name="", status="active")
         condition = IsEqual("name", "")
 
         self.assertTrue(condition.check(test_model))
 
     def test_condition_with_zero_values(self):
         """Test conditions with zero values."""
-        test_model = HookModel(name="Test", value=0)
+        test_model = TriggerModel(name="Test", value=0)
         condition = IsEqual("value", 0)
 
         self.assertTrue(condition.check(test_model))
 
     def test_condition_with_boolean_values(self):
         """Test conditions with boolean values."""
-        test_model = HookModel(name="Test", is_active=True)
+        test_model = TriggerModel(name="Test", is_active=True)
         condition = IsEqual("is_active", True)
 
         self.assertTrue(condition.check(test_model))

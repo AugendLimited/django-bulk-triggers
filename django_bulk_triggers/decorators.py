@@ -3,20 +3,20 @@ from functools import wraps
 
 from django.core.exceptions import FieldDoesNotExist
 
-from django_bulk_hooks.enums import DEFAULT_PRIORITY
-from django_bulk_hooks.registry import register_hook
+from django_bulk_triggers.enums import DEFAULT_PRIORITY
+from django_bulk_triggers.registry import register_trigger
 
 
-def hook(event, *, model, condition=None, priority=DEFAULT_PRIORITY):
+def trigger(event, *, model, condition=None, priority=DEFAULT_PRIORITY):
     """
-    Decorator to annotate a method with multiple hooks hook registrations.
+    Decorator to annotate a method with multiple triggers trigger registrations.
     If no priority is provided, uses Priority.NORMAL (50).
     """
 
     def decorator(fn):
-        if not hasattr(fn, "hooks_hooks"):
-            fn.hooks_hooks = []
-        fn.hooks_hooks.append((model, event, condition, priority))
+        if not hasattr(fn, "triggers_triggers"):
+            fn.triggers_triggers = []
+        fn.triggers_triggers.append((model, event, condition, priority))
         return fn
 
     return decorator
@@ -24,7 +24,7 @@ def hook(event, *, model, condition=None, priority=DEFAULT_PRIORITY):
 
 def select_related(*related_fields):
     """
-    Decorator that preloads related fields in-place on `new_records`, before the hook logic runs.
+    Decorator that preloads related fields in-place on `new_records`, before the trigger logic runs.
 
     - Works with instance methods (resolves `self`)
     - Avoids replacing model instances
@@ -169,15 +169,15 @@ def select_related(*related_fields):
     return decorator
 
 
-def bulk_hook(model_cls, event, when=None, priority=None):
+def bulk_trigger(model_cls, event, when=None, priority=None):
     """
-    Decorator to register a bulk hook for a model.
+    Decorator to register a bulk trigger for a model.
 
     Args:
-        model_cls: The model class to hook into
-        event: The event to hook into (e.g., BEFORE_UPDATE, AFTER_UPDATE)
-        when: Optional condition for when the hook should run
-        priority: Optional priority for hook execution order
+        model_cls: The model class to trigger into
+        event: The event to trigger into (e.g., BEFORE_UPDATE, AFTER_UPDATE)
+        when: Optional condition for when the trigger should run
+        priority: Optional priority for trigger execution order
     """
 
     def decorator(func):
@@ -189,8 +189,8 @@ def bulk_hook(model_cls, event, when=None, priority=None):
             def handle(self, new_records=None, old_records=None, **kwargs):
                 return self.func(new_records, old_records)
 
-        # Register the hook using the registry
-        register_hook(
+        # Register the trigger using the registry
+        register_trigger(
             model=model_cls,
             event=event,
             handler_cls=FunctionHandler,
@@ -199,8 +199,8 @@ def bulk_hook(model_cls, event, when=None, priority=None):
             priority=priority or DEFAULT_PRIORITY,
         )
 
-        # Set attribute to indicate the function has been registered as a bulk hook
-        func._bulk_hook_registered = True
+        # Set attribute to indicate the function has been registered as a bulk trigger
+        func._bulk_trigger_registered = True
 
         return func
 

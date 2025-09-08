@@ -4,31 +4,31 @@ Additional tests for manager module to increase coverage.
 
 from unittest.mock import Mock, patch
 from django.test import TestCase
-from django_bulk_hooks.manager import BulkHookManager
-from tests.models import HookModel
+from django_bulk_triggers.manager import BulkTriggerManager
+from tests.models import TriggerModel
 
 
 class TestManagerCoverage(TestCase):
     """Test uncovered functionality in manager module."""
     
     def setUp(self):
-        self.manager = BulkHookManager()
-        self.manager.model = HookModel
+        self.manager = BulkTriggerManager()
+        self.manager.model = TriggerModel
     
-    def test_get_queryset_with_existing_hook_queryset(self):
-        """Test get_queryset when base queryset already has hook functionality."""
+    def test_get_queryset_with_existing_trigger_queryset(self):
+        """Test get_queryset when base queryset already has trigger functionality."""
         # Mock the base queryset that will be returned by super().get_queryset()
         mock_base_qs = Mock()
-        mock_base_qs.model = HookModel
+        mock_base_qs.model = TriggerModel
 
         # Mock the super().get_queryset() call to return our mock queryset
-        with patch('django_bulk_hooks.manager.super') as mock_super:
+        with patch('django_bulk_triggers.manager.super') as mock_super:
             mock_super_instance = Mock()
             mock_super_instance.get_queryset.return_value = mock_base_qs
             mock_super.return_value = mock_super_instance
 
             # Mock isinstance to return True for our mock queryset
-            with patch('django_bulk_hooks.manager.isinstance', return_value=True) as mock_isinstance:
+            with patch('django_bulk_triggers.manager.isinstance', return_value=True) as mock_isinstance:
                 result = self.manager.get_queryset()
 
                 # Should return the base queryset as-is when isinstance returns True
@@ -139,14 +139,14 @@ class TestManagerCoverage(TestCase):
         """Test delete delegates to queryset."""
         with patch.object(self.manager, 'get_queryset') as mock_get_qs:
             mock_qs = Mock()
-            mock_qs.delete.return_value = (2, {'tests.HookModel': 2})
+            mock_qs.delete.return_value = (2, {'tests.TriggerModel': 2})
             mock_get_qs.return_value = mock_qs
             
             result = self.manager.delete()
             
             # Should delegate to queryset
             mock_qs.delete.assert_called_once()
-            self.assertEqual(result, (2, {'tests.HookModel': 2}))
+            self.assertEqual(result, (2, {'tests.TriggerModel': 2}))
     
     def test_update_delegation(self):
         """Test update delegates to queryset."""

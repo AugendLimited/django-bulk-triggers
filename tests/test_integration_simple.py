@@ -1,5 +1,5 @@
 """
-Simple Integration Tests for django-bulk-hooks
+Simple Integration Tests for django-bulk-triggers
 
 This file demonstrates the power of integration testing using real Django models
 instead of complex mocking. These tests are:
@@ -15,14 +15,14 @@ Compare this to the complex mocking approach in test_queryset_extended.py!
 
 from django.test import TestCase
 from django.db.models import F, Subquery, Case, When, Value
-from django_bulk_hooks.constants import (
+from django_bulk_triggers.constants import (
     BEFORE_CREATE, AFTER_CREATE,
     BEFORE_UPDATE, AFTER_UPDATE,
     BEFORE_DELETE, AFTER_DELETE
 )
-from django_bulk_hooks.decorators import bulk_hook
-from django_bulk_hooks.registry import clear_hooks
-from tests.models import HookModel, Category, UserModel
+from django_bulk_triggers.decorators import bulk_trigger
+from django_bulk_triggers.registry import clear_triggers
+from tests.models import TriggerModel, Category, UserModel
 
 
 class SimpleIntegrationTestBase(TestCase):
@@ -37,123 +37,123 @@ class SimpleIntegrationTestBase(TestCase):
         self.user2 = UserModel.objects.create(username="bob", email="bob@test.com")
 
         # Create test objects
-        self.product1 = HookModel.objects.create(
+        self.product1 = TriggerModel.objects.create(
             name="Laptop", value=1000, category=self.category1, created_by=self.user1
         )
-        self.product2 = HookModel.objects.create(
+        self.product2 = TriggerModel.objects.create(
             name="Book", value=20, category=self.category2, created_by=self.user2
         )
 
     def tearDown(self):
-        """Clean up hooks after each test."""
-        clear_hooks()
+        """Clean up triggers after each test."""
+        clear_triggers()
 
 
 class BulkOperationsTest(SimpleIntegrationTestBase):
-    """Test basic bulk operations with hooks."""
+    """Test basic bulk operations with triggers."""
 
-    def test_bulk_update_with_hooks(self):
-        """Test that bulk update triggers hooks correctly."""
+    def test_bulk_update_with_triggers(self):
+        """Test that bulk update triggers triggers correctly."""
         calls = []
 
-        @bulk_hook(HookModel, BEFORE_UPDATE)
+        @bulk_trigger(TriggerModel, BEFORE_UPDATE)
         def before_update(new_records, old_records):
             calls.append(('before', len(new_records)))
-            # Modify values in hook
+            # Modify values in trigger
             for obj in new_records:
                 obj.name = f"Updated {obj.name}"
 
-        @bulk_hook(HookModel, AFTER_UPDATE)
+        @bulk_trigger(TriggerModel, AFTER_UPDATE)
         def after_update(new_records, old_records):
             calls.append(('after', len(new_records)))
 
         # Perform bulk update
-        result = HookModel.objects.filter(pk=self.product1.pk).update(value=1500)
+        result = TriggerModel.objects.filter(pk=self.product1.pk).update(value=1500)
 
         # Verify result
         self.assertEqual(result, 1)
 
-        # Verify hooks were called
+        # Verify triggers were called
         self.assertEqual(calls, [('before', 1), ('after', 1)])
 
         # Verify database changes
         self.product1.refresh_from_db()
         self.assertEqual(self.product1.value, 1500)
 
-    def test_bulk_create_with_hooks(self):
-        """Test that bulk create triggers hooks correctly."""
+    def test_bulk_create_with_triggers(self):
+        """Test that bulk create triggers triggers correctly."""
         calls = []
 
-        @bulk_hook(HookModel, BEFORE_CREATE)
+        @bulk_trigger(TriggerModel, BEFORE_CREATE)
         def before_create(new_records, old_records):
             calls.append(('before_create', len(new_records)))
 
-        @bulk_hook(HookModel, AFTER_CREATE)
+        @bulk_trigger(TriggerModel, AFTER_CREATE)
         def after_create(new_records, old_records):
             calls.append(('after_create', len(new_records)))
 
         # Create new objects
         new_products = [
-            HookModel(name="Tablet", value=500, category=self.category1),
-            HookModel(name="Headphones", value=100, category=self.category1)
+            TriggerModel(name="Tablet", value=500, category=self.category1),
+            TriggerModel(name="Headphones", value=100, category=self.category1)
         ]
 
-        result = HookModel.objects.bulk_create(new_products)
+        result = TriggerModel.objects.bulk_create(new_products)
 
         # Verify result
         self.assertEqual(len(result), 2)
 
-        # Verify hooks were called
+        # Verify triggers were called
         self.assertEqual(calls, [('before_create', 2), ('after_create', 2)])
 
-    def test_bulk_delete_with_hooks(self):
-        """Test that bulk delete triggers hooks correctly."""
+    def test_bulk_delete_with_triggers(self):
+        """Test that bulk delete triggers triggers correctly."""
         calls = []
 
-        @bulk_hook(HookModel, BEFORE_DELETE)
+        @bulk_trigger(TriggerModel, BEFORE_DELETE)
         def before_delete(new_records, old_records):
             calls.append(('before_delete', len(new_records)))
 
-        @bulk_hook(HookModel, AFTER_DELETE)
+        @bulk_trigger(TriggerModel, AFTER_DELETE)
         def after_delete(new_records, old_records):
             calls.append(('after_delete', len(new_records)))
 
         # Delete objects
-        result = HookModel.objects.filter(pk=self.product1.pk).delete()
+        result = TriggerModel.objects.filter(pk=self.product1.pk).delete()
 
         # Verify result
         self.assertEqual(result[0], 1)  # Number of deleted objects
 
-        # Verify hooks were called
+        # Verify triggers were called
         self.assertEqual(calls, [('before_delete', 1), ('after_delete', 1)])
 
         # Verify object is gone
-        self.assertFalse(HookModel.objects.filter(pk=self.product1.pk).exists())
+        self.assertFalse(TriggerModel.objects.filter(pk=self.product1.pk).exists())
 
 
 class AdvancedQueriesTest(SimpleIntegrationTestBase):
-    """Test advanced query operations with hooks."""
+    """Test advanced query operations with triggers."""
 
-    def test_subquery_with_hooks(self):
+    def test_subquery_with_triggers(self):
         """Test bulk update with Subquery expressions."""
         calls = []
 
-        @bulk_hook(HookModel, BEFORE_UPDATE)
+        @bulk_trigger(TriggerModel, BEFORE_UPDATE)
         def before_update(new_records, old_records):
             calls.append(('before_update', len(new_records)))
 
         # Create additional products for subquery testing
-        expensive_product = HookModel.objects.create(
+        expensive_product = TriggerModel.objects.create(
             name="Expensive Item", value=2000, category=self.category1
         )
 
         # Use subquery to update products cheaper than the most expensive
-        expensive_values = HookModel.objects.filter(value__gt=100).values('value')
-        result = HookModel.objects.filter(
+        expensive_values = TriggerModel.objects.filter(value__gt=100).values('value')
+        result = TriggerModel.objects.filter(
             value__lt=Subquery(expensive_values[:1])
         ).update(status="discounted")
 
-        # Verify hooks were called
+        # Verify triggers were called
         self.assertEqual(len(calls), 1)
 
         # Verify some products were updated
@@ -162,11 +162,11 @@ class AdvancedQueriesTest(SimpleIntegrationTestBase):
         # Clean up
         expensive_product.delete()
 
-    def test_case_when_with_hooks(self):
+    def test_case_when_with_triggers(self):
         """Test bulk update with Case/When expressions."""
         calls = []
 
-        @bulk_hook(HookModel, BEFORE_UPDATE)
+        @bulk_trigger(TriggerModel, BEFORE_UPDATE)
         def before_update(new_records, old_records):
             calls.append(('before_update', len(new_records)))
 
@@ -177,9 +177,9 @@ class AdvancedQueriesTest(SimpleIntegrationTestBase):
             default=Value("standard")
         )
 
-        result = HookModel.objects.update(status=case_expression)
+        result = TriggerModel.objects.update(status=case_expression)
 
-        # Verify hooks were called for all objects
+        # Verify triggers were called for all objects
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1], 2)  # Both products updated
 
@@ -194,16 +194,16 @@ class RelationFieldsTest(SimpleIntegrationTestBase):
         """Test bulk updates involving foreign key fields."""
         calls = []
 
-        @bulk_hook(HookModel, BEFORE_UPDATE)
+        @bulk_trigger(TriggerModel, BEFORE_UPDATE)
         def before_update(new_records, old_records):
             calls.append(('before_update', len(new_records)))
 
         # Update products to change category
-        result = HookModel.objects.filter(
+        result = TriggerModel.objects.filter(
             pk=self.product1.pk
         ).update(category=self.category2)
 
-        # Verify hooks were called
+        # Verify triggers were called
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1], 1)
 
@@ -215,16 +215,16 @@ class RelationFieldsTest(SimpleIntegrationTestBase):
         """Test bulk updates involving user foreign key fields."""
         calls = []
 
-        @bulk_hook(HookModel, BEFORE_UPDATE)
+        @bulk_trigger(TriggerModel, BEFORE_UPDATE)
         def before_update(new_records, old_records):
             calls.append(('before_update', len(new_records)))
 
         # Update products to change creator
-        result = HookModel.objects.filter(
+        result = TriggerModel.objects.filter(
             pk=self.product1.pk
         ).update(created_by=self.user2)
 
-        # Verify hooks were called
+        # Verify triggers were called
         self.assertEqual(len(calls), 1)
 
         # Verify user change
@@ -239,48 +239,48 @@ class WorkflowIntegrationTest(SimpleIntegrationTestBase):
         """Test a complete Create-Read-Update-Delete workflow."""
         workflow_calls = []
 
-        # Register hooks for all operations
-        @bulk_hook(HookModel, BEFORE_CREATE)
+        # Register triggers for all operations
+        @bulk_trigger(TriggerModel, BEFORE_CREATE)
         def before_create(new_records, old_records):
             workflow_calls.append('before_create')
 
-        @bulk_hook(HookModel, AFTER_CREATE)
+        @bulk_trigger(TriggerModel, AFTER_CREATE)
         def after_create(new_records, old_records):
             workflow_calls.append('after_create')
 
-        @bulk_hook(HookModel, BEFORE_UPDATE)
+        @bulk_trigger(TriggerModel, BEFORE_UPDATE)
         def before_update(new_records, old_records):
             workflow_calls.append('before_update')
 
-        @bulk_hook(HookModel, AFTER_UPDATE)
+        @bulk_trigger(TriggerModel, AFTER_UPDATE)
         def after_update(new_records, old_records):
             workflow_calls.append('after_update')
 
-        @bulk_hook(HookModel, BEFORE_DELETE)
+        @bulk_trigger(TriggerModel, BEFORE_DELETE)
         def before_delete(new_records, old_records):
             workflow_calls.append('before_delete')
 
-        @bulk_hook(HookModel, AFTER_DELETE)
+        @bulk_trigger(TriggerModel, AFTER_DELETE)
         def after_delete(new_records, old_records):
             workflow_calls.append('after_delete')
 
         # 1. Create new products
         new_products = [
-            HookModel(name="Workflow Product 1", value=300, category=self.category1),
-            HookModel(name="Workflow Product 2", value=400, category=self.category2)
+            TriggerModel(name="Workflow Product 1", value=300, category=self.category1),
+            TriggerModel(name="Workflow Product 2", value=400, category=self.category2)
         ]
 
-        created = HookModel.objects.bulk_create(new_products)
+        created = TriggerModel.objects.bulk_create(new_products)
         self.assertEqual(len(created), 2)
         self.assertIn('before_create', workflow_calls)
         self.assertIn('after_create', workflow_calls)
 
         # Get created objects
-        workflow_products = list(HookModel.objects.filter(name__startswith="Workflow"))
+        workflow_products = list(TriggerModel.objects.filter(name__startswith="Workflow"))
         self.assertEqual(len(workflow_products), 2)
 
         # 2. Update products
-        result = HookModel.objects.filter(
+        result = TriggerModel.objects.filter(
             name__startswith="Workflow"
         ).update(value=F('value') + 100)
 
@@ -289,7 +289,7 @@ class WorkflowIntegrationTest(SimpleIntegrationTestBase):
         self.assertIn('after_update', workflow_calls)
 
         # 3. Delete products
-        result = HookModel.objects.filter(
+        result = TriggerModel.objects.filter(
             name__startswith="Workflow"
         ).delete()
 
@@ -309,6 +309,6 @@ class WorkflowIntegrationTest(SimpleIntegrationTestBase):
 
         # Verify objects are gone
         self.assertEqual(
-            HookModel.objects.filter(name__startswith="Workflow").count(),
+            TriggerModel.objects.filter(name__startswith="Workflow").count(),
             0
         )

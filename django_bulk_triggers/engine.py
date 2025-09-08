@@ -2,22 +2,22 @@ import logging
 
 from django.core.exceptions import ValidationError
 
-from django_bulk_hooks.registry import get_hooks
+from django_bulk_triggers.registry import get_triggers
 
 logger = logging.getLogger(__name__)
 
 
 def run(model_cls, event, new_records, old_records=None, ctx=None):
     """
-    Run hooks for a given model, event, and records.
+    Run triggers for a given model, event, and records.
     """
     if not new_records:
         return
 
-    # Get hooks for this model and event
-    hooks = get_hooks(model_cls, event)
+    # Get triggers for this model and event
+    triggers = get_triggers(model_cls, event)
 
-    if not hooks:
+    if not triggers:
         return
 
     import traceback
@@ -28,7 +28,7 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
     logger.debug(f"engine.run {model_name}.{event} {len(new_records)} records")
     
     # Check if we're in a bypass context
-    if ctx and hasattr(ctx, 'bypass_hooks') and ctx.bypass_hooks:
+    if ctx and hasattr(ctx, 'bypass_triggers') and ctx.bypass_triggers:
         logger.debug("engine.run bypassed")
         return
 
@@ -41,8 +41,8 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                 logger.error("Validation failed for %s: %s", instance, e)
                 raise
 
-    # Process hooks
-    for handler_cls, method_name, condition, priority in hooks:
+    # Process triggers
+    for handler_cls, method_name, condition, priority in triggers:
         # Safely get handler class name
         handler_name = getattr(handler_cls, '__name__', str(handler_cls))
         logger.debug(f"Processing {handler_name}.{method_name}")
@@ -74,5 +74,5 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                     old_records=to_process_old if any(to_process_old) else None,
                 )
             except Exception as e:
-                logger.debug(f"Hook execution failed: {e}")
+                logger.debug(f"Trigger execution failed: {e}")
                 raise

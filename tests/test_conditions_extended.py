@@ -4,28 +4,28 @@ Extended tests for the conditions module to increase coverage.
 
 from unittest.mock import Mock, patch
 from django.test import TestCase
-from django_bulk_hooks.conditions import (
-    HookCondition, IsEqual, IsNotEqual, HasChanged,
+from django_bulk_triggers.conditions import (
+    TriggerCondition, IsEqual, IsNotEqual, HasChanged,
     WasEqual, ChangesTo, IsGreaterThan, IsGreaterThanOrEqual, 
     IsLessThan, IsLessThanOrEqual, AndCondition, OrCondition, NotCondition
 )
-from tests.models import HookModel, Category, UserModel
+from tests.models import TriggerModel, Category, UserModel
 
 
-class TestHookConditionBase(TestCase):
+class TestTriggerConditionBase(TestCase):
     """Base test case for condition tests."""
     
     def setUp(self):
         self.category = Category.objects.create(name="Test Category")
         self.user = UserModel.objects.create(username="testuser", email="test@example.com")
-        self.instance = HookModel.objects.create(
+        self.instance = TriggerModel.objects.create(
             name="Test Instance",
             value=42,
             status="active",
             category=self.category,
             created_by=self.user
         )
-        self.original_instance = HookModel.objects.create(
+        self.original_instance = TriggerModel.objects.create(
             name="Original Instance",
             value=100,
             status="pending",
@@ -34,17 +34,17 @@ class TestHookConditionBase(TestCase):
         )
     
     def tearDown(self):
-        HookModel.objects.all().delete()
+        TriggerModel.objects.all().delete()
         Category.objects.all().delete()
         UserModel.objects.all().delete()
 
 
-class TestHookCondition(TestHookConditionBase):
-    """Test the base HookCondition class."""
+class TestTriggerCondition(TestTriggerConditionBase):
+    """Test the base TriggerCondition class."""
     
-    def test_hook_condition_base_class(self):
-        """Test that HookCondition is a proper base class."""
-        condition = HookCondition()
+    def test_trigger_condition_base_class(self):
+        """Test that TriggerCondition is a proper base class."""
+        condition = TriggerCondition()
         self.assertTrue(hasattr(condition, 'check'))
         
         # Base class should raise NotImplementedError
@@ -52,7 +52,7 @@ class TestHookCondition(TestHookConditionBase):
             condition.check(self.instance, self.original_instance)
 
 
-class TestAlwaysCondition(TestHookConditionBase):
+class TestAlwaysCondition(TestTriggerConditionBase):
     """Test the Always condition."""
     
     def test_always_returns_true(self):
@@ -66,7 +66,7 @@ class TestAlwaysCondition(TestHookConditionBase):
         # Note: None original_instance will cause some conditions to fail
 
 
-class TestNeverCondition(TestHookConditionBase):
+class TestNeverCondition(TestTriggerConditionBase):
     """Test the Never condition."""
     
     def test_never_returns_false(self):
@@ -80,7 +80,7 @@ class TestNeverCondition(TestHookConditionBase):
         # Note: None original_instance will cause some conditions to fail
 
 
-class TestFieldEqualsCondition(TestHookConditionBase):
+class TestFieldEqualsCondition(TestTriggerConditionBase):
     """Test the FieldEquals condition."""
     
     def test_field_equals_with_matching_value(self):
@@ -128,7 +128,7 @@ class TestFieldEqualsCondition(TestHookConditionBase):
     def test_field_equals_with_missing_related_object(self):
         """Test FieldEquals with missing related object."""
         # Create instance without category
-        instance_no_category = HookModel.objects.create(
+        instance_no_category = TriggerModel.objects.create(
             name="No Category",
             value=0,
             created_by=self.user
@@ -140,7 +140,7 @@ class TestFieldEqualsCondition(TestHookConditionBase):
         self.assertFalse(result)
 
 
-class TestFieldNotEqualsCondition(TestHookConditionBase):
+class TestFieldNotEqualsCondition(TestTriggerConditionBase):
     """Test the FieldNotEquals condition."""
     
     def test_field_not_equals_with_different_value(self):
@@ -165,7 +165,7 @@ class TestFieldNotEqualsCondition(TestHookConditionBase):
         self.assertTrue(result)
 
 
-class TestFieldChangedCondition(TestHookConditionBase):
+class TestFieldChangedCondition(TestTriggerConditionBase):
     """Test the FieldChanged condition."""
     
     def test_field_changed_with_changed_value(self):
@@ -178,7 +178,7 @@ class TestFieldChangedCondition(TestHookConditionBase):
     def test_field_changed_with_unchanged_value(self):
         """Test FieldChanged when field value hasn't changed."""
         # Create instance with same name as original
-        same_name_instance = HookModel.objects.create(
+        same_name_instance = TriggerModel.objects.create(
             name="Original Instance",
             value=200,
             category=self.category,
@@ -212,7 +212,7 @@ class TestFieldChangedCondition(TestHookConditionBase):
         self.assertFalse(result)
 
 
-class TestFieldChangedToCondition(TestHookConditionBase):
+class TestFieldChangedToCondition(TestTriggerConditionBase):
     """Test the FieldChangedTo condition."""
     
     def test_field_changed_to_with_correct_value(self):
@@ -252,7 +252,7 @@ class TestFieldChangedToCondition(TestHookConditionBase):
         self.assertTrue(result)
 
 
-class TestFieldChangedFromCondition(TestHookConditionBase):
+class TestFieldChangedFromCondition(TestTriggerConditionBase):
     """Test the FieldChangedFrom condition."""
     
     def test_field_changed_from_with_correct_original_value(self):
@@ -292,7 +292,7 @@ class TestFieldChangedFromCondition(TestHookConditionBase):
         self.assertTrue(result)
 
 
-class TestChangesToCondition(TestHookConditionBase):
+class TestChangesToCondition(TestTriggerConditionBase):
     """Test the ChangesTo condition."""
     
     def test_changes_to_with_correct_change(self):
@@ -325,7 +325,7 @@ class TestChangesToCondition(TestHookConditionBase):
         self.assertFalse(result)
 
 
-class TestComparisonConditions(TestHookConditionBase):
+class TestComparisonConditions(TestTriggerConditionBase):
     """Test the comparison conditions (IsGreaterThan, IsLessThan, etc.)."""
     
     def test_is_greater_than(self):
@@ -347,7 +347,7 @@ class TestComparisonConditions(TestHookConditionBase):
         condition = IsGreaterThan('value', 40)
         
         # Create instance with None value - use a different field that allows None
-        none_value_instance = HookModel.objects.create(
+        none_value_instance = TriggerModel.objects.create(
             name="None Value",
             value=0,  # Use 0 instead of None since value field doesn't allow None
             category=self.category,
@@ -409,7 +409,7 @@ class TestComparisonConditions(TestHookConditionBase):
         self.assertTrue(result)
 
 
-class TestLogicalConditions(TestHookConditionBase):
+class TestLogicalConditions(TestTriggerConditionBase):
     """Test the logical conditions (And, Or, Not)."""
     
     def test_and_condition_both_true(self):
@@ -514,13 +514,13 @@ class TestLogicalConditions(TestHookConditionBase):
         self.assertTrue(result)  # Not(Not(True)) = True
 
 
-class TestConditionEdgeCases(TestHookConditionBase):
+class TestConditionEdgeCases(TestTriggerConditionBase):
     """Test edge cases for conditions."""
     
     def test_condition_with_missing_related_objects(self):
         """Test conditions with missing related objects."""
         # Create instance without category
-        instance_no_category = HookModel.objects.create(
+        instance_no_category = TriggerModel.objects.create(
             name="No Category",
             value=0,
             created_by=self.user
@@ -543,7 +543,7 @@ class TestConditionEdgeCases(TestHookConditionBase):
     def test_condition_with_empty_string_values(self):
         """Test conditions with empty string values."""
         # Create instance with empty string
-        empty_string_instance = HookModel.objects.create(
+        empty_string_instance = TriggerModel.objects.create(
             name="",
             value=0,
             category=self.category,

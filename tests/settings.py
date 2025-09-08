@@ -1,5 +1,5 @@
 """
-Django settings for testing django-bulk-hooks.
+Django settings for testing django-bulk-triggers.
 """
 
 import os
@@ -23,7 +23,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "django_bulk_hooks",
+    "django_bulk_triggers",
     "tests",
 ]
 

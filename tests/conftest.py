@@ -1,5 +1,5 @@
 """
-Pytest configuration for django-bulk-hooks tests.
+Pytest configuration for django-bulk-triggers tests.
 """
 
 import os
@@ -113,13 +113,13 @@ def test_category():
 
 
 @pytest.fixture
-def test_hook_instances(test_user, test_category):
-    """Create test hook model instances for testing."""
-    from tests.models import HookModel
+def test_trigger_instances(test_user, test_category):
+    """Create test trigger model instances for testing."""
+    from tests.models import TriggerModel
 
     instances = []
     for i in range(3):
-        instance = HookModel.objects.create(
+        instance = TriggerModel.objects.create(
             name=f"Test Instance {i}",
             value=i * 10,
             category=test_category,
@@ -135,9 +135,9 @@ def test_hook_instances(test_user, test_category):
 
 
 @pytest.fixture
-def hook_tracker():
-    """Create a hook tracker for testing hook calls."""
-    from tests.utils import HookTracker
+def trigger_tracker():
+    """Create a trigger tracker for testing trigger calls."""
+    from tests.utils import TriggerTracker
 
-    tracker = HookTracker()
+    tracker = TriggerTracker()
     yield tracker

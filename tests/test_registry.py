@@ -7,8 +7,8 @@ from unittest.mock import patch
 import pytest
 from django.test import TestCase
 
-from django_bulk_hooks.conditions import IsEqual
-from django_bulk_hooks.constants import (
+from django_bulk_triggers.conditions import IsEqual
+from django_bulk_triggers.constants import (
     AFTER_CREATE,
     AFTER_DELETE,
     AFTER_UPDATE,
@@ -16,29 +16,29 @@ from django_bulk_hooks.constants import (
     BEFORE_DELETE,
     BEFORE_UPDATE,
 )
-from django_bulk_hooks.priority import Priority
-from django_bulk_hooks.registry import get_hooks, list_all_hooks, register_hook
-from tests.models import SimpleModel, HookModel, UserModel
+from django_bulk_triggers.priority import Priority
+from django_bulk_triggers.registry import get_triggers, list_all_triggers, register_trigger
+from tests.models import SimpleModel, TriggerModel, UserModel
 
 
-class TestRegisterHook(TestCase):
-    """Test the register_hook function."""
+class TestRegisterTrigger(TestCase):
+    """Test the register_trigger function."""
 
     def setUp(self):
-        # Clear any existing hooks before each test
-        from django_bulk_hooks.registry import _hooks
+        # Clear any existing triggers before each test
+        from django_bulk_triggers.registry import _triggers
 
-        _hooks.clear()
+        _triggers.clear()
 
-    def test_register_hook_basic(self):
-        """Test basic hook registration."""
+    def test_register_trigger_basic(self):
+        """Test basic trigger registration."""
 
         class TestHandler:
             def test_method(self):
                 pass
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -46,17 +46,17 @@ class TestRegisterHook(TestCase):
             priority=Priority.NORMAL,
         )
 
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 1)
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 1)
 
-        handler_cls, method_name, condition, priority = hooks[0]
+        handler_cls, method_name, condition, priority = triggers[0]
         self.assertEqual(handler_cls, TestHandler)
         self.assertEqual(method_name, "test_method")
         self.assertIsNone(condition)
         self.assertEqual(priority, Priority.NORMAL)
 
-    def test_register_hook_with_condition(self):
-        """Test hook registration with condition."""
+    def test_register_trigger_with_condition(self):
+        """Test trigger registration with condition."""
 
         class TestHandler:
             def test_method(self):
@@ -64,8 +64,8 @@ class TestRegisterHook(TestCase):
 
         condition = IsEqual("status", "active")
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -73,15 +73,15 @@ class TestRegisterHook(TestCase):
             priority=Priority.HIGH,
         )
 
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 1)
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 1)
 
-        handler_cls, method_name, condition, priority = hooks[0]
+        handler_cls, method_name, condition, priority = triggers[0]
         self.assertEqual(condition, condition)
         self.assertEqual(priority, Priority.HIGH)
 
-    def test_register_hook_multiple_hooks(self):
-        """Test registering multiple hooks for the same model/event."""
+    def test_register_trigger_multiple_triggers(self):
+        """Test registering multiple triggers for the same model/event."""
 
         class Handler1:
             def method1(self):
@@ -91,9 +91,9 @@ class TestRegisterHook(TestCase):
             def method2(self):
                 pass
 
-        # Register first hook
-        register_hook(
-            model=HookModel,
+        # Register first trigger
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=Handler1,
             method_name="method1",
@@ -101,9 +101,9 @@ class TestRegisterHook(TestCase):
             priority=Priority.LOW,
         )
 
-        # Register second hook
-        register_hook(
-            model=HookModel,
+        # Register second trigger
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=Handler2,
             method_name="method2",
@@ -111,23 +111,23 @@ class TestRegisterHook(TestCase):
             priority=Priority.HIGH,
         )
 
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 2)
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 2)
 
-        # Hooks should be sorted by priority
-        priorities = [hook[3] for hook in hooks]
+        # Triggers should be sorted by priority
+        priorities = [trigger[3] for trigger in triggers]
         self.assertEqual(priorities, [Priority.HIGH, Priority.LOW])
 
-    def test_register_hook_different_models(self):
-        """Test registering hooks for different models."""
+    def test_register_trigger_different_models(self):
+        """Test registering triggers for different models."""
 
         class TestHandler:
             def test_method(self):
                 pass
 
-        # Register hook for HookModel
-        register_hook(
-            model=HookModel,
+        # Register trigger for TriggerModel
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -135,8 +135,8 @@ class TestRegisterHook(TestCase):
             priority=Priority.NORMAL,
         )
 
-        # Register hook for User
-        register_hook(
+        # Register trigger for User
+        register_trigger(
             model=UserModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
@@ -145,38 +145,38 @@ class TestRegisterHook(TestCase):
             priority=Priority.NORMAL,
         )
 
-        # Check HookModel hooks
-        test_model_hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(test_model_hooks), 1)
+        # Check TriggerModel triggers
+        test_model_triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(test_model_triggers), 1)
 
-        # Check User hooks
-        user_hooks = get_hooks(UserModel, BEFORE_CREATE)
-        self.assertEqual(len(user_hooks), 1)
+        # Check User triggers
+        user_triggers = get_triggers(UserModel, BEFORE_CREATE)
+        self.assertEqual(len(user_triggers), 1)
 
         # Check that they're separate
-        # The hooks should be stored separately in the registry
-        from django_bulk_hooks.registry import list_all_hooks
-        all_hooks = list_all_hooks()
+        # The triggers should be stored separately in the registry
+        from django_bulk_triggers.registry import list_all_triggers
+        all_triggers = list_all_triggers()
         
-        # Check that HookModel and User have separate entries
-        self.assertIn((HookModel, BEFORE_CREATE), all_hooks)
-        self.assertIn((UserModel, BEFORE_CREATE), all_hooks)
+        # Check that TriggerModel and User have separate entries
+        self.assertIn((TriggerModel, BEFORE_CREATE), all_triggers)
+        self.assertIn((UserModel, BEFORE_CREATE), all_triggers)
         
         # Verify they have different keys in the registry
-        test_model_key = (HookModel, BEFORE_CREATE)
+        test_model_key = (TriggerModel, BEFORE_CREATE)
         user_key = (UserModel, BEFORE_CREATE)
         self.assertNotEqual(test_model_key, user_key)
 
-    def test_register_hook_different_events(self):
-        """Test registering hooks for different events."""
+    def test_register_trigger_different_events(self):
+        """Test registering triggers for different events."""
 
         class TestHandler:
             def test_method(self):
                 pass
 
-        # Register hook for BEFORE_CREATE
-        register_hook(
-            model=HookModel,
+        # Register trigger for BEFORE_CREATE
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -184,9 +184,9 @@ class TestRegisterHook(TestCase):
             priority=Priority.NORMAL,
         )
 
-        # Register hook for AFTER_CREATE
-        register_hook(
-            model=HookModel,
+        # Register trigger for AFTER_CREATE
+        register_trigger(
+            model=TriggerModel,
             event=AFTER_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -194,30 +194,30 @@ class TestRegisterHook(TestCase):
             priority=Priority.NORMAL,
         )
 
-        # Check BEFORE_CREATE hooks
-        before_hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(before_hooks), 1)
+        # Check BEFORE_CREATE triggers
+        before_triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(before_triggers), 1)
 
-        # Check AFTER_CREATE hooks
-        after_hooks = get_hooks(HookModel, AFTER_CREATE)
-        self.assertEqual(len(after_hooks), 1)
+        # Check AFTER_CREATE triggers
+        after_triggers = get_triggers(TriggerModel, AFTER_CREATE)
+        self.assertEqual(len(after_triggers), 1)
 
         # Check that they're separate
-        # The hooks should be stored separately in the registry
-        from django_bulk_hooks.registry import list_all_hooks
-        all_hooks = list_all_hooks()
+        # The triggers should be stored separately in the registry
+        from django_bulk_triggers.registry import list_all_triggers
+        all_triggers = list_all_triggers()
         
         # Check that BEFORE_CREATE and AFTER_CREATE have separate entries
-        self.assertIn((HookModel, BEFORE_CREATE), all_hooks)
-        self.assertIn((HookModel, AFTER_CREATE), all_hooks)
+        self.assertIn((TriggerModel, BEFORE_CREATE), all_triggers)
+        self.assertIn((TriggerModel, AFTER_CREATE), all_triggers)
         
         # Verify they have different keys in the registry
-        before_key = (HookModel, BEFORE_CREATE)
-        after_key = (HookModel, AFTER_CREATE)
+        before_key = (TriggerModel, BEFORE_CREATE)
+        after_key = (TriggerModel, AFTER_CREATE)
         self.assertNotEqual(before_key, after_key)
 
-    def test_register_hook_priority_sorting(self):
-        """Test that hooks are sorted by priority."""
+    def test_register_trigger_priority_sorting(self):
+        """Test that triggers are sorted by priority."""
 
         class Handler1:
             def method1(self):
@@ -231,9 +231,9 @@ class TestRegisterHook(TestCase):
             def method3(self):
                 pass
 
-        # Register hooks in random priority order
-        register_hook(
-            model=HookModel,
+        # Register triggers in random priority order
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=Handler2,
             method_name="method2",
@@ -241,8 +241,8 @@ class TestRegisterHook(TestCase):
             priority=Priority.NORMAL,
         )
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=Handler1,
             method_name="method1",
@@ -250,8 +250,8 @@ class TestRegisterHook(TestCase):
             priority=Priority.LOW,
         )
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=Handler3,
             method_name="method3",
@@ -259,41 +259,41 @@ class TestRegisterHook(TestCase):
             priority=Priority.HIGH,
         )
 
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 3)
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 3)
 
         # Check priority order (high priority first - lower numbers)
-        priorities = [hook[3] for hook in hooks]
+        priorities = [trigger[3] for trigger in triggers]
         self.assertEqual(priorities, [Priority.HIGH, Priority.NORMAL, Priority.LOW])
 
         # Check handler order matches priority order
-        handlers = [hook[0] for hook in hooks]
+        handlers = [trigger[0] for trigger in triggers]
         self.assertEqual(handlers, [Handler3, Handler2, Handler1])
 
 
-class TestGetHooks(TestCase):
-    """Test the get_hooks function."""
+class TestGetTriggers(TestCase):
+    """Test the get_triggers function."""
 
     def setUp(self):
-        # Clear any existing hooks before each test
-        from django_bulk_hooks.registry import _hooks
+        # Clear any existing triggers before each test
+        from django_bulk_triggers.registry import _triggers
 
-        _hooks.clear()
+        _triggers.clear()
 
-    def test_get_hooks_empty(self):
-        """Test getting hooks when none are registered."""
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(hooks, [])
+    def test_get_triggers_empty(self):
+        """Test getting triggers when none are registered."""
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(triggers, [])
 
-    def test_get_hooks_existing(self):
-        """Test getting existing hooks."""
+    def test_get_triggers_existing(self):
+        """Test getting existing triggers."""
 
         class TestHandler:
             def test_method(self):
                 pass
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -301,22 +301,22 @@ class TestGetHooks(TestCase):
             priority=Priority.NORMAL,
         )
 
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 1)
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 1)
 
-        handler_cls, method_name, condition, priority = hooks[0]
+        handler_cls, method_name, condition, priority = triggers[0]
         self.assertEqual(handler_cls, TestHandler)
         self.assertEqual(method_name, "test_method")
 
-    def test_get_hooks_wrong_event(self):
-        """Test getting hooks for non-existent event."""
+    def test_get_triggers_wrong_event(self):
+        """Test getting triggers for non-existent event."""
 
         class TestHandler:
             def test_method(self):
                 pass
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -324,19 +324,19 @@ class TestGetHooks(TestCase):
             priority=Priority.NORMAL,
         )
 
-        # Try to get hooks for different event
-        hooks = get_hooks(HookModel, AFTER_CREATE)
-        self.assertEqual(hooks, [])
+        # Try to get triggers for different event
+        triggers = get_triggers(TriggerModel, AFTER_CREATE)
+        self.assertEqual(triggers, [])
 
-    def test_get_hooks_wrong_model(self):
-        """Test getting hooks for non-existent model."""
+    def test_get_triggers_wrong_model(self):
+        """Test getting triggers for non-existent model."""
 
         class TestHandler:
             def test_method(self):
                 pass
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -344,12 +344,12 @@ class TestGetHooks(TestCase):
             priority=Priority.NORMAL,
         )
 
-        # Try to get hooks for different model
-        hooks = get_hooks(UserModel, BEFORE_CREATE)
-        self.assertEqual(hooks, [])
+        # Try to get triggers for different model
+        triggers = get_triggers(UserModel, BEFORE_CREATE)
+        self.assertEqual(triggers, [])
 
-    def test_get_hooks_all_events(self):
-        """Test getting hooks for all event types."""
+    def test_get_triggers_all_events(self):
+        """Test getting triggers for all event types."""
         events = [
             BEFORE_CREATE,
             AFTER_CREATE,
@@ -363,10 +363,10 @@ class TestGetHooks(TestCase):
             def test_method(self):
                 pass
 
-        # Register hooks for all events
+        # Register triggers for all events
         for event in events:
-            register_hook(
-                model=HookModel,
+            register_trigger(
+                model=TriggerModel,
                 event=event,
                 handler_cls=TestHandler,
                 method_name="test_method",
@@ -374,25 +374,25 @@ class TestGetHooks(TestCase):
                 priority=Priority.NORMAL,
             )
 
-        # Check that hooks exist for all events
+        # Check that triggers exist for all events
         for event in events:
-            hooks = get_hooks(HookModel, event)
-            self.assertEqual(len(hooks), 1)
+            triggers = get_triggers(TriggerModel, event)
+            self.assertEqual(len(triggers), 1)
 
-    def test_get_hooks_logging(self):
-        """Test that get_hooks logs appropriately."""
-        with patch("django_bulk_hooks.registry.logger") as mock_logger:
-            # Test with no hooks
-            get_hooks(HookModel, BEFORE_CREATE)
+    def test_get_triggers_logging(self):
+        """Test that get_triggers logs appropriately."""
+        with patch("django_bulk_triggers.registry.logger") as mock_logger:
+            # Test with no triggers
+            get_triggers(TriggerModel, BEFORE_CREATE)
             mock_logger.debug.assert_called()
 
-            # Test with hooks
+            # Test with triggers
             class TestHandler:
                 def test_method(self):
                     pass
 
-            register_hook(
-                model=HookModel,
+            register_trigger(
+                model=TriggerModel,
                 event=BEFORE_CREATE,
                 handler_cls=TestHandler,
                 method_name="test_method",
@@ -400,35 +400,35 @@ class TestGetHooks(TestCase):
                 priority=Priority.NORMAL,
             )
 
-            get_hooks(HookModel, BEFORE_CREATE)
-            # Should log when hooks are found
+            get_triggers(TriggerModel, BEFORE_CREATE)
+            # Should log when triggers are found
             mock_logger.debug.assert_called()
 
 
-class TestListAllHooks(TestCase):
-    """Test the list_all_hooks function."""
+class TestListAllTriggers(TestCase):
+    """Test the list_all_triggers function."""
 
     def setUp(self):
-        # Clear any existing hooks before each test
-        from django_bulk_hooks.registry import _hooks
+        # Clear any existing triggers before each test
+        from django_bulk_triggers.registry import _triggers
 
-        _hooks.clear()
+        _triggers.clear()
 
-    def test_list_all_hooks_empty(self):
-        """Test listing hooks when none are registered."""
-        hooks = list_all_hooks()
-        self.assertEqual(hooks, {})
+    def test_list_all_triggers_empty(self):
+        """Test listing triggers when none are registered."""
+        triggers = list_all_triggers()
+        self.assertEqual(triggers, {})
 
-    def test_list_all_hooks_with_hooks(self):
-        """Test listing hooks when hooks are registered."""
+    def test_list_all_triggers_with_triggers(self):
+        """Test listing triggers when triggers are registered."""
 
         class TestHandler:
             def test_method(self):
                 pass
 
-        # Register some hooks
-        register_hook(
-            model=HookModel,
+        # Register some triggers
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -436,7 +436,7 @@ class TestListAllHooks(TestCase):
             priority=Priority.NORMAL,
         )
 
-        register_hook(
+        register_trigger(
             model=UserModel,
             event=AFTER_CREATE,
             handler_cls=TestHandler,
@@ -445,28 +445,28 @@ class TestListAllHooks(TestCase):
             priority=Priority.NORMAL,
         )
 
-        hooks = list_all_hooks()
+        triggers = list_all_triggers()
 
         # Should have entries for both models
-        self.assertIn((HookModel, BEFORE_CREATE), hooks)
-        self.assertIn((UserModel, AFTER_CREATE), hooks)
+        self.assertIn((TriggerModel, BEFORE_CREATE), triggers)
+        self.assertIn((UserModel, AFTER_CREATE), triggers)
 
         # Check the content
-        test_model_hooks = hooks[(HookModel, BEFORE_CREATE)]
-        self.assertEqual(len(test_model_hooks), 1)
+        test_model_triggers = triggers[(TriggerModel, BEFORE_CREATE)]
+        self.assertEqual(len(test_model_triggers), 1)
 
-        user_hooks = hooks[(UserModel, AFTER_CREATE)]
-        self.assertEqual(len(user_hooks), 1)
+        user_triggers = triggers[(UserModel, AFTER_CREATE)]
+        self.assertEqual(len(user_triggers), 1)
 
-    def test_list_all_hooks_structure(self):
-        """Test the structure of returned hooks."""
+    def test_list_all_triggers_structure(self):
+        """Test the structure of returned triggers."""
 
         class TestHandler:
             def test_method(self):
                 pass
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -474,22 +474,22 @@ class TestListAllHooks(TestCase):
             priority=Priority.NORMAL,
         )
 
-        hooks = list_all_hooks()
+        triggers = list_all_triggers()
 
         # Check that the structure is correct
-        self.assertIsInstance(hooks, dict)
+        self.assertIsInstance(triggers, dict)
 
-        key = (HookModel, BEFORE_CREATE)
-        self.assertIn(key, hooks)
+        key = (TriggerModel, BEFORE_CREATE)
+        self.assertIn(key, triggers)
 
-        hook_list = hooks[key]
-        self.assertIsInstance(hook_list, list)
-        self.assertEqual(len(hook_list), 1)
+        trigger_list = triggers[key]
+        self.assertIsInstance(trigger_list, list)
+        self.assertEqual(len(trigger_list), 1)
 
-        hook_tuple = hook_list[0]
-        self.assertIsInstance(hook_tuple, tuple)
+        trigger_tuple = trigger_list[0]
+        self.assertIsInstance(trigger_tuple, tuple)
         self.assertEqual(
-            len(hook_tuple), 4
+            len(trigger_tuple), 4
         )  # (handler_cls, method_name, condition, priority)
 
 
@@ -497,79 +497,79 @@ class TestRegistryIntegration(TestCase):
     """Integration tests for the registry."""
 
     def setUp(self):
-        # Clear any existing hooks before each test
-        from django_bulk_hooks.registry import _hooks
+        # Clear any existing triggers before each test
+        from django_bulk_triggers.registry import _triggers
 
-        _hooks.clear()
+        _triggers.clear()
 
-    def test_registry_with_real_hooks(self):
-        """Test registry with real hook classes."""
-        from django_bulk_hooks import HookClass
-        from django_bulk_hooks.decorators import hook
+    def test_registry_with_real_triggers(self):
+        """Test registry with real trigger classes."""
+        from django_bulk_triggers import TriggerClass
+        from django_bulk_triggers.decorators import trigger
 
-        class TestHook(HookClass):
-            @hook(BEFORE_CREATE, model=HookModel)
+        class TestTrigger(TriggerClass):
+            @trigger(BEFORE_CREATE, model=TriggerModel)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
 
-            @hook(AFTER_CREATE, model=HookModel)
+            @trigger(AFTER_CREATE, model=TriggerModel)
             def on_after_create(self, new_records, old_records=None, **kwargs):
                 pass
 
-        # Check that hooks were registered
-        before_hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(before_hooks), 1)
+        # Check that triggers were registered
+        before_triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(before_triggers), 1)
 
-        after_hooks = get_hooks(HookModel, AFTER_CREATE)
-        self.assertEqual(len(after_hooks), 1)
+        after_triggers = get_triggers(TriggerModel, AFTER_CREATE)
+        self.assertEqual(len(after_triggers), 1)
 
-        # Check hook details
-        handler_cls, method_name, condition, priority = before_hooks[0]
-        self.assertEqual(handler_cls, TestHook)
+        # Check trigger details
+        handler_cls, method_name, condition, priority = before_triggers[0]
+        self.assertEqual(handler_cls, TestTrigger)
         self.assertEqual(method_name, "on_before_create")
         self.assertIsNone(condition)
         self.assertEqual(priority, Priority.NORMAL)
 
     def test_registry_with_conditions(self):
-        """Test registry with conditional hooks."""
-        from django_bulk_hooks import HookClass
-        from django_bulk_hooks.decorators import hook
-        from django_bulk_hooks.conditions import IsEqual
+        """Test registry with conditional triggers."""
+        from django_bulk_triggers import TriggerClass
+        from django_bulk_triggers.decorators import trigger
+        from django_bulk_triggers.conditions import IsEqual
 
-        class ConditionalHook(HookClass):
-            @hook(BEFORE_CREATE, model=HookModel, condition=IsEqual("status", "active"))
+        class ConditionalTrigger(TriggerClass):
+            @trigger(BEFORE_CREATE, model=TriggerModel, condition=IsEqual("status", "active"))
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
 
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 1)
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 1)
 
-        handler_cls, method_name, condition, priority = hooks[0]
+        handler_cls, method_name, condition, priority = triggers[0]
         self.assertIsInstance(condition, IsEqual)
         self.assertEqual(condition.field, "status")
         self.assertEqual(condition.value, "active")
 
     def test_registry_with_priorities(self):
         """Test registry with different priorities."""
-        from django_bulk_hooks import HookClass
-        from django_bulk_hooks.decorators import hook
-        from django_bulk_hooks.priority import Priority
+        from django_bulk_triggers import TriggerClass
+        from django_bulk_triggers.decorators import trigger
+        from django_bulk_triggers.priority import Priority
 
-        class HighPriorityHook(HookClass):
-            @hook(BEFORE_CREATE, model=HookModel, priority=Priority.HIGH)
+        class HighPriorityTrigger(TriggerClass):
+            @trigger(BEFORE_CREATE, model=TriggerModel, priority=Priority.HIGH)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
 
-        class LowPriorityHook(HookClass):
-            @hook(BEFORE_CREATE, model=HookModel, priority=Priority.LOW)
+        class LowPriorityTrigger(TriggerClass):
+            @trigger(BEFORE_CREATE, model=TriggerModel, priority=Priority.LOW)
             def on_before_create(self, new_records, old_records=None, **kwargs):
                 pass
 
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 2)
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 2)
 
         # Check priority order
-        priorities = [hook[3] for hook in hooks]
+        priorities = [trigger[3] for trigger in triggers]
         self.assertEqual(priorities, [Priority.HIGH, Priority.LOW])
 
     def test_registry_cleanup(self):
@@ -579,8 +579,8 @@ class TestRegistryIntegration(TestCase):
             def test_method(self):
                 pass
 
-        register_hook(
-            model=HookModel,
+        register_trigger(
+            model=TriggerModel,
             event=BEFORE_CREATE,
             handler_cls=TestHandler,
             method_name="test_method",
@@ -588,15 +588,15 @@ class TestRegistryIntegration(TestCase):
             priority=Priority.NORMAL,
         )
 
-        # Verify hook is registered
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 1)
+        # Verify trigger is registered
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 1)
 
         # Clear registry
-        from django_bulk_hooks.registry import _hooks
+        from django_bulk_triggers.registry import _triggers
 
-        _hooks.clear()
+        _triggers.clear()
 
-        # Verify hook is gone
-        hooks = get_hooks(HookModel, BEFORE_CREATE)
-        self.assertEqual(len(hooks), 0)
+        # Verify trigger is gone
+        triggers = get_triggers(TriggerModel, BEFORE_CREATE)
+        self.assertEqual(len(triggers), 0)

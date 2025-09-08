@@ -14,7 +14,7 @@ def resolve_dotted_attr(instance, dotted_path):
     return instance
 
 
-class HookCondition:
+class TriggerCondition:
     def check(self, instance, original_instance=None):
         raise NotImplementedError
 
@@ -31,7 +31,7 @@ class HookCondition:
         return NotCondition(self)
 
 
-class IsNotEqual(HookCondition):
+class IsNotEqual(TriggerCondition):
     def __init__(self, field, value, only_on_change=False):
         self.field = field
         self.value = value
@@ -48,7 +48,7 @@ class IsNotEqual(HookCondition):
             return current != self.value
 
 
-class IsEqual(HookCondition):
+class IsEqual(TriggerCondition):
     def __init__(self, field, value, only_on_change=False):
         self.field = field
         self.value = value
@@ -65,7 +65,7 @@ class IsEqual(HookCondition):
             return current == self.value
 
 
-class HasChanged(HookCondition):
+class HasChanged(TriggerCondition):
     def __init__(self, field, has_changed=True):
         self.field = field
         self.has_changed = has_changed
@@ -84,7 +84,7 @@ class HasChanged(HookCondition):
         return result
 
 
-class WasEqual(HookCondition):
+class WasEqual(TriggerCondition):
     def __init__(self, field, value, only_on_change=False):
         """
         Check if a field's original value was `value`.
@@ -105,7 +105,7 @@ class WasEqual(HookCondition):
             return previous == self.value
 
 
-class ChangesTo(HookCondition):
+class ChangesTo(TriggerCondition):
     def __init__(self, field, value):
         """
         Check if a field's value has changed to `value`.
@@ -122,7 +122,7 @@ class ChangesTo(HookCondition):
         return previous != self.value and current == self.value
 
 
-class IsGreaterThan(HookCondition):
+class IsGreaterThan(TriggerCondition):
     def __init__(self, field, value):
         self.field = field
         self.value = value
@@ -132,7 +132,7 @@ class IsGreaterThan(HookCondition):
         return current is not None and current > self.value
 
 
-class IsGreaterThanOrEqual(HookCondition):
+class IsGreaterThanOrEqual(TriggerCondition):
     def __init__(self, field, value):
         self.field = field
         self.value = value
@@ -142,7 +142,7 @@ class IsGreaterThanOrEqual(HookCondition):
         return current is not None and current >= self.value
 
 
-class IsLessThan(HookCondition):
+class IsLessThan(TriggerCondition):
     def __init__(self, field, value):
         self.field = field
         self.value = value
@@ -152,7 +152,7 @@ class IsLessThan(HookCondition):
         return current is not None and current < self.value
 
 
-class IsLessThanOrEqual(HookCondition):
+class IsLessThanOrEqual(TriggerCondition):
     def __init__(self, field, value):
         self.field = field
         self.value = value
@@ -162,7 +162,7 @@ class IsLessThanOrEqual(HookCondition):
         return current is not None and current <= self.value
 
 
-class AndCondition(HookCondition):
+class AndCondition(TriggerCondition):
     def __init__(self, cond1, cond2):
         self.cond1 = cond1
         self.cond2 = cond2
@@ -173,7 +173,7 @@ class AndCondition(HookCondition):
         )
 
 
-class OrCondition(HookCondition):
+class OrCondition(TriggerCondition):
     def __init__(self, cond1, cond2):
         self.cond1 = cond1
         self.cond2 = cond2
@@ -184,7 +184,7 @@ class OrCondition(HookCondition):
         )
 
 
-class NotCondition(HookCondition):
+class NotCondition(TriggerCondition):
     def __init__(self, cond):
         self.cond = cond
 

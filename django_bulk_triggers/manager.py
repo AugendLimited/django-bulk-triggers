@@ -1,21 +1,21 @@
 from django.db import models
 
-from django_bulk_hooks.queryset import HookQuerySet, HookQuerySetMixin
+from django_bulk_triggers.queryset import TriggerQuerySet, TriggerQuerySetMixin
 
 
-class BulkHookManager(models.Manager):
+class BulkTriggerManager(models.Manager):
     def get_queryset(self):
         # Use super().get_queryset() to let Django and MRO build the queryset
         # This ensures cooperation with other managers
         base_queryset = super().get_queryset()
 
-        # If the base queryset already has hook functionality, return it as-is
-        if isinstance(base_queryset, HookQuerySetMixin):
+        # If the base queryset already has trigger functionality, return it as-is
+        if isinstance(base_queryset, TriggerQuerySetMixin):
             return base_queryset
 
-        # Otherwise, create a new HookQuerySet with the same parameters
+        # Otherwise, create a new TriggerQuerySet with the same parameters
         # This is much simpler and avoids dynamic class creation issues
-        return HookQuerySet(
+        return TriggerQuerySet(
             model=base_queryset.model,
             query=base_queryset.query,
             using=base_queryset._db,
@@ -30,7 +30,7 @@ class BulkHookManager(models.Manager):
         update_conflicts=False,
         update_fields=None,
         unique_fields=None,
-        bypass_hooks=False,
+        bypass_triggers=False,
         bypass_validation=False,
         **kwargs,
     ):
@@ -40,7 +40,7 @@ class BulkHookManager(models.Manager):
         """
         return self.get_queryset().bulk_create(
             objs,
-            bypass_hooks=bypass_hooks,
+            bypass_triggers=bypass_triggers,
             bypass_validation=bypass_validation,
             batch_size=batch_size,
             ignore_conflicts=ignore_conflicts,
@@ -50,7 +50,7 @@ class BulkHookManager(models.Manager):
             **kwargs,
         )
 
-    def bulk_update(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
+    def bulk_update(self, objs, bypass_triggers=False, bypass_validation=False, **kwargs):
         """
         Delegate to QuerySet's bulk_update implementation.
         This follows Django's pattern where Manager methods call QuerySet methods.
@@ -61,7 +61,7 @@ class BulkHookManager(models.Manager):
         """
         return self.get_queryset().bulk_update(
             objs,
-            bypass_hooks=bypass_hooks,
+            bypass_triggers=bypass_triggers,
             bypass_validation=bypass_validation,
             **kwargs,
         )
@@ -70,7 +70,7 @@ class BulkHookManager(models.Manager):
         self,
         objs,
         batch_size=None,
-        bypass_hooks=False,
+        bypass_triggers=False,
         bypass_validation=False,
         **kwargs,
     ):
@@ -80,7 +80,7 @@ class BulkHookManager(models.Manager):
         """
         return self.get_queryset().bulk_delete(
             objs,
-            bypass_hooks=bypass_hooks,
+            bypass_triggers=bypass_triggers,
             bypass_validation=bypass_validation,
             batch_size=batch_size,
             **kwargs,

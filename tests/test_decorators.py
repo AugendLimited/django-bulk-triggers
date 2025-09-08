@@ -8,9 +8,9 @@ import pytest
 from django.core.exceptions import FieldDoesNotExist
 from django.utils import timezone
 
-from django_bulk_hooks.conditions import IsEqual
-from django_bulk_hooks.decorators import bulk_hook
-from django_bulk_hooks.constants import (
+from django_bulk_triggers.conditions import IsEqual
+from django_bulk_triggers.decorators import bulk_trigger
+from django_bulk_triggers.constants import (
     AFTER_CREATE,
     AFTER_DELETE,
     AFTER_UPDATE,
@@ -18,89 +18,89 @@ from django_bulk_hooks.constants import (
     BEFORE_DELETE,
     BEFORE_UPDATE,
 )
-from django_bulk_hooks.decorators import hook, select_related
-from django_bulk_hooks.priority import Priority
-from tests.models import Category, HookModel, UserModel
-from tests.utils import HookTracker
+from django_bulk_triggers.decorators import trigger, select_related
+from django_bulk_triggers.priority import Priority
+from tests.models import Category, TriggerModel, UserModel
+from tests.utils import TriggerTracker
 
 
 @pytest.mark.django_db
-class TestHookDecorator:
-    """Test the hook decorator."""
+class TestTriggerDecorator:
+    """Test the trigger decorator."""
 
     def setup_method(self):
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
 
-    def test_hook_decorator_basic(self):
-        """Test basic hook decorator functionality."""
+    def test_trigger_decorator_basic(self):
+        """Test basic trigger decorator functionality."""
 
-        @hook(BEFORE_CREATE, model=HookModel)
-        def test_hook(new_records, old_records=None, **kwargs):
+        @trigger(BEFORE_CREATE, model=TriggerModel)
+        def test_trigger(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-        # Verify the hook attribute was added
-        assert hasattr(test_hook, "hooks_hooks")
-        assert len(test_hook.hooks_hooks) == 1
+        # Verify the trigger attribute was added
+        assert hasattr(test_trigger, "triggers_triggers")
+        assert len(test_trigger.triggers_triggers) == 1
 
-        hook_info = test_hook.hooks_hooks[0]
-        assert hook_info[0] == HookModel  # model
-        assert hook_info[1] == BEFORE_CREATE  # event
-        assert hook_info[2] is None  # condition
-        assert hook_info[3] == Priority.NORMAL  # priority
+        trigger_info = test_trigger.triggers_triggers[0]
+        assert trigger_info[0] == TriggerModel  # model
+        assert trigger_info[1] == BEFORE_CREATE  # event
+        assert trigger_info[2] is None  # condition
+        assert trigger_info[3] == Priority.NORMAL  # priority
 
-    def test_hook_decorator_with_condition(self):
-        """Test hook decorator with condition."""
+    def test_trigger_decorator_with_condition(self):
+        """Test trigger decorator with condition."""
         condition = IsEqual("status", "active")
 
-        @hook(BEFORE_CREATE, model=HookModel, condition=condition)
-        def test_hook(new_records, old_records=None, **kwargs):
+        @trigger(BEFORE_CREATE, model=TriggerModel, condition=condition)
+        def test_trigger(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-        hook_info = test_hook.hooks_hooks[0]
-        assert hook_info[2] == condition  # condition
+        trigger_info = test_trigger.triggers_triggers[0]
+        assert trigger_info[2] == condition  # condition
 
-    def test_hook_decorator_with_priority(self):
-        """Test hook decorator with custom priority."""
+    def test_trigger_decorator_with_priority(self):
+        """Test trigger decorator with custom priority."""
 
-        @hook(BEFORE_CREATE, model=HookModel, priority=Priority.HIGH)
-        def test_hook(new_records, old_records=None, **kwargs):
+        @trigger(BEFORE_CREATE, model=TriggerModel, priority=Priority.HIGH)
+        def test_trigger(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-        hook_info = test_hook.hooks_hooks[0]
-        assert hook_info[3] == Priority.HIGH  # priority
+        trigger_info = test_trigger.triggers_triggers[0]
+        assert trigger_info[3] == Priority.HIGH  # priority
 
-    def test_hook_decorator_multiple_hooks(self):
-        """Test multiple hooks on the same function."""
+    def test_trigger_decorator_multiple_triggers(self):
+        """Test multiple triggers on the same function."""
 
-        @hook(BEFORE_CREATE, model=HookModel)
-        @hook(AFTER_CREATE, model=HookModel)
-        def test_hook(new_records, old_records=None, **kwargs):
+        @trigger(BEFORE_CREATE, model=TriggerModel)
+        @trigger(AFTER_CREATE, model=TriggerModel)
+        def test_trigger(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-        assert len(test_hook.hooks_hooks) == 2
+        assert len(test_trigger.triggers_triggers) == 2
 
-        events = [hook_info[1] for hook_info in test_hook.hooks_hooks]
+        events = [trigger_info[1] for trigger_info in test_trigger.triggers_triggers]
         assert BEFORE_CREATE in events
         assert AFTER_CREATE in events
 
-    def test_hook_decorator_different_models(self):
-        """Test hooks on different models."""
+    def test_trigger_decorator_different_models(self):
+        """Test triggers on different models."""
 
-        @hook(BEFORE_CREATE, model=HookModel)
-        @hook(BEFORE_CREATE, model=UserModel)
-        def test_hook(new_records, old_records=None, **kwargs):
+        @trigger(BEFORE_CREATE, model=TriggerModel)
+        @trigger(BEFORE_CREATE, model=UserModel)
+        def test_trigger(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
-        assert len(test_hook.hooks_hooks) == 2
+        assert len(test_trigger.triggers_triggers) == 2
 
-        models = [hook_info[0] for hook_info in test_hook.hooks_hooks]
-        assert HookModel in models
+        models = [trigger_info[0] for trigger_info in test_trigger.triggers_triggers]
+        assert TriggerModel in models
         assert UserModel in models
 
-    def test_hook_decorator_with_all_events(self):
-        """Test hook decorator with all event types."""
+    def test_trigger_decorator_with_all_events(self):
+        """Test trigger decorator with all event types."""
         events = [
             BEFORE_CREATE,
             AFTER_CREATE,
@@ -112,29 +112,29 @@ class TestHookDecorator:
 
         for event in events:
 
-            @hook(event, model=HookModel)
-            def test_hook(new_records, old_records=None, **kwargs):
+            @trigger(event, model=TriggerModel)
+            def test_trigger(new_records, old_records=None, **kwargs):
                 self.tracker.add_call(event, new_records, old_records, **kwargs)
 
-            hook_info = test_hook.hooks_hooks[0]
-            assert hook_info[1] == event
+            trigger_info = test_trigger.triggers_triggers[0]
+            assert trigger_info[1] == event
 
-    def test_hook_decorator_with_user_model(self):
-        """Test hook decorator with User model."""
+    def test_trigger_decorator_with_user_model(self):
+        """Test trigger decorator with User model."""
         from django.apps import apps
 
-        @hook(BEFORE_CREATE, model=UserModel)
-        def test_hook(new_records, old_records=None, **kwargs):
+        @trigger(BEFORE_CREATE, model=UserModel)
+        def test_trigger(new_records, old_records=None, **kwargs):
             pass
 
-        # Verify the hook was registered
+        # Verify the trigger was registered
         models = apps.get_app_config("tests").get_models()
         assert UserModel in models
 
-        # Clear hooks for other tests
-        from django_bulk_hooks.registry import clear_hooks
+        # Clear triggers for other tests
+        from django_bulk_triggers.registry import clear_triggers
 
-        clear_hooks()
+        clear_triggers()
 
 
 @pytest.mark.django_db
@@ -159,8 +159,8 @@ class TestSelectRelatedDecorator:
 
         # Create test instances with foreign keys
         self.test_instances = [
-            HookModel(name="Test 1", created_by=self.user, category=self.category),
-            HookModel(name="Test 2", created_by=self.user, category=self.category),
+            TriggerModel(name="Test 1", created_by=self.user, category=self.category),
+            TriggerModel(name="Test 2", created_by=self.user, category=self.category),
         ]
 
         # Save instances to get PKs
@@ -168,9 +168,9 @@ class TestSelectRelatedDecorator:
             instance.save()
 
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
+        from django_bulk_triggers.registry import clear_triggers
 
-        clear_hooks()
+        clear_triggers()
 
     def test_select_related_basic(self):
         """Test basic select_related functionality."""
@@ -269,8 +269,8 @@ class TestSelectRelatedDecorator:
         """Test select_related with instances that have None foreign keys."""
         # Create instances with None foreign keys
         none_instances = [
-            HookModel(name="None FK 1", created_by=None, category=None),
-            HookModel(name="None FK 2", created_by=None, category=None),
+            TriggerModel(name="None FK 1", created_by=None, category=None),
+            TriggerModel(name="None FK 2", created_by=None, category=None),
         ]
 
         for instance in none_instances:
@@ -317,8 +317,8 @@ class TestSelectRelatedDecorator:
         # Use the existing user from setup_method
         # Create test instances
         test_instances = [
-            HookModel(name="Test 1", created_by=self.user),
-            HookModel(name="Test 2", created_by=self.user),
+            TriggerModel(name="Test 1", created_by=self.user),
+            TriggerModel(name="Test 2", created_by=self.user),
         ]
 
         @select_related("created_by")
@@ -336,7 +336,7 @@ class TestSelectRelatedDecorator:
     def test_select_related_with_multiple_relations(self):
         """Test select_related with multiple relation fields."""
         # Create test instances
-        test_instances = [HookModel(name="Test", created_by=self.user)]
+        test_instances = [TriggerModel(name="Test", created_by=self.user)]
 
         @select_related("created_by", "category")
         def test_function(new_records, old_records=None, **kwargs):
@@ -354,7 +354,7 @@ class TestDecoratorIntegration:
     def setup_method(self):
         from django.utils import timezone
 
-        self.tracker = HookTracker()
+        self.tracker = TriggerTracker()
 
         # Create test data using bulk_create to avoid RETURNING issues
         users = UserModel.objects.bulk_create([
@@ -368,16 +368,16 @@ class TestDecoratorIntegration:
         self.category = categories[0]
 
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
+        from django_bulk_triggers.registry import clear_triggers
 
-        clear_hooks()
+        clear_triggers()
 
-    def test_hook_with_select_related(self):
-        """Test combining hook and select_related decorators."""
+    def test_trigger_with_select_related(self):
+        """Test combining trigger and select_related decorators."""
 
-        @hook(BEFORE_CREATE, model=HookModel)
+        @trigger(BEFORE_CREATE, model=TriggerModel)
         @select_related("created_by", "category")
-        def test_hook(new_records, old_records=None, **kwargs):
+        def test_trigger(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
             # Verify related fields are loaded
@@ -389,31 +389,31 @@ class TestDecoratorIntegration:
 
         # Create test instances
         test_instances = [
-            HookModel(name="Test 1", created_by=self.user, category=self.category),
-            HookModel(name="Test 2", created_by=self.user, category=self.category),
+            TriggerModel(name="Test 1", created_by=self.user, category=self.category),
+            TriggerModel(name="Test 2", created_by=self.user, category=self.category),
         ]
 
-        # Call the hook function
-        test_hook(new_records=test_instances)
+        # Call the trigger function
+        test_trigger(new_records=test_instances)
 
-        # Verify hook was called
+        # Verify trigger was called
         assert len(self.tracker.before_create_calls) == 1
 
-    def test_multiple_hooks_with_select_related(self):
-        """Test multiple hooks with select_related."""
+    def test_multiple_triggers_with_select_related(self):
+        """Test multiple triggers with select_related."""
 
-        @hook(BEFORE_CREATE, model=HookModel)
-        @hook(AFTER_CREATE, model=HookModel)
+        @trigger(BEFORE_CREATE, model=TriggerModel)
+        @trigger(AFTER_CREATE, model=TriggerModel)
         @select_related("created_by")
-        def test_hook(new_records, old_records=None, **kwargs):
+        def test_trigger(new_records, old_records=None, **kwargs):
             self.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
 
         # Verify both decorators work together
-        assert len(test_hook.hooks_hooks) == 2
+        assert len(test_trigger.triggers_triggers) == 2
 
         # Test the function
-        test_instances = [HookModel(name="Test", created_by=self.user)]
-        test_hook(new_records=test_instances)
+        test_instances = [TriggerModel(name="Test", created_by=self.user)]
+        test_trigger(new_records=test_instances)
 
         assert len(self.tracker.before_create_calls) == 1
 
@@ -510,34 +510,34 @@ class TestDecoratorIntegration:
         result = test_func(mock_instances, model_cls=mock_model)
         assert result is None
 
-    def test_bulk_hook_decorator(self):
-        """Test bulk_hook decorator functionality."""
-        @bulk_hook(HookModel, 'BEFORE_CREATE')
-        def test_hook(new_records, old_records=None, **kwargs):
+    def test_bulk_trigger_decorator(self):
+        """Test bulk_trigger decorator functionality."""
+        @bulk_trigger(TriggerModel, 'BEFORE_CREATE')
+        def test_trigger(new_records, old_records=None, **kwargs):
             pass
 
-        # Verify the hook was registered
-        assert hasattr(test_hook, '_bulk_hook_registered')
+        # Verify the trigger was registered
+        assert hasattr(test_trigger, '_bulk_trigger_registered')
 
-    def test_bulk_hook_decorator_with_condition_and_priority(self):
-        """Test bulk_hook decorator with condition and priority."""
+    def test_bulk_trigger_decorator_with_condition_and_priority(self):
+        """Test bulk_trigger decorator with condition and priority."""
         condition = Mock()
         priority = 100
 
-        @bulk_hook(HookModel, 'AFTER_UPDATE', when=condition, priority=priority)
-        def test_hook(new_records, old_records=None, **kwargs):
+        @bulk_trigger(TriggerModel, 'AFTER_UPDATE', when=condition, priority=priority)
+        def test_trigger(new_records, old_records=None, **kwargs):
             pass
 
-        # Verify the hook was registered
-        assert hasattr(test_hook, '_bulk_hook_registered')
+        # Verify the trigger was registered
+        assert hasattr(test_trigger, '_bulk_trigger_registered')
 
     def test_select_related_with_valid_fields(self, test_user, test_category):
         """Test select_related decorator with valid field names."""
         # Create test instances
         test_instances = [
-            HookModel(name="Test 1", created_by=test_user, category=test_category),
-            HookModel(name="Test 2", created_by=test_user, category=test_category),
-            HookModel(name="Test 3", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 1", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 2", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 3", created_by=test_user, category=test_category),
         ]
         for instance in test_instances:
             instance.save()
@@ -567,9 +567,9 @@ class TestDecoratorIntegration:
         """Test select_related decorator when no fields need fetching."""
         # Create test instances
         test_instances = [
-            HookModel(name="Test 1", created_by=test_user, category=test_category),
-            HookModel(name="Test 2", created_by=test_user, category=test_category),
-            HookModel(name="Test 3", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 1", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 2", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 3", created_by=test_user, category=test_category),
         ]
         for instance in test_instances:
             instance.save()
@@ -611,9 +611,9 @@ class TestDecoratorIntegration:
         """Test select_related decorator with bound methods."""
         # Create test instances
         test_instances = [
-            HookModel(name="Test 1", created_by=test_user, category=test_category),
-            HookModel(name="Test 2", created_by=test_user, category=test_category),
-            HookModel(name="Test 3", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 1", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 2", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 3", created_by=test_user, category=test_category),
         ]
         for instance in test_instances:
             instance.save()
@@ -635,9 +635,9 @@ class TestDecoratorIntegration:
         """Test that select_related decorator can be chained."""
         # Create test instances
         test_instances = [
-            HookModel(name="Test 1", created_by=test_user, category=test_category),
-            HookModel(name="Test 2", created_by=test_user, category=test_category),
-            HookModel(name="Test 3", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 1", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 2", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 3", created_by=test_user, category=test_category),
         ]
         for instance in test_instances:
             instance.save()
@@ -658,7 +658,7 @@ class TestDecoratorIntegration:
         """Test select_related decorator with different model types."""
         # Create test instances
         test_instances = [
-            HookModel(name="Test 1", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 1", created_by=test_user, category=test_category),
         ]
         for instance in test_instances:
             instance.save()
@@ -678,9 +678,9 @@ class TestDecoratorIntegration:
         """Test select_related decorator error handling."""
         # Create test instances
         test_instances = [
-            HookModel(name="Test 1", created_by=test_user, category=test_category),
-            HookModel(name="Test 2", created_by=test_user, category=test_category),
-            HookModel(name="Test 3", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 1", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 2", created_by=test_user, category=test_category),
+            TriggerModel(name="Test 3", created_by=test_user, category=test_category),
         ]
         for instance in test_instances:
             instance.save()

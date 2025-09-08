@@ -1,15 +1,15 @@
 [tool.poetry]
-name = "django-bulk-hooks"
-version = "0.1.281"
-description = "Hook-style hooks for Django bulk operations like bulk_create and bulk_update."
+name = "django-bulk-triggers"
+version = "0.1.1"
+description = "Trigger-style triggers for Django bulk operations like bulk_create and bulk_update."
 authors = ["Konrad Beck <konrad.beck@merchantcapital.co.za>"]
 readme = "README.md"
 license = "MIT"
-homepage = "https://github.com/AugendLimited/django-bulk-hooks"
-repository = "https://github.com/AugendLimited/django-bulk-hooks"
-keywords = ["django", "bulk", "hooks"]
+homepage = "https://github.com/AugendLimited/django-bulk-triggers"
+repository = "https://github.com/AugendLimited/django-bulk-triggers"
+keywords = ["django", "bulk", "triggers"]
 packages = [
-    { include = "django_bulk_hooks" }
+    { include = "django_bulk_triggers" }
 ]
 
 [tool.poetry.dependencies]

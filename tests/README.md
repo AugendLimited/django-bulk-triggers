@@ -1,19 +1,19 @@
-# Django Bulk Hooks Test Suite
+# Django Bulk Triggers Test Suite
 
-This directory contains comprehensive unit tests for the django-bulk-hooks package.
+This directory contains comprehensive unit tests for the django-bulk-triggers package.
 
 ## Test Structure
 
 ### Core Test Files
 
-- `test_handler.py` - Tests for the handler module (Hook class, HookContextState, etc.)
-- `test_decorators.py` - Tests for the decorators module (hook, select_related)
+- `test_handler.py` - Tests for the handler module (Trigger class, TriggerContextState, etc.)
+- `test_decorators.py` - Tests for the decorators module (trigger, select_related)
 - `test_conditions.py` - Tests for the conditions module (IsEqual, HasChanged, etc.)
-- `test_registry.py` - Tests for the registry module (register_hook, get_hooks)
-- `test_manager.py` - Tests for the manager module (BulkHookManager)
+- `test_registry.py` - Tests for the registry module (register_trigger, get_triggers)
+- `test_manager.py` - Tests for the manager module (BulkTriggerManager)
 - `test_priority_and_enums.py` - Tests for priority and enum modules
 - `test_integration.py` - Integration tests for the entire system
-- `test_subquery_hooks.py` - Tests for Subquery functionality (existing)
+- `test_subquery_triggers.py` - Tests for Subquery functionality (existing)
 
 ### Test Utilities
 
@@ -30,16 +30,16 @@ This directory contains comprehensive unit tests for the django-bulk-hooks packa
 poetry run pytest
 
 # Run with coverage
-poetry run pytest --cov=django_bulk_hooks --cov-report=html
+poetry run pytest --cov=django_bulk_triggers --cov-report=html
 
 # Run specific test file
 poetry run pytest tests/test_handler.py
 
 # Run specific test class
-poetry run pytest tests/test_handler.py::TestHookContextState
+poetry run pytest tests/test_handler.py::TestTriggerContextState
 
 # Run specific test method
-poetry run pytest tests/test_handler.py::TestHookContextState::test_is_before_property
+poetry run pytest tests/test_handler.py::TestTriggerContextState::test_is_before_property
 
 # Run only unit tests
 poetry run pytest -m unit
@@ -65,12 +65,12 @@ poetry run python manage.py test tests.test_handler
 
 The test suite aims to provide comprehensive coverage of:
 
-- **Handler Module**: Hook class, HookContextState, hook queue management
-- **Decorators Module**: hook decorator, select_related decorator
+- **Handler Module**: Trigger class, TriggerContextState, trigger queue management
+- **Decorators Module**: trigger decorator, select_related decorator
 - **Conditions Module**: All condition classes and their combinations
-- **Registry Module**: Hook registration and retrieval
-- **Manager Module**: BulkHookManager functionality
-- **Priority & Enums**: Priority levels and hook events
+- **Registry Module**: Trigger registration and retrieval
+- **Manager Module**: BulkTriggerManager functionality
+- **Priority & Enums**: Priority levels and trigger events
 - **Integration**: Full system workflows and real-world scenarios
 
 ## Test Models
@@ -79,19 +79,19 @@ The test suite uses several Django models:
 
 - `User` - Basic user model for foreign key testing
 - `Category` - Category model for foreign key testing
-- `HookModel` - Main test model with various field types
+- `TriggerModel` - Main test model with various field types
 - `SimpleModel` - Simple model for basic testing
 - `ComplexModel` - Model with various field types for comprehensive testing
 - `RelatedModel` - Related model for relationship testing
 
 ## Test Utilities
 
-### HookTracker
+### TriggerTracker
 
-A utility class for tracking hook calls in tests:
+A utility class for tracking trigger calls in tests:
 
 ```python
-tracker = HookTracker()
+tracker = TriggerTracker()
 # ... perform operations ...
 assert len(tracker.before_create_calls) == 1
 assert len(tracker.after_update_calls) == 0
@@ -100,8 +100,8 @@ assert len(tracker.after_update_calls) == 0
 ### Helper Functions
 
 - `create_test_instances()` - Create test model instances
-- `assert_hook_called()` - Assert hook was called specific number of times
-- `assert_hook_not_called()` - Assert hook was not called
+- `assert_trigger_called()` - Assert trigger was called specific number of times
+- `assert_trigger_not_called()` - Assert trigger was not called
 
 ## Test Categories
 
@@ -126,7 +126,7 @@ When adding new tests:
 
 1. **Follow naming conventions**: `test_*.py` files, `Test*` classes, `test_*` methods
 2. **Use appropriate test models**: Import from `tests.models`
-3. **Use test utilities**: Leverage `HookTracker` and helper functions
+3. **Use test utilities**: Leverage `TriggerTracker` and helper functions
 4. **Add appropriate markers**: Use `@pytest.mark.unit` or `@pytest.mark.integration`
 5. **Write descriptive docstrings**: Explain what each test is testing
 6. **Test edge cases**: Include tests for error conditions and edge cases

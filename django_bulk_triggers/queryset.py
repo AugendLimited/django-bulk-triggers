@@ -3,10 +3,10 @@ import logging
 from django.db import models, transaction
 from django.db.models import AutoField, Case, Field, Value, When
 
-from django_bulk_hooks import engine
+from django_bulk_triggers import engine
 
 logger = logging.getLogger(__name__)
-from django_bulk_hooks.constants import (
+from django_bulk_triggers.constants import (
     AFTER_CREATE,
     AFTER_DELETE,
     AFTER_UPDATE,
@@ -17,16 +17,16 @@ from django_bulk_hooks.constants import (
     VALIDATE_DELETE,
     VALIDATE_UPDATE,
 )
-from django_bulk_hooks.context import (
-    HookContext,
+from django_bulk_triggers.context import (
+    TriggerContext,
     get_bulk_update_value_map,
     set_bulk_update_value_map,
 )
 
 
-class HookQuerySetMixin:
+class TriggerQuerySetMixin:
     """
-    A mixin that provides bulk hook functionality to any QuerySet.
+    A mixin that provides bulk trigger functionality to any QuerySet.
     This can be dynamically injected into querysets from other managers.
     """
 
@@ -37,16 +37,16 @@ class HookQuerySetMixin:
             return 0
 
         model_cls = self.model
-        ctx = HookContext(model_cls)
+        ctx = TriggerContext(model_cls)
 
-        # Run validation hooks first
+        # Run validation triggers first
         engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
 
-        # Then run business logic hooks
+        # Then run business logic triggers
         engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
 
         # Before deletion, ensure all related fields are properly cached
-        # to avoid DoesNotExist errors in AFTER_DELETE hooks
+        # to avoid DoesNotExist errors in AFTER_DELETE triggers
         for obj in objs:
             if obj.pk is not None:
                 # Cache all foreign key relationships by accessing them
@@ -67,7 +67,7 @@ class HookQuerySetMixin:
         # Use Django's standard delete() method
         result = super().delete()
 
-        # Run AFTER_DELETE hooks
+        # Run AFTER_DELETE triggers
         engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
 
         return result
@@ -82,7 +82,7 @@ class HookQuerySetMixin:
         model_cls = self.model
         pks = [obj.pk for obj in instances]
 
-        # Load originals for hook comparison and ensure they match the order of instances
+        # Load originals for trigger comparison and ensure they match the order of instances
         # Use the base manager to avoid recursion
         original_map = {
             obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
@@ -141,12 +141,12 @@ class HookQuerySetMixin:
         # Apply field updates to instances
         # If a per-object value map exists (from bulk_update), prefer it over kwargs
         # IMPORTANT: Do not assign Django expression objects (e.g., Subquery/Case/F)
-        # to in-memory instances before running BEFORE_UPDATE hooks. Hooks must not
+        # to in-memory instances before running BEFORE_UPDATE triggers. Triggers must not
         # receive unresolved expression objects.
         per_object_values = get_bulk_update_value_map()
 
         # For Subquery updates, skip all in-memory field assignments to prevent
-        # expression objects from reaching hooks
+        # expression objects from reaching triggers
         if has_subquery:
             logger.debug(
                 "Skipping in-memory field assignments due to Subquery detection"
@@ -177,32 +177,32 @@ class HookQuerySetMixin:
                         else:
                             setattr(obj, field, value)
 
-        # Salesforce-style trigger behavior: Always run hooks, rely on Django's stack overflow protection
-        from django_bulk_hooks.context import get_bypass_hooks
+        # Salesforce-style trigger behavior: Always run triggers, rely on Django's stack overflow protection
+        from django_bulk_triggers.context import get_bypass_triggers
 
-        current_bypass_hooks = get_bypass_hooks()
+        current_bypass_triggers = get_bypass_triggers()
 
-        # Only skip hooks if explicitly bypassed (not for recursion prevention)
-        if current_bypass_hooks:
-            logger.debug("update: hooks explicitly bypassed")
-            ctx = HookContext(model_cls, bypass_hooks=True)
+        # Only skip triggers if explicitly bypassed (not for recursion prevention)
+        if current_bypass_triggers:
+            logger.debug("update: triggers explicitly bypassed")
+            ctx = TriggerContext(model_cls, bypass_triggers=True)
         else:
-            # Always run hooks - Django will handle stack overflow protection
-            logger.debug("update: running hooks with Salesforce-style behavior")
-            ctx = HookContext(model_cls, bypass_hooks=False)
+            # Always run triggers - Django will handle stack overflow protection
+            logger.debug("update: running triggers with Salesforce-style behavior")
+            ctx = TriggerContext(model_cls, bypass_triggers=False)
 
-            # Run validation hooks first
+            # Run validation triggers first
             engine.run(model_cls, VALIDATE_UPDATE, instances, originals, ctx=ctx)
 
-            # For Subquery updates, skip BEFORE_UPDATE hooks here - they'll run after refresh
+            # For Subquery updates, skip BEFORE_UPDATE triggers here - they'll run after refresh
             if not has_subquery:
-                # Then run BEFORE_UPDATE hooks for non-Subquery updates
+                # Then run BEFORE_UPDATE triggers for non-Subquery updates
                 engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
 
-            # Persist any additional field mutations made by BEFORE_UPDATE hooks.
+            # Persist any additional field mutations made by BEFORE_UPDATE triggers.
             # Build CASE statements per modified field not already present in kwargs.
-            # Note: For Subquery updates, this will be empty since hooks haven't run yet
-            # For Subquery updates, hook modifications are handled later via bulk_update
+            # Note: For Subquery updates, this will be empty since triggers haven't run yet
+            # For Subquery updates, trigger modifications are handled later via bulk_update
             if not has_subquery:
                 modified_fields = self._detect_modified_fields(instances, originals)
                 extra_fields = [f for f in modified_fields if f not in kwargs]
@@ -405,10 +405,10 @@ class HookQuerySetMixin:
             raise
 
         # If we used Subquery objects, refresh the instances to get computed values
-        # and run BEFORE_UPDATE hooks so HasChanged conditions work correctly
-        if has_subquery and instances and not current_bypass_hooks:
+        # and run BEFORE_UPDATE triggers so HasChanged conditions work correctly
+        if has_subquery and instances and not current_bypass_triggers:
             logger.debug(
-                "Refreshing instances with Subquery computed values before running hooks"
+                "Refreshing instances with Subquery computed values before running triggers"
             )
             # Simple refresh of model fields without fetching related objects
             # Subquery updates only affect the model's own fields, not relationships
@@ -416,16 +416,16 @@ class HookQuerySetMixin:
                 obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
             }
 
-            # Bulk update all instances in memory and save pre-hook state
-            pre_hook_state = {}
+            # Bulk update all instances in memory and save pre-trigger state
+            pre_trigger_state = {}
             for instance in instances:
                 if instance.pk in refreshed_instances:
                     refreshed_instance = refreshed_instances[instance.pk]
-                    # Save current state before modifying for hook comparison
-                    pre_hook_values = {}
+                    # Save current state before modifying for trigger comparison
+                    pre_trigger_values = {}
                     for field in model_cls._meta.fields:
                         if field.name != "id":
-                            pre_hook_values[field.name] = getattr(
+                            pre_trigger_values[field.name] = getattr(
                                 refreshed_instance, field.name
                             )
                             setattr(
@@ -433,34 +433,34 @@ class HookQuerySetMixin:
                                 field.name,
                                 getattr(refreshed_instance, field.name),
                             )
-                    pre_hook_state[instance.pk] = pre_hook_values
+                    pre_trigger_state[instance.pk] = pre_trigger_values
 
-            # Now run BEFORE_UPDATE hooks with refreshed instances so conditions work
-            logger.debug("Running BEFORE_UPDATE hooks after Subquery refresh")
+            # Now run BEFORE_UPDATE triggers with refreshed instances so conditions work
+            logger.debug("Running BEFORE_UPDATE triggers after Subquery refresh")
             engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
 
-            # Check if hooks modified any fields and persist them with bulk_update
-            hook_modified_fields = set()
+            # Check if triggers modified any fields and persist them with bulk_update
+            trigger_modified_fields = set()
             for instance in instances:
-                if instance.pk in pre_hook_state:
-                    pre_hook_values = pre_hook_state[instance.pk]
-                    for field_name, pre_hook_value in pre_hook_values.items():
+                if instance.pk in pre_trigger_state:
+                    pre_trigger_values = pre_trigger_state[instance.pk]
+                    for field_name, pre_trigger_value in pre_trigger_values.items():
                         current_value = getattr(instance, field_name)
-                        if current_value != pre_hook_value:
-                            hook_modified_fields.add(field_name)
+                        if current_value != pre_trigger_value:
+                            trigger_modified_fields.add(field_name)
 
-            hook_modified_fields = list(hook_modified_fields)
-            if hook_modified_fields:
+            trigger_modified_fields = list(trigger_modified_fields)
+            if trigger_modified_fields:
                 logger.debug(
-                    f"Running bulk_update for hook-modified fields: {hook_modified_fields}"
+                    f"Running bulk_update for trigger-modified fields: {trigger_modified_fields}"
                 )
-                # Use bulk_update to persist hook modifications, bypassing hooks to avoid recursion
+                # Use bulk_update to persist trigger modifications, bypassing triggers to avoid recursion
                 model_cls.objects.bulk_update(
-                    instances, hook_modified_fields, bypass_hooks=True
+                    instances, trigger_modified_fields, bypass_triggers=True
                 )
 
-        # Salesforce-style: Always run AFTER_UPDATE hooks unless explicitly bypassed
-        if not current_bypass_hooks:
+        # Salesforce-style: Always run AFTER_UPDATE triggers unless explicitly bypassed
+        if not current_bypass_triggers:
             logger.debug("update: running AFTER_UPDATE")
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
         else:
@@ -477,19 +477,19 @@ class HookQuerySetMixin:
         update_conflicts=False,
         update_fields=None,
         unique_fields=None,
-        bypass_hooks=False,
+        bypass_triggers=False,
         bypass_validation=False,
     ):
         """
         Insert each of the instances into the database. Behaves like Django's bulk_create,
-        but supports multi-table inheritance (MTI) models and hooks. All arguments are supported and
+        but supports multi-table inheritance (MTI) models and triggers. All arguments are supported and
         passed through to the correct logic. For MTI, only a subset of options may be supported.
         """
         model_cls, ctx, originals = self._setup_bulk_operation(
             objs,
             "bulk_create",
             require_pks=False,
-            bypass_hooks=bypass_hooks,
+            bypass_triggers=bypass_triggers,
             bypass_validation=bypass_validation,
             update_conflicts=update_conflicts,
             unique_fields=unique_fields,
@@ -519,15 +519,15 @@ class HookQuerySetMixin:
         # Check for MTI - if we detect multi-table inheritance, we need special handling
         is_mti = self._is_multi_table_inheritance()
 
-        # Fire hooks before DB ops
-        if not bypass_hooks:
+        # Fire triggers before DB ops
+        if not bypass_triggers:
             if update_conflicts and unique_fields:
                 # For upsert operations, we need to determine which records will be created vs updated
                 # Check which records already exist in the database based on unique fields
                 existing_records = []
                 new_records = []
 
-                # We'll store the records for AFTER hooks after classification is complete
+                # We'll store the records for AFTER triggers after classification is complete
 
                 # Build a filter to check which records already exist
                 unique_values = []
@@ -653,7 +653,7 @@ class HookQuerySetMixin:
                     # If no unique fields, treat all as new
                     new_records = objs
 
-                # Store the classified records for AFTER hooks to avoid duplicate queries
+                # Store the classified records for AFTER triggers to avoid duplicate queries
                 ctx.upsert_existing_records = existing_records
                 ctx.upsert_new_records = new_records
 
@@ -781,17 +781,17 @@ class HookQuerySetMixin:
                         f"No existing records or update_fields to process. existing_records: {len(existing_records) if existing_records else 0}, update_fields: {update_fields}"
                     )
 
-                # Run validation hooks on all records
+                # Run validation triggers on all records
                 if not bypass_validation:
                     engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
 
-                # Run appropriate BEFORE hooks based on what will happen
+                # Run appropriate BEFORE triggers based on what will happen
                 if new_records:
                     engine.run(model_cls, BEFORE_CREATE, new_records, ctx=ctx)
                 if existing_records:
                     engine.run(model_cls, BEFORE_UPDATE, existing_records, ctx=ctx)
             else:
-                # For regular create operations, run create hooks before DB ops
+                # For regular create operations, run create triggers before DB ops
                 # Handle auto_now fields normally for new records
                 self._handle_auto_now_fields(objs, add=True)
 
@@ -799,7 +799,7 @@ class HookQuerySetMixin:
                     engine.run(model_cls, VALIDATE_CREATE, objs, ctx=ctx)
                 engine.run(model_cls, BEFORE_CREATE, objs, ctx=ctx)
         else:
-            logger.debug("bulk_create bypassed hooks")
+            logger.debug("bulk_create bypassed triggers")
 
         # For MTI models, we need to handle them specially
         if is_mti:
@@ -822,7 +822,7 @@ class HookQuerySetMixin:
                 mti_kwargs["existing_records"] = ctx.upsert_existing_records
                 mti_kwargs["new_records"] = ctx.upsert_new_records
 
-            # Remove custom hook kwargs if present in self.bulk_create signature
+            # Remove custom trigger kwargs if present in self.bulk_create signature
             result = self._mti_bulk_create(
                 objs,
                 **mti_kwargs,
@@ -853,8 +853,8 @@ class HookQuerySetMixin:
 
             logger.debug(f"Django bulk_create completed with result: {result}")
 
-        # Fire AFTER hooks
-        if not bypass_hooks:
+        # Fire AFTER triggers
+        if not bypass_triggers:
             if update_conflicts and unique_fields:
                 # Handle auto_now fields that were excluded from the main update
                 if hasattr(ctx, "auto_now_fields") and existing_records:
@@ -865,7 +865,7 @@ class HookQuerySetMixin:
                     # Perform a separate bulk_update for the auto_now fields that were set via pre_save
                     # This ensures they get saved to the database even though they were excluded from the main upsert
                     try:
-                        # Use Django's base manager to bypass hooks and ensure the update happens
+                        # Use Django's base manager to bypass triggers and ensure the update happens
                         base_manager = model_cls._base_manager
                         auto_now_update_result = base_manager.bulk_update(
                             existing_records, list(ctx.auto_now_fields)
@@ -888,7 +888,7 @@ class HookQuerySetMixin:
                         delattr(ctx, "auto_now_fields")
                     logger.debug(f"Restored update_fields: {update_fields}")
 
-                # For upsert operations, reuse the existing/new records determination from BEFORE hooks
+                # For upsert operations, reuse the existing/new records determination from BEFORE triggers
                 # This avoids duplicate queries and improves performance
                 if hasattr(ctx, "upsert_existing_records") and hasattr(
                     ctx, "upsert_new_records"
@@ -896,7 +896,7 @@ class HookQuerySetMixin:
                     existing_records = ctx.upsert_existing_records
                     new_records = ctx.upsert_new_records
                     logger.debug(
-                        f"Reusing upsert record classification from BEFORE hooks: {len(existing_records)} existing, {len(new_records)} new"
+                        f"Reusing upsert record classification from BEFORE triggers: {len(existing_records)} existing, {len(new_records)} new"
                     )
                 else:
                     # Fallback: determine records that actually exist after bulk operation
@@ -962,13 +962,13 @@ class HookQuerySetMixin:
                         # If no unique fields, treat all as new
                         new_records = objs
 
-                # Run appropriate AFTER hooks based on what actually happened
+                # Run appropriate AFTER triggers based on what actually happened
                 if new_records:
                     engine.run(model_cls, AFTER_CREATE, new_records, ctx=ctx)
                 if existing_records:
                     engine.run(model_cls, AFTER_UPDATE, existing_records, ctx=ctx)
             else:
-                # For regular create operations, run create hooks after DB ops
+                # For regular create operations, run create triggers after DB ops
                 engine.run(model_cls, AFTER_CREATE, objs, ctx=ctx)
 
         return result
@@ -1033,7 +1033,7 @@ class HookQuerySetMixin:
         return changed_fields
 
     @transaction.atomic
-    def bulk_update(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
+    def bulk_update(self, objs, bypass_triggers=False, bypass_validation=False, **kwargs):
         if not objs:
             return []
 
@@ -1041,8 +1041,8 @@ class HookQuerySetMixin:
 
         changed_fields = self._detect_changed_fields(objs)
         is_mti = self._is_multi_table_inheritance()
-        hook_context, originals = self._init_hook_context(
-            bypass_hooks, objs, "bulk_update"
+        trigger_context, originals = self._init_trigger_context(
+            bypass_triggers, objs, "bulk_update"
         )
 
         fields_set, auto_now_fields, custom_update_fields = self._prepare_update_fields(
@@ -1066,7 +1066,7 @@ class HookQuerySetMixin:
 
         Args:
             objs (list[Model]): The model instances being updated.
-            custom_update_fields (list[Field]): Fields that define a pre_save() hook.
+            custom_update_fields (list[Field]): Fields that define a pre_save() trigger.
             fields_set (set[str]): The overall set of fields to update, mutated in place.
         """
         if not custom_update_fields:
@@ -1114,7 +1114,7 @@ class HookQuerySetMixin:
     def _single_table_bulk_update(self, objs, fields_set, auto_now_fields, **kwargs):
         """
         Perform bulk_update for single-table models, handling Django semantics
-        for kwargs and setting a value map for hook execution.
+        for kwargs and setting a value map for trigger execution.
 
         Args:
             objs (list[Model]): The model instances being updated.
@@ -1128,7 +1128,7 @@ class HookQuerySetMixin:
         # Strip out unsupported bulk_update kwargs
         django_kwargs = self._filter_django_kwargs(kwargs)
 
-        # Build a value map: {pk -> {field: raw_value}} for later hook use
+        # Build a value map: {pk -> {field: raw_value}} for later trigger use
         value_map = self._build_value_map(objs, fields_set, auto_now_fields)
 
         if value_map:
@@ -1163,13 +1163,13 @@ class HookQuerySetMixin:
                     "It is only available for bulk_create UPSERT operations.",
                     k,
                 )
-            elif k not in {"bypass_hooks", "bypass_validation"}:
+            elif k not in {"bypass_triggers", "bypass_validation"}:
                 passthrough[k] = v
         return passthrough
 
     def _build_value_map(self, objs, fields_set, auto_now_fields):
         """
-        Build a mapping of {pk -> {field_name: raw_value}} for hook processing.
+        Build a mapping of {pk -> {field_name: raw_value}} for trigger processing.
 
         Expressions are not included; only concrete values assigned on the object.
         """
@@ -1226,34 +1226,34 @@ class HookQuerySetMixin:
             operation_name,
         )
 
-    def _init_hook_context(
-        self, bypass_hooks: bool, objs, operation_name="bulk_update"
+    def _init_trigger_context(
+        self, bypass_triggers: bool, objs, operation_name="bulk_update"
     ):
         """
-        Initialize the hook context for bulk operations.
+        Initialize the trigger context for bulk operations.
 
         Args:
-            bypass_hooks (bool): Whether to bypass hooks
+            bypass_triggers (bool): Whether to bypass triggers
             objs (list): List of objects being operated on
             operation_name (str): Name of the operation for logging
 
         Returns:
-            (HookContext, list): The hook context and a placeholder list
+            (TriggerContext, list): The trigger context and a placeholder list
             for 'originals', which can be populated later if needed for
-            after_update hooks.
+            after_update triggers.
         """
         model_cls = self.model
 
-        if bypass_hooks:
+        if bypass_triggers:
             logger.debug(
-                "%s: hooks bypassed for %s", operation_name, model_cls.__name__
+                "%s: triggers bypassed for %s", operation_name, model_cls.__name__
             )
-            ctx = HookContext(model_cls, bypass_hooks=True)
+            ctx = TriggerContext(model_cls, bypass_triggers=True)
         else:
-            logger.debug("%s: hooks enabled for %s", operation_name, model_cls.__name__)
-            ctx = HookContext(model_cls, bypass_hooks=False)
+            logger.debug("%s: triggers enabled for %s", operation_name, model_cls.__name__)
+            ctx = TriggerContext(model_cls, bypass_triggers=False)
 
-        # Keep `originals` aligned with objs to support later hook execution.
+        # Keep `originals` aligned with objs to support later trigger execution.
         originals = [None] * len(objs)
 
         return ctx, originals
@@ -1270,7 +1270,7 @@ class HookQuerySetMixin:
             tuple:
                 fields_set (set): All fields that should be updated.
                 auto_now_fields (list[str]): Fields that require auto_now behavior.
-                custom_update_fields (list[Field]): Fields with pre_save hooks to call.
+                custom_update_fields (list[Field]): Fields with pre_save triggers to call.
         """
         model_cls = self.model
         fields_set = set(changed_fields)
@@ -1366,51 +1366,51 @@ class HookQuerySetMixin:
 
         return list(set(handled_fields))  # Remove duplicates
 
-    def _execute_hooks_with_operation(
+    def _execute_triggers_with_operation(
         self,
         operation_func,
-        validate_hook,
-        before_hook,
-        after_hook,
+        validate_trigger,
+        before_trigger,
+        after_trigger,
         objs,
         originals=None,
         ctx=None,
-        bypass_hooks=False,
+        bypass_triggers=False,
         bypass_validation=False,
     ):
         """
-        Execute the complete hook lifecycle around a database operation.
+        Execute the complete trigger lifecycle around a database operation.
 
         Args:
             operation_func (callable): The database operation to execute
-            validate_hook: Hook constant for validation
-            before_hook: Hook constant for before operation
-            after_hook: Hook constant for after operation
+            validate_trigger: Trigger constant for validation
+            before_trigger: Trigger constant for before operation
+            after_trigger: Trigger constant for after operation
             objs (list): Objects being operated on
-            originals (list, optional): Original objects for comparison hooks
-            ctx: Hook context
-            bypass_hooks (bool): Whether to skip hooks
-            bypass_validation (bool): Whether to skip validation hooks
+            originals (list, optional): Original objects for comparison triggers
+            ctx: Trigger context
+            bypass_triggers (bool): Whether to skip triggers
+            bypass_validation (bool): Whether to skip validation triggers
 
         Returns:
             The result of the database operation
         """
         model_cls = self.model
 
-        # Run validation hooks first (if not bypassed)
-        if not bypass_validation and validate_hook:
-            engine.run(model_cls, validate_hook, objs, ctx=ctx)
+        # Run validation triggers first (if not bypassed)
+        if not bypass_validation and validate_trigger:
+            engine.run(model_cls, validate_trigger, objs, ctx=ctx)
 
-        # Run before hooks (if not bypassed)
-        if not bypass_hooks and before_hook:
-            engine.run(model_cls, before_hook, objs, originals, ctx=ctx)
+        # Run before triggers (if not bypassed)
+        if not bypass_triggers and before_trigger:
+            engine.run(model_cls, before_trigger, objs, originals, ctx=ctx)
 
         # Execute the database operation
         result = operation_func()
 
-        # Run after hooks (if not bypassed)
-        if not bypass_hooks and after_hook:
-            engine.run(model_cls, after_hook, objs, originals, ctx=ctx)
+        # Run after triggers (if not bypassed)
+        if not bypass_triggers and after_trigger:
+            engine.run(model_cls, after_trigger, objs, originals, ctx=ctx)
 
         return result
 
@@ -1444,39 +1444,39 @@ class HookQuerySetMixin:
             f"{operation_name} called for {model_cls.__name__} with {len(objs)} objects{param_str}"
         )
 
-    def _execute_delete_hooks_with_operation(
+    def _execute_delete_triggers_with_operation(
         self,
         operation_func,
         objs,
         ctx=None,
-        bypass_hooks=False,
+        bypass_triggers=False,
         bypass_validation=False,
     ):
         """
-        Execute hooks for delete operations with special field caching logic.
+        Execute triggers for delete operations with special field caching logic.
 
         Args:
             operation_func (callable): The delete operation to execute
             objs (list): Objects being deleted
-            ctx: Hook context
-            bypass_hooks (bool): Whether to skip hooks
-            bypass_validation (bool): Whether to skip validation hooks
+            ctx: Trigger context
+            bypass_triggers (bool): Whether to skip triggers
+            bypass_validation (bool): Whether to skip validation triggers
 
         Returns:
             The result of the delete operation
         """
         model_cls = self.model
 
-        # Run validation hooks first (if not bypassed)
+        # Run validation triggers first (if not bypassed)
         if not bypass_validation:
             engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
 
-        # Run before hooks (if not bypassed)
-        if not bypass_hooks:
+        # Run before triggers (if not bypassed)
+        if not bypass_triggers:
             engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
 
             # Before deletion, ensure all related fields are properly cached
-            # to avoid DoesNotExist errors in AFTER_DELETE hooks
+            # to avoid DoesNotExist errors in AFTER_DELETE triggers
             for obj in objs:
                 if obj.pk is not None:
                     # Cache all foreign key relationships by accessing them
@@ -1497,8 +1497,8 @@ class HookQuerySetMixin:
         # Execute the database operation
         result = operation_func()
 
-        # Run after hooks (if not bypassed)
-        if not bypass_hooks:
+        # Run after triggers (if not bypassed)
+        if not bypass_triggers:
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
 
         return result
@@ -1508,7 +1508,7 @@ class HookQuerySetMixin:
         objs,
         operation_name,
         require_pks=False,
-        bypass_hooks=False,
+        bypass_triggers=False,
         bypass_validation=False,
         **log_kwargs,
     ):
@@ -1519,7 +1519,7 @@ class HookQuerySetMixin:
             objs (list): Objects to operate on
             operation_name (str): Name of the operation for logging and validation
             require_pks (bool): Whether objects must have primary keys
-            bypass_hooks (bool): Whether to bypass hooks
+            bypass_triggers (bool): Whether to bypass triggers
             bypass_validation (bool): Whether to bypass validation
             **log_kwargs: Additional parameters to log
 
@@ -1534,8 +1534,8 @@ class HookQuerySetMixin:
             objs, require_pks=require_pks, operation_name=operation_name
         )
 
-        # Initialize hook context
-        ctx, originals = self._init_hook_context(bypass_hooks, objs, operation_name)
+        # Initialize trigger context
+        ctx, originals = self._init_trigger_context(bypass_triggers, objs, operation_name)
 
         return self.model, ctx, originals
 
@@ -1559,7 +1559,7 @@ class HookQuerySetMixin:
 
     def _detect_modified_fields(self, new_instances, original_instances):
         """
-        Detect fields that were modified during BEFORE_UPDATE hooks by comparing
+        Detect fields that were modified during BEFORE_UPDATE triggers by comparing
         new instances with their original values.
 
         IMPORTANT: Skip fields that contain Django expression objects (Subquery, Case, etc.)
@@ -1640,11 +1640,11 @@ class HookQuerySetMixin:
         existing_records = kwargs.pop("existing_records", [])
         new_records = kwargs.pop("new_records", [])
 
-        # Remove custom hook kwargs before passing to Django internals
+        # Remove custom trigger kwargs before passing to Django internals
         django_kwargs = {
             k: v
             for k, v in kwargs.items()
-            if k not in ["bypass_hooks", "bypass_validation"]
+            if k not in ["bypass_triggers", "bypass_validation"]
         }
         if inheritance_chain is None:
             inheritance_chain = self._get_inheritance_chain()
@@ -1688,8 +1688,8 @@ class HookQuerySetMixin:
         parent_objects_map = {}
 
         # Step 1: Do O(n) normal inserts into parent tables to get primary keys back
-        # Get bypass_hooks from kwargs
-        bypass_hooks = kwargs.get("bypass_hooks", False)
+        # Get bypass_triggers from kwargs
+        bypass_triggers = kwargs.get("bypass_triggers", False)
         bypass_validation = kwargs.get("bypass_validation", False)
 
         # Create a list for lookup (since model instances without PKs are not hashable)
@@ -1708,9 +1708,9 @@ class HookQuerySetMixin:
                 if is_existing_record:
                     # For existing records, we need to update the parent object instead of creating
                     # The parent_obj should already have the correct PK from the database lookup
-                    # Fire parent hooks for updates
-                    if not bypass_hooks:
-                        ctx = HookContext(model_class)
+                    # Fire parent triggers for updates
+                    if not bypass_triggers:
+                        ctx = TriggerContext(model_class)
                         if not bypass_validation:
                             engine.run(
                                 model_class, VALIDATE_UPDATE, [parent_obj], ctx=ctx
@@ -1734,14 +1734,14 @@ class HookQuerySetMixin:
                     else:
                         parent_obj.save()
 
-                    # Fire AFTER_UPDATE hooks for parent
-                    if not bypass_hooks:
+                    # Fire AFTER_UPDATE triggers for parent
+                    if not bypass_triggers:
                         engine.run(model_class, AFTER_UPDATE, [parent_obj], ctx=ctx)
                 else:
                     # For new records, create the parent object as before
-                    # Fire parent hooks if not bypassed
-                    if not bypass_hooks:
-                        ctx = HookContext(model_class)
+                    # Fire parent triggers if not bypassed
+                    if not bypass_triggers:
+                        ctx = TriggerContext(model_class)
                         if not bypass_validation:
                             engine.run(
                                 model_class, VALIDATE_CREATE, [parent_obj], ctx=ctx
@@ -1749,7 +1749,7 @@ class HookQuerySetMixin:
                         engine.run(model_class, BEFORE_CREATE, [parent_obj], ctx=ctx)
 
                     # Use Django's base manager to create the object and get PKs back
-                    # This bypasses hooks and the MTI exception
+                    # This bypasses triggers and the MTI exception
                     field_values = {
                         field.name: getattr(parent_obj, field.name)
                         for field in model_class._meta.local_fields
@@ -1765,8 +1765,8 @@ class HookQuerySetMixin:
                     parent_obj._state.adding = False
                     parent_obj._state.db = self.db
 
-                    # Fire AFTER_CREATE hooks for parent
-                    if not bypass_hooks:
+                    # Fire AFTER_CREATE triggers for parent
+                    if not bypass_triggers:
                         engine.run(model_class, AFTER_CREATE, [parent_obj], ctx=ctx)
 
                 parent_instances[model_class] = parent_obj
@@ -2001,7 +2001,7 @@ class HookQuerySetMixin:
         if inheritance_chain is None:
             inheritance_chain = self._get_inheritance_chain()
 
-        # Remove custom hook kwargs and unsupported parameters before passing to Django internals
+        # Remove custom trigger kwargs and unsupported parameters before passing to Django internals
         unsupported_params = [
             "unique_fields",
             "update_conflicts",
@@ -2016,7 +2016,7 @@ class HookQuerySetMixin:
                     f"This parameter is only available in bulk_create for UPSERT operations."
                 )
                 print(f"WARNING: Parameter '{k}' is not supported by bulk_update")
-            elif k not in ["bypass_hooks", "bypass_validation"]:
+            elif k not in ["bypass_triggers", "bypass_validation"]:
                 django_kwargs[k] = v
 
         # Safety check to prevent infinite recursion
@@ -2189,7 +2189,7 @@ class HookQuerySetMixin:
         return total_updated
 
     @transaction.atomic
-    def bulk_delete(self, objs, bypass_hooks=False, bypass_validation=False, **kwargs):
+    def bulk_delete(self, objs, bypass_triggers=False, bypass_validation=False, **kwargs):
         """
         Bulk delete objects in the database.
         """
@@ -2202,11 +2202,11 @@ class HookQuerySetMixin:
             objs,
             "bulk_delete",
             require_pks=True,
-            bypass_hooks=bypass_hooks,
+            bypass_triggers=bypass_triggers,
             bypass_validation=bypass_validation,
         )
 
-        # Execute the database operation with hooks
+        # Execute the database operation with triggers
         def delete_operation():
             pks = [obj.pk for obj in objs if obj.pk is not None]
             if pks:
@@ -2215,20 +2215,20 @@ class HookQuerySetMixin:
             else:
                 return 0
 
-        result = self._execute_delete_hooks_with_operation(
+        result = self._execute_delete_triggers_with_operation(
             delete_operation,
             objs,
             ctx=ctx,
-            bypass_hooks=bypass_hooks,
+            bypass_triggers=bypass_triggers,
             bypass_validation=bypass_validation,
         )
 
         return result
 
 
-class HookQuerySet(HookQuerySetMixin, models.QuerySet):
+class TriggerQuerySet(TriggerQuerySetMixin, models.QuerySet):
     """
-    A QuerySet that provides bulk hook functionality.
+    A QuerySet that provides bulk trigger functionality.
     This is the traditional approach for backward compatibility.
     """
 

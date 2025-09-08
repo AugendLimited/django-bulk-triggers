@@ -1,22 +1,22 @@
 """
-Test to verify that Subquery objects in update operations work correctly with hooks.
+Test to verify that Subquery objects in update operations work correctly with triggers.
 """
 
 from django.db.models import OuterRef, Subquery, Sum
 from django.test import TestCase
 from django.db import models
-from django_bulk_hooks.queryset import HookQuerySetMixin
-from django_bulk_hooks.manager import BulkHookManager
-from tests.models import HookModel, UserModel
+from django_bulk_triggers.queryset import TriggerQuerySetMixin
+from django_bulk_triggers.manager import BulkTriggerManager
+from tests.models import TriggerModel, UserModel
 
-from django_bulk_hooks import HookClass
-from django_bulk_hooks.constants import AFTER_UPDATE
-from django_bulk_hooks.decorators import hook
-from tests.models import RelatedModel, HookModel
+from django_bulk_triggers import TriggerClass
+from django_bulk_triggers.constants import AFTER_UPDATE
+from django_bulk_triggers.decorators import trigger
+from tests.models import RelatedModel, TriggerModel
 
 
-class SubqueryHookTest(HookClass):
-    """Hook to test Subquery functionality."""
+class SubqueryTriggerTest(TriggerClass):
+    """Trigger to test Subquery functionality."""
     
     after_update_called = False  # Class variable to persist across instances
     computed_values = []  # Class variable to persist across instances
@@ -27,80 +27,80 @@ class SubqueryHookTest(HookClass):
 
     @classmethod
     def reset(cls):
-        """Reset the hook state for testing."""
+        """Reset the trigger state for testing."""
         cls.after_update_called = False
         cls.computed_values.clear()
         cls.foreign_key_values.clear()
 
-    @hook(AFTER_UPDATE, model=HookModel)
+    @trigger(AFTER_UPDATE, model=TriggerModel)
     def test_subquery_access(self, new_records, old_records):
-        SubqueryHookTest.after_update_called = True  # Use class variable
+        SubqueryTriggerTest.after_update_called = True  # Use class variable
         for record in new_records:
             # This should now contain the computed value, not the Subquery object
-            SubqueryHookTest.computed_values.append(record.computed_value)  # Use class variable
+            SubqueryTriggerTest.computed_values.append(record.computed_value)  # Use class variable
             # This should contain the User instance, not a raw ID
-            SubqueryHookTest.foreign_key_values.append(record.created_by)  # Use class variable
+            SubqueryTriggerTest.foreign_key_values.append(record.created_by)  # Use class variable
 
 
-class SubqueryHooksTestCase(TestCase):
-    """Test case for Subquery hook functionality."""
+class SubqueryTriggersTestCase(TestCase):
+    """Test case for Subquery trigger functionality."""
 
     def setUp(self):
         # Clear the registry to prevent interference between tests
-        from django_bulk_hooks.registry import clear_hooks
-        clear_hooks()
+        from django_bulk_triggers.registry import clear_triggers
+        clear_triggers()
         
         # Create test data
         self.user = UserModel.objects.create(username="testuser")
-        self.hook_model = HookModel.objects.create(
+        self.trigger_model = TriggerModel.objects.create(
             name="Test", value=10, created_by=self.user
         )
         self.related1 = RelatedModel.objects.create(
-            hook_model=self.hook_model, amount=5
+            trigger_model=self.trigger_model, amount=5
         )
         self.related2 = RelatedModel.objects.create(
-            hook_model=self.hook_model, amount=15
+            trigger_model=self.trigger_model, amount=15
         )
 
-        # Create hook instance and manually register it
-        self.hook = SubqueryHookTest()
+        # Create trigger instance and manually register it
+        self.trigger = SubqueryTriggerTest()
         
-        # Manually register the hook since the metaclass registration was cleared
-        from django_bulk_hooks.registry import register_hook
-        register_hook(
-            model=HookModel,
+        # Manually register the trigger since the metaclass registration was cleared
+        from django_bulk_triggers.registry import register_trigger
+        register_trigger(
+            model=TriggerModel,
             event=AFTER_UPDATE,
-            handler_cls=SubqueryHookTest,
+            handler_cls=SubqueryTriggerTest,
             method_name="test_subquery_access",
             condition=None,
             priority=50
         )
         
-        # Reset hook state before each test
-        self.hook.reset()
+        # Reset trigger state before each test
+        self.trigger.reset()
 
-    def test_subquery_in_hooks(self):
-        """Test that Subquery computed values are accessible in hooks."""
+    def test_subquery_in_triggers(self):
+        """Test that Subquery computed values are accessible in triggers."""
 
         # Perform update with Subquery
-        HookModel.objects.filter(pk=self.hook_model.pk).update(
+        TriggerModel.objects.filter(pk=self.trigger_model.pk).update(
             computed_value=Subquery(
-                RelatedModel.objects.filter(hook_model=OuterRef("pk"))
-                .values("hook_model")
+                RelatedModel.objects.filter(trigger_model=OuterRef("pk"))
+                .values("trigger_model")
                 .annotate(total=Sum("amount"))
                 .values("total")[:1]
             )
         )
 
-        # Verify that the hook was called and received computed values
-        self.assertTrue(self.hook.after_update_called)
-        self.assertEqual(len(self.hook.computed_values), 1)
+        # Verify that the trigger was called and received computed values
+        self.assertTrue(self.trigger.after_update_called)
+        self.assertEqual(len(self.trigger.computed_values), 1)
         # The computed value should be 20 (5 + 15)
-        self.assertEqual(self.hook.computed_values[0], 20)
+        self.assertEqual(self.trigger.computed_values[0], 20)
 
         # Verify the database was actually updated
-        self.hook_model.refresh_from_db()
-        self.assertEqual(self.hook_model.computed_value, 20)
+        self.trigger_model.refresh_from_db()
+        self.assertEqual(self.trigger_model.computed_value, 20)
 
     def test_bulk_subquery_performance(self):
         """Test that bulk Subquery operations are efficient."""
@@ -108,47 +108,47 @@ class SubqueryHooksTestCase(TestCase):
         # Create multiple test models for bulk testing
         test_models = []
         for i in range(10):
-            model = HookModel.objects.create(name=f"Test{i}", value=i)
-            RelatedModel.objects.create(hook_model=model, amount=i * 2)
-            RelatedModel.objects.create(hook_model=model, amount=i * 3)
+            model = TriggerModel.objects.create(name=f"Test{i}", value=i)
+            RelatedModel.objects.create(trigger_model=model, amount=i * 2)
+            RelatedModel.objects.create(trigger_model=model, amount=i * 3)
             test_models.append(model)
 
         # Perform bulk update with Subquery
         pks = [model.pk for model in test_models]
-        HookModel.objects.filter(pk__in=pks).update(
+        TriggerModel.objects.filter(pk__in=pks).update(
             computed_value=Subquery(
-                RelatedModel.objects.filter(hook_model=OuterRef("pk"))
-                .values("hook_model")
+                RelatedModel.objects.filter(trigger_model=OuterRef("pk"))
+                .values("trigger_model")
                 .annotate(total=Sum("amount"))
                 .values("total")[:1]
             )
         )
 
-        # Verify all hooks received computed values
-        self.assertTrue(self.hook.after_update_called)
-        self.assertEqual(len(self.hook.computed_values), 10)
+        # Verify all triggers received computed values
+        self.assertTrue(self.trigger.after_update_called)
+        self.assertEqual(len(self.trigger.computed_values), 10)
 
         # Verify all computed values are correct
-        for i, value in enumerate(self.hook.computed_values):
+        for i, value in enumerate(self.trigger.computed_values):
             expected = i * 2 + i * 3  # sum of the two related amounts
             self.assertEqual(value, expected)
 
-    def test_subquery_object_not_passed_to_hooks(self):
-        """Test that Subquery objects are not passed to hooks, only computed values."""
+    def test_subquery_object_not_passed_to_triggers(self):
+        """Test that Subquery objects are not passed to triggers, only computed values."""
 
         # Perform update with Subquery
-        HookModel.objects.filter(pk=self.hook_model.pk).update(
+        TriggerModel.objects.filter(pk=self.trigger_model.pk).update(
             computed_value=Subquery(
-                RelatedModel.objects.filter(hook_model=OuterRef("pk"))
-                .values("hook_model")
+                RelatedModel.objects.filter(trigger_model=OuterRef("pk"))
+                .values("trigger_model")
                 .annotate(total=Sum("amount"))
                 .values("total")[:1]
             )
         )
 
-        # Verify that the hook received actual values, not Subquery objects
-        self.assertTrue(self.hook.after_update_called)
-        for value in self.hook.computed_values:
+        # Verify that the trigger received actual values, not Subquery objects
+        self.assertTrue(self.trigger.after_update_called)
+        for value in self.trigger.computed_values:
             # The value should be an integer, not a Subquery object
             self.assertIsInstance(value, int)
             self.assertNotEqual(type(value).__name__, "Subquery")
@@ -157,20 +157,20 @@ class SubqueryHooksTestCase(TestCase):
         """Test that foreign key fields are preserved correctly after Subquery updates."""
 
         # Perform update with Subquery
-        HookModel.objects.filter(pk=self.hook_model.pk).update(
+        TriggerModel.objects.filter(pk=self.trigger_model.pk).update(
             computed_value=Subquery(
-                RelatedModel.objects.filter(hook_model=OuterRef("pk"))
-                .values("hook_model")
+                RelatedModel.objects.filter(trigger_model=OuterRef("pk"))
+                .values("trigger_model")
                 .annotate(total=Sum("amount"))
                 .values("total")[:1]
             )
         )
 
-        # Verify that the hook was called
-        self.assertTrue(self.hook.after_update_called)
+        # Verify that the trigger was called
+        self.assertTrue(self.trigger.after_update_called)
 
         # Verify that foreign key fields are still intact
-        # The hook should have access to the created_by field as a User instance
-        self.assertEqual(len(self.hook.foreign_key_values), 1)
-        self.assertIsInstance(self.hook.foreign_key_values[0], UserModel)
-        self.assertEqual(self.hook.foreign_key_values[0].username, "testuser")
+        # The trigger should have access to the created_by field as a User instance
+        self.assertEqual(len(self.trigger.foreign_key_values), 1)
+        self.assertIsInstance(self.trigger.foreign_key_values[0], UserModel)
+        self.assertEqual(self.trigger.foreign_key_values[0].username, "testuser")

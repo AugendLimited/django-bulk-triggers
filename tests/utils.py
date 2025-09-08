@@ -1,5 +1,5 @@
 """
-Utility functions and helpers for testing django-bulk-hooks.
+Utility functions and helpers for testing django-bulk-triggers.
 """
 
 import logging
@@ -7,8 +7,8 @@ from typing import Any, List, Optional
 
 from django.db import models
 
-from django_bulk_hooks import HookClass
-from django_bulk_hooks.constants import (
+from django_bulk_triggers import TriggerClass
+from django_bulk_triggers.constants import (
     AFTER_CREATE,
     AFTER_DELETE,
     AFTER_UPDATE,
@@ -16,13 +16,13 @@ from django_bulk_hooks.constants import (
     BEFORE_DELETE,
     BEFORE_UPDATE,
 )
-from django_bulk_hooks.decorators import hook
-from django_bulk_hooks.priority import Priority
-from tests.models import HookModel, SimpleModel
+from django_bulk_triggers.decorators import trigger
+from django_bulk_triggers.priority import Priority
+from tests.models import TriggerModel, SimpleModel
 
 
-class HookTracker:
-    """Utility class to track hook calls for testing."""
+class TriggerTracker:
+    """Utility class to track trigger calls for testing."""
 
     def __init__(self):
         self.calls = []
@@ -50,7 +50,7 @@ class HookTracker:
         old_records: Optional[List] = None,
         **kwargs,
     ):
-        """Add a hook call to tracking."""
+        """Add a trigger call to tracking."""
         call_data = {
             "event": event,
             "new_records": new_records,
@@ -73,19 +73,19 @@ class HookTracker:
             self.after_delete_calls.append(call_data)
 
 
-def create_test_hook_class(
-    tracker: HookTracker, model_class, events: List[str] = None
+def create_test_trigger_class(
+    tracker: TriggerTracker, model_class, events: List[str] = None
 ):
     """
-    Create a test hook class that tracks calls.
+    Create a test trigger class that tracks calls.
 
     Args:
-        tracker: HookTracker instance to track calls
-        model_class: Django model class to hook into
-        events: List of events to hook into (defaults to all events)
+        tracker: TriggerTracker instance to track calls
+        model_class: Django model class to trigger into
+        events: List of events to trigger into (defaults to all events)
 
     Returns:
-        Hook class that tracks calls
+        Trigger class that tracks calls
     """
     if events is None:
         events = [
@@ -97,32 +97,32 @@ def create_test_hook_class(
             AFTER_DELETE,
         ]
 
-    class TestHook(Hook):
+    class TestTrigger(Trigger):
         def __init__(self):
             self.tracker = tracker
 
-        def _create_hook_method(self, event):
-            def hook_method(new_records, old_records=None, **kwargs):
+        def _create_trigger_method(self, event):
+            def trigger_method(new_records, old_records=None, **kwargs):
                 self.tracker.add_call(event, new_records, old_records, **kwargs)
 
-            return hook_method
+            return trigger_method
 
-    # Dynamically add hook methods for each event
+    # Dynamically add trigger methods for each event
     for event in events:
         method_name = f"on_{event}"
         setattr(
-            TestHook,
+            TestTrigger,
             method_name,
-            hook(event, model=model_class)(
-                TestHook._create_hook_method.__get__(None, TestHook)(event)
+            trigger(event, model=model_class)(
+                TestTrigger._create_trigger_method.__get__(None, TestTrigger)(event)
             ),
         )
 
-    return TestHook
+    return TestTrigger
 
 
-def assert_hook_called(tracker: HookTracker, event: str, expected_count: int = 1):
-    """Assert that a specific hook event was called the expected number of times."""
+def assert_trigger_called(tracker: TriggerTracker, event: str, expected_count: int = 1):
+    """Assert that a specific trigger event was called the expected number of times."""
     if event == BEFORE_CREATE:
         actual_count = len(tracker.before_create_calls)
     elif event == AFTER_CREATE:
@@ -143,9 +143,9 @@ def assert_hook_called(tracker: HookTracker, event: str, expected_count: int = 1
     )
 
 
-def assert_hook_not_called(tracker: HookTracker, event: str):
-    """Assert that a specific hook event was not called."""
-    assert_hook_called(tracker, event, expected_count=0)
+def assert_trigger_not_called(tracker: TriggerTracker, event: str):
+    """Assert that a specific trigger event was not called."""
+    assert_trigger_called(tracker, event, expected_count=0)
 
 
 def create_test_instances(model_class, count: int = 3, **kwargs) -> List[models.Model]:
@@ -176,87 +176,87 @@ class MockException(Exception):
     pass
 
 
-def re_register_test_hooks():
+def re_register_test_triggers():
     """
-    Re-register test hooks after they've been cleared.
-    This is needed because the test setup calls clear_hooks() which removes
-    all registered hooks, but the hook classes are already defined.
+    Re-register test triggers after they've been cleared.
+    This is needed because the test setup calls clear_triggers() which removes
+    all registered triggers, but the trigger classes are already defined.
     """
-    from django_bulk_hooks.registry import register_hook, clear_hooks
-    from django_bulk_hooks.conditions import IsEqual, HasChanged
+    from django_bulk_triggers.registry import register_trigger, clear_triggers
+    from django_bulk_triggers.conditions import IsEqual, HasChanged
     from tests.models import SimpleModel
     from tests.test_integration import (
-        BulkCreateTestHook, BulkUpdateTestHook, BulkDeleteTestHook,
-        ConditionalTestHook, ComplexConditionalTestHook, ErrorTestHook,
-        PerformanceTestHook, RelatedTestHook, TransactionTestHook,
-        MultiModelTestHook, PriorityTestHook, InventoryHook,
-        AuditHook, UserRegistrationHook,
+        BulkCreateTestTrigger, BulkUpdateTestTrigger, BulkDeleteTestTrigger,
+        ConditionalTestTrigger, ComplexConditionalTestTrigger, ErrorTestTrigger,
+        PerformanceTestTrigger, RelatedTestTrigger, TransactionTestTrigger,
+        MultiModelTestTrigger, PriorityTestTrigger, InventoryTrigger,
+        AuditTrigger, UserRegistrationTrigger,
     )
 
     # Clear the registry first to ensure clean state
-    clear_hooks()
+    clear_triggers()
 
-    # Define all hook registrations in a data structure for maintainability
-    hook_registrations = [
+    # Define all trigger registrations in a data structure for maintainability
+    trigger_registrations = [
         # (model, event, handler_cls, method_name, condition, priority)
 
-        # BulkCreateTestHook
-        (HookModel, BEFORE_CREATE, BulkCreateTestHook, "on_before_create", None, Priority.NORMAL),
-        (HookModel, AFTER_CREATE, BulkCreateTestHook, "on_after_create", None, Priority.NORMAL),
+        # BulkCreateTestTrigger
+        (TriggerModel, BEFORE_CREATE, BulkCreateTestTrigger, "on_before_create", None, Priority.NORMAL),
+        (TriggerModel, AFTER_CREATE, BulkCreateTestTrigger, "on_after_create", None, Priority.NORMAL),
 
-        # BulkUpdateTestHook
-        (HookModel, BEFORE_UPDATE, BulkUpdateTestHook, "on_before_update", None, Priority.NORMAL),
-        (HookModel, AFTER_UPDATE, BulkUpdateTestHook, "on_after_update", None, Priority.NORMAL),
+        # BulkUpdateTestTrigger
+        (TriggerModel, BEFORE_UPDATE, BulkUpdateTestTrigger, "on_before_update", None, Priority.NORMAL),
+        (TriggerModel, AFTER_UPDATE, BulkUpdateTestTrigger, "on_after_update", None, Priority.NORMAL),
 
-        # BulkDeleteTestHook
-        (HookModel, BEFORE_DELETE, BulkDeleteTestHook, "on_before_delete", None, Priority.NORMAL),
-        (HookModel, AFTER_DELETE, BulkDeleteTestHook, "on_after_delete", None, Priority.NORMAL),
+        # BulkDeleteTestTrigger
+        (TriggerModel, BEFORE_DELETE, BulkDeleteTestTrigger, "on_before_delete", None, Priority.NORMAL),
+        (TriggerModel, AFTER_DELETE, BulkDeleteTestTrigger, "on_after_delete", None, Priority.NORMAL),
 
-        # ConditionalTestHook
-        (HookModel, BEFORE_CREATE, ConditionalTestHook, "on_active_create", IsEqual("status", "active"), Priority.NORMAL),
-        (HookModel, BEFORE_UPDATE, ConditionalTestHook, "on_status_change", HasChanged("status"), Priority.NORMAL),
+        # ConditionalTestTrigger
+        (TriggerModel, BEFORE_CREATE, ConditionalTestTrigger, "on_active_create", IsEqual("status", "active"), Priority.NORMAL),
+        (TriggerModel, BEFORE_UPDATE, ConditionalTestTrigger, "on_status_change", HasChanged("status"), Priority.NORMAL),
 
-        # ComplexConditionalTestHook
-        (HookModel, BEFORE_UPDATE, ComplexConditionalTestHook, "on_status_change", HasChanged("status"), Priority.NORMAL),
+        # ComplexConditionalTestTrigger
+        (TriggerModel, BEFORE_UPDATE, ComplexConditionalTestTrigger, "on_status_change", HasChanged("status"), Priority.NORMAL),
 
-        # ErrorTestHook
-        (HookModel, BEFORE_CREATE, ErrorTestHook, "on_before_create", None, Priority.NORMAL),
+        # ErrorTestTrigger
+        (TriggerModel, BEFORE_CREATE, ErrorTestTrigger, "on_before_create", None, Priority.NORMAL),
 
-        # PerformanceTestHook
-        (HookModel, BEFORE_CREATE, PerformanceTestHook, "on_before_create", None, Priority.NORMAL),
+        # PerformanceTestTrigger
+        (TriggerModel, BEFORE_CREATE, PerformanceTestTrigger, "on_before_create", None, Priority.NORMAL),
 
-        # RelatedTestHook
-        (HookModel, AFTER_CREATE, RelatedTestHook, "on_after_create", None, Priority.NORMAL),
+        # RelatedTestTrigger
+        (TriggerModel, AFTER_CREATE, RelatedTestTrigger, "on_after_create", None, Priority.NORMAL),
 
-        # TransactionTestHook
-        (HookModel, AFTER_CREATE, TransactionTestHook, "on_after_create", None, Priority.NORMAL),
+        # TransactionTestTrigger
+        (TriggerModel, AFTER_CREATE, TransactionTestTrigger, "on_after_create", None, Priority.NORMAL),
 
-        # MultiModelTestHook
-        (HookModel, BEFORE_CREATE, MultiModelTestHook, "on_test_model_create", None, Priority.NORMAL),
-        (SimpleModel, BEFORE_CREATE, MultiModelTestHook, "on_simple_model_create", None, Priority.NORMAL),
+        # MultiModelTestTrigger
+        (TriggerModel, BEFORE_CREATE, MultiModelTestTrigger, "on_test_model_create", None, Priority.NORMAL),
+        (SimpleModel, BEFORE_CREATE, MultiModelTestTrigger, "on_simple_model_create", None, Priority.NORMAL),
 
-        # PriorityTestHook
-        (HookModel, BEFORE_CREATE, PriorityTestHook, "high_priority", None, Priority.HIGH),
-        (HookModel, BEFORE_CREATE, PriorityTestHook, "normal_priority", None, Priority.NORMAL),
-        (HookModel, BEFORE_CREATE, PriorityTestHook, "low_priority", None, Priority.LOW),
+        # PriorityTestTrigger
+        (TriggerModel, BEFORE_CREATE, PriorityTestTrigger, "high_priority", None, Priority.HIGH),
+        (TriggerModel, BEFORE_CREATE, PriorityTestTrigger, "normal_priority", None, Priority.NORMAL),
+        (TriggerModel, BEFORE_CREATE, PriorityTestTrigger, "low_priority", None, Priority.LOW),
 
-        # InventoryHook
-        (HookModel, BEFORE_UPDATE, InventoryHook, "check_stock_levels", None, Priority.NORMAL),
-        (HookModel, AFTER_DELETE, InventoryHook, "log_deletion", None, Priority.NORMAL),
+        # InventoryTrigger
+        (TriggerModel, BEFORE_UPDATE, InventoryTrigger, "check_stock_levels", None, Priority.NORMAL),
+        (TriggerModel, AFTER_DELETE, InventoryTrigger, "log_deletion", None, Priority.NORMAL),
 
-        # AuditHook
-        (HookModel, AFTER_CREATE, AuditHook, "log_creation", None, Priority.NORMAL),
-        (HookModel, AFTER_UPDATE, AuditHook, "log_status_change", None, Priority.NORMAL),
-        (HookModel, AFTER_DELETE, AuditHook, "log_deletion", None, Priority.NORMAL),
+        # AuditTrigger
+        (TriggerModel, AFTER_CREATE, AuditTrigger, "log_creation", None, Priority.NORMAL),
+        (TriggerModel, AFTER_UPDATE, AuditTrigger, "log_status_change", None, Priority.NORMAL),
+        (TriggerModel, AFTER_DELETE, AuditTrigger, "log_deletion", None, Priority.NORMAL),
 
-        # UserRegistrationHook
-        (SimpleModel, BEFORE_CREATE, UserRegistrationHook, "validate_user", None, Priority.NORMAL),
-        (SimpleModel, AFTER_CREATE, UserRegistrationHook, "send_welcome_email", None, Priority.NORMAL),
+        # UserRegistrationTrigger
+        (SimpleModel, BEFORE_CREATE, UserRegistrationTrigger, "validate_user", None, Priority.NORMAL),
+        (SimpleModel, AFTER_CREATE, UserRegistrationTrigger, "send_welcome_email", None, Priority.NORMAL),
     ]
 
-    # Register all hooks in a loop
-    for model, event, handler_cls, method_name, condition, priority in hook_registrations:
-        register_hook(
+    # Register all triggers in a loop
+    for model, event, handler_cls, method_name, condition, priority in trigger_registrations:
+        register_trigger(
             model=model,
             event=event,
             handler_cls=handler_cls,

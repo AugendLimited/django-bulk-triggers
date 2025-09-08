@@ -1,11 +1,11 @@
 """
-Test models for django-bulk-hooks testing.
+Test models for django-bulk-triggers testing.
 """
 
 from django.db import models
 
-from django_bulk_hooks.manager import BulkHookManager
-from django_bulk_hooks.models import HookModelMixin
+from django_bulk_triggers.manager import BulkTriggerManager
+from django_bulk_triggers.models import TriggerModelMixin
 
 
 class UserModel(models.Model):
@@ -31,7 +31,7 @@ class Category(models.Model):
         return self.name
 
 
-class HookModel(HookModelMixin):
+class TriggerModel(TriggerModelMixin):
     """Main test model for bulk operations testing."""
 
     name = models.CharField(max_length=100)
@@ -52,7 +52,7 @@ class HookModel(HookModelMixin):
     username = models.CharField(max_length=100, blank=True)
     email = models.EmailField(blank=True)
 
-    objects = BulkHookManager()
+    objects = BulkTriggerManager()
 
     def __str__(self):
         return f"{self.name} (id: {self.pk})"
@@ -61,30 +61,30 @@ class HookModel(HookModelMixin):
 class RelatedModel(models.Model):
     """Related model for testing relationships."""
 
-    hook_model = models.ForeignKey(
-        HookModel, on_delete=models.CASCADE, related_name="related_items"
+    trigger_model = models.ForeignKey(
+        TriggerModel, on_delete=models.CASCADE, related_name="related_items"
     )
     amount = models.IntegerField()
     description = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.hook_model.name} - {self.amount}"
+        return f"{self.trigger_model.name} - {self.amount}"
 
 
-class SimpleModel(HookModelMixin):
+class SimpleModel(TriggerModelMixin):
     """Simple model for basic testing."""
 
     name = models.CharField(max_length=100)
     value = models.IntegerField(default=0)
 
-    objects = BulkHookManager()
+    objects = BulkTriggerManager()
 
     def __str__(self):
         return self.name
 
 
-class ComplexModel(HookModelMixin):
+class ComplexModel(TriggerModelMixin):
     """Complex model with various field types for comprehensive testing."""
 
     char_field = models.CharField(max_length=100)
@@ -100,7 +100,7 @@ class ComplexModel(HookModelMixin):
     image_field = models.ImageField(upload_to="test_images/", null=True, blank=True)
     json_field = models.JSONField(default=dict)
 
-    objects = BulkHookManager()
+    objects = BulkTriggerManager()
 
     def __str__(self):
         return self.char_field
