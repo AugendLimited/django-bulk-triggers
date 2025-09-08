@@ -82,7 +82,10 @@ class TriggerModelMixin(models.Model):
                 logger.debug(
                     "DEBUG: on_commit callback executing - running deferred AFTER_CREATE trigger"
                 )
-                run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
+                # Wrap trigger execution in a new transaction since on_commit callbacks
+                # run outside of the original transaction context
+                with transaction.atomic():
+                    run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
                 logger.debug(
                     "DEBUG: on_commit callback completed - AFTER_CREATE trigger finished"
                 )
