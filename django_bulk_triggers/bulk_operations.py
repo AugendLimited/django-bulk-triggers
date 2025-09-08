@@ -344,7 +344,60 @@ class BulkOperationsMixin:
 
                     # Only assign if pre_save returned something
                     if new_value is not None:
-                        setattr(obj, field.name, new_value)
+                        logger.debug(
+                            "DEBUG: pre_save() returned value %s (type: %s) for field %s on object %s",
+                            new_value,
+                            type(new_value).__name__,
+                            field.name,
+                            obj.pk,
+                        )
+
+                        # Handle ForeignKey fields properly
+                        if getattr(field, "is_relation", False) and not getattr(
+                            field, "many_to_many", False
+                        ):
+                            logger.debug(
+                                "DEBUG: Field %s is a relation field (is_relation=True, many_to_many=False)",
+                                field.name,
+                            )
+                            # For ForeignKey fields, check if we need to assign to the _id field
+                            if (
+                                hasattr(field, "attname")
+                                and field.attname != field.name
+                            ):
+                                logger.debug(
+                                    "DEBUG: Assigning ForeignKey value %s to _id field %s (original field: %s)",
+                                    new_value,
+                                    field.attname,
+                                    field.name,
+                                )
+                                # This is a ForeignKey field, assign to the _id field
+                                setattr(obj, field.attname, new_value)
+                                # Also ensure the _id field is in the update set
+                                if (
+                                    field.attname not in fields_set
+                                    and field.attname not in pk_field_names
+                                ):
+                                    fields_set.add(field.attname)
+                                    logger.debug(
+                                        "DEBUG: Added _id field %s to fields_set",
+                                        field.attname,
+                                    )
+                            else:
+                                logger.debug(
+                                    "DEBUG: Direct assignment for relation field %s (attname=%s)",
+                                    field.name,
+                                    getattr(field, "attname", "None"),
+                                )
+                                # Direct assignment for non-ForeignKey relation fields
+                                setattr(obj, field.name, new_value)
+                        else:
+                            logger.debug(
+                                "DEBUG: Non-relation field %s, assigning directly",
+                                field.name,
+                            )
+                            # Non-relation field, assign directly
+                            setattr(obj, field.name, new_value)
 
                         # Ensure this field is included in the update set
                         if (
@@ -352,9 +405,19 @@ class BulkOperationsMixin:
                             and field.name not in pk_field_names
                         ):
                             fields_set.add(field.name)
+                            logger.debug(
+                                "DEBUG: Added field %s to fields_set",
+                                field.name,
+                            )
 
                         logger.debug(
                             "Custom field %s updated via pre_save() for object %s",
+                            field.name,
+                            obj.pk,
+                        )
+                    else:
+                        logger.debug(
+                            "DEBUG: pre_save() returned None for field %s on object %s",
                             field.name,
                             obj.pk,
                         )
@@ -399,6 +462,25 @@ class BulkOperationsMixin:
                 len(objs),
                 list(fields_set),
             )
+            logger.debug("DEBUG: bulk_update objects before call:")
+            for i, obj in enumerate(objs):
+                logger.debug("DEBUG: Object %d pk=%s", i, getattr(obj, "pk", "None"))
+                # Log key aggregate fields
+                for field_name in [
+                    "disbursement",
+                    "disbursements",
+                    "balance",
+                    "amount",
+                ]:
+                    if hasattr(obj, field_name):
+                        value = getattr(obj, field_name)
+                        logger.debug(
+                            "DEBUG: Object %d %s = %s (type: %s)",
+                            i,
+                            field_name,
+                            value,
+                            type(value).__name__,
+                        )
             return super().bulk_update(objs, list(fields_set), **django_kwargs)
         finally:
             # Always clear thread-local state

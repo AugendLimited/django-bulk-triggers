@@ -448,6 +448,12 @@ class TriggerQuerySetMixin(
             logger.debug(
                 f"FRAMEWORK DEBUG: Refreshing {len(instances)} instances for {model_cls.__name__} after Subquery update"
             )
+            logger.debug(f"DEBUG: Subquery update kwargs were: {list(kwargs.keys())}")
+            for key, value in kwargs.items():
+                if isinstance(value, Subquery):
+                    logger.debug(
+                        f"DEBUG: Subquery {key} output_field: {getattr(value, 'output_field', 'None')}"
+                    )
             # Simple refresh of model fields without fetching related objects
             # Subquery updates only affect the model's own fields, not relationships
             refreshed_instances = {
@@ -472,6 +478,16 @@ class TriggerQuerySetMixin(
                                 logger.debug(
                                     f"FRAMEWORK DEBUG: Field {field.name} changed from {old_value} to {new_value}"
                                 )
+                                # Extra debug for aggregate fields
+                                if field.name in [
+                                    "disbursement",
+                                    "disbursements",
+                                    "balance",
+                                    "amount",
+                                ]:
+                                    logger.debug(
+                                        f"DEBUG: AGGREGATE FIELD {field.name} changed from {old_value} (type: {type(old_value).__name__}) to {new_value} (type: {type(new_value).__name__})"
+                                    )
                             pre_trigger_values[field.name] = new_value
                             setattr(
                                 instance,
@@ -482,6 +498,18 @@ class TriggerQuerySetMixin(
                     logger.debug(
                         f"FRAMEWORK DEBUG: Instance pk={instance.pk} refreshed successfully"
                     )
+                    # Log final state of key aggregate fields
+                    for field_name in [
+                        "disbursement",
+                        "disbursements",
+                        "balance",
+                        "amount",
+                    ]:
+                        if hasattr(instance, field_name):
+                            final_value = getattr(instance, field_name)
+                            logger.debug(
+                                f"DEBUG: Final {field_name} value after refresh: {final_value} (type: {type(final_value).__name__})"
+                            )
                 else:
                     logger.warning(
                         f"FRAMEWORK DEBUG: Could not find refreshed instance for pk={instance.pk}"

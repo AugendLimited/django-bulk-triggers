@@ -265,7 +265,9 @@ class MTIOperationsMixin:
                 created_objects.extend(batch_result)
         return created_objects
 
-    def _execute_bulk_insert(self, queryset, objects_with_pk, objects_without_pk, fields, opts):
+    def _execute_bulk_insert(
+        self, queryset, objects_with_pk, objects_without_pk, fields, opts
+    ):
         """
         Execute bulk insert operations for child objects.
         Extracted for easier testing and mocking.
@@ -281,7 +283,7 @@ class MTIOperationsMixin:
                 if returned_columns:
                     for obj_with_pk, results in zip(objects_with_pk, returned_columns):
                         # For Mock objects in tests, results might be a simple tuple
-                        if hasattr(opts, 'db_returning_fields') and hasattr(opts, 'pk'):
+                        if hasattr(opts, "db_returning_fields") and hasattr(opts, "pk"):
                             for result, field in zip(results, opts.db_returning_fields):
                                 if field != opts.pk:
                                     setattr(obj_with_pk, field.attname, result)
@@ -311,7 +313,7 @@ class MTIOperationsMixin:
                         objects_without_pk, returned_columns
                     ):
                         # For Mock objects in tests, results might be a simple tuple
-                        if hasattr(opts, 'db_returning_fields'):
+                        if hasattr(opts, "db_returning_fields"):
                             for result, field in zip(results, opts.db_returning_fields):
                                 setattr(obj_without_pk, field.attname, result)
                         # For Mock objects, just set the state
@@ -491,7 +493,9 @@ class MTIOperationsMixin:
             fields = [f for f in opts.local_fields if not f.generated]
 
             # Extracted method for easier testing
-            self._execute_bulk_insert(base_qs, objs_with_pk, objs_without_pk, fields, opts)
+            self._execute_bulk_insert(
+                base_qs, objs_with_pk, objs_without_pk, fields, opts
+            )
 
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
@@ -560,8 +564,26 @@ class MTIOperationsMixin:
                         try:
                             new_value = field.pre_save(obj, add=False)
                             if new_value is not None:
-                                setattr(obj, field.name, new_value)
-                                custom_update_fields.append(field.name)
+                                # Handle ForeignKey fields properly
+                                if getattr(field, "is_relation", False) and not getattr(
+                                    field, "many_to_many", False
+                                ):
+                                    # For ForeignKey fields, check if we need to assign to the _id field
+                                    if (
+                                        hasattr(field, "attname")
+                                        and field.attname != field.name
+                                    ):
+                                        # This is a ForeignKey field, assign to the _id field
+                                        setattr(obj, field.attname, new_value)
+                                        custom_update_fields.append(field.attname)
+                                    else:
+                                        # Direct assignment for non-ForeignKey relation fields
+                                        setattr(obj, field.name, new_value)
+                                        custom_update_fields.append(field.name)
+                                else:
+                                    # Non-relation field, assign directly
+                                    setattr(obj, field.name, new_value)
+                                    custom_update_fields.append(field.name)
                                 logger.debug(
                                     f"Custom field {field.name} updated via pre_save() for MTI object {obj.pk}"
                                 )

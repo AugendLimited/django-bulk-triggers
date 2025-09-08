@@ -129,6 +129,13 @@ class FieldOperationsMixin:
             auto_now_fields,
             [f.name for f in custom_update_fields],
         )
+        logger.debug("DEBUG: Field preparation details:")
+        logger.debug("DEBUG: - Changed fields detected: %s", list(changed_fields))
+        logger.debug("DEBUG: - Final fields_set: %s", list(fields_set))
+        logger.debug("DEBUG: - Auto_now fields: %s", auto_now_fields)
+        logger.debug(
+            "DEBUG: - Custom update fields: %s", [f.name for f in custom_update_fields]
+        )
 
         return fields_set, auto_now_fields, custom_update_fields
 
