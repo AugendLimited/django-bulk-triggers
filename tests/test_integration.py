@@ -657,7 +657,7 @@ class TestFullSystemIntegration(TestCase):
             )
 
         # Test bulk_create performance
-        with self.assertNumQueries(4):  # SAVEPOINT, INSERT (batch 1), INSERT (batch 2), RELEASE SAVEPOINT
+        with self.assertNumQueries(4):  # SAVEPOINT + INSERT (batch 1) + INSERT (batch 2) + RELEASE - with transaction.atomic
             created_instances = TriggerModel.objects.bulk_create(test_instances)
 
         # Verify triggers were called
@@ -666,16 +666,15 @@ class TestFullSystemIntegration(TestCase):
 
         # Test bulk_update performance
         # The auto-detection implementation does additional queries to detect changes
-        # plus the bulk update query, so we expect more queries
-        with self.assertNumQueries(313):  # Additional SELECT for auto-detection + previous queries
+        # plus the bulk update query - refactored implementation
+        with self.assertNumQueries(313):  # SAVEPOINT + Individual SELECT queries for auto-detection + bulk update query + RELEASE - refactored implementation
             updated_count = TriggerModel.objects.bulk_update(created_instances)
 
         self.assertEqual(updated_count, 100)
 
         # Test bulk_delete performance
-        # The current implementation does individual queries for each instance
-        # plus the bulk delete queries, so we expect more than 1 query
-        with self.assertNumQueries(105):  # 100 individual SELECTs + 1 bulk SELECT + 2 DELETE queries + 2 transaction queries
+        # The refactored implementation includes individual SELECT queries for field caching
+        with self.assertNumQueries(105):  # SAVEPOINT + 100 individual SELECTs + 1 bulk SELECT + 2 DELETE queries + RELEASE - refactored implementation
             deleted_count = TriggerModel.objects.bulk_delete(created_instances)
 
         self.assertEqual(deleted_count, 100)
