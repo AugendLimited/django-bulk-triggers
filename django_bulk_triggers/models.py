@@ -1,4 +1,5 @@
 import logging
+
 from django.db import models
 
 from django_bulk_triggers.constants import (
@@ -74,7 +75,21 @@ class TriggerModelMixin(models.Model):
 
             super().save(*args, **kwargs)
 
-            run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
+            # Defer AFTER_CREATE triggers to on_commit to ensure subqueries can see the newly created record
+            from django.db import transaction
+
+            from django_bulk_triggers.engine import run as engine_run
+
+            def run_after_create():
+                engine_run(self.__class__, "after_create", [self], ctx=ctx)
+
+            if transaction.get_connection().in_atomic_block:
+                logger.debug(
+                    "Deferring AFTER_CREATE trigger to on_commit for subquery visibility"
+                )
+                transaction.on_commit(run_after_create)
+            else:
+                run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
         else:
             logger.debug(
                 f"save() updating existing {self.__class__.__name__} instance pk={self.pk}"

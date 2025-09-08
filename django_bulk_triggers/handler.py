@@ -180,15 +180,7 @@ class Trigger(metaclass=TriggerMeta):
             f"Transaction in_atomic_block: {conn.in_atomic_block}, event: {event}"
         )
         try:
-            # Don't defer AFTER_CREATE triggers from bulk operations because the records
-            # are already committed and subqueries need to see them immediately
-            should_defer = (
-                conn.in_atomic_block 
-                and event.startswith("after_") 
-                and event != "after_create"
-            )
-            
-            if should_defer:
+            if conn.in_atomic_block and event.startswith("after_"):
                 logger.debug(f"Deferring {event} to on_commit")
                 transaction.on_commit(_execute)
             else:
