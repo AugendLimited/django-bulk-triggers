@@ -654,6 +654,40 @@ class TestDecoratorIntegration:
         for instance in test_instances:
             instance.delete()
 
+    def test_select_related_with_model_cls_kwarg(self):
+        """Test select_related decorator with model_cls keyword argument."""
+        # This test verifies that the decorator can handle a model_cls keyword argument
+        # which covers line 60: model_cls = bound.arguments["model_cls"]
+
+        @select_related('category')
+        def test_function(new_records, old_records=None, **kwargs):
+            return len(new_records)
+
+        # Create a test instance that will trigger the model_cls logic
+        test_instance = TriggerModel(name="test", created_by=None, category=None)
+
+        # Test with model_cls keyword argument - this should cover line 60
+        result = test_function([test_instance], model_cls=TriggerModel)
+        assert result == 1
+
+    def test_select_related_with_objects_having_none_pk(self):
+        """Test select_related with objects that have None primary keys."""
+        # Create objects with None primary keys to test line 65-66
+        instances_with_none_pk = [
+            TriggerModel(name="Test 1", created_by=None, category=None),
+            TriggerModel(name="Test 2", created_by=None, category=None),
+        ]
+
+        # Don't save them so they have pk=None
+        # This should not raise an error and should handle the None pk case
+
+        @select_related('created_by', 'category')
+        def test_function(new_records, old_records=None, **kwargs):
+            return len(new_records)
+
+        result = test_function(instances_with_none_pk)
+        assert result == 2
+
     def test_select_related_with_different_model_types(self, test_user, test_category):
         """Test select_related decorator with different model types."""
         # Create test instances
