@@ -256,9 +256,18 @@ class BulkOperationsMixin:
 
         self._validate_objects(objs, require_pks=True, operation_name="bulk_update")
 
+        # Fetch original instances for trigger comparison (like QuerySet.update() does)
+        # This is needed for HasChanged conditions to work properly
+        model_cls = self.model
+        pks = [obj.pk for obj in objs if obj.pk is not None]
+        original_map = {
+            obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
+        }
+        originals = [original_map.get(obj.pk) for obj in objs]
+
         changed_fields = self._detect_changed_fields(objs)
         is_mti = self._is_multi_table_inheritance()
-        trigger_context, originals = self._init_trigger_context(
+        trigger_context, _ = self._init_trigger_context(
             bypass_triggers, objs, "bulk_update"
         )
 
@@ -270,10 +279,10 @@ class BulkOperationsMixin:
         self._apply_custom_update_fields(objs, custom_update_fields, fields_set)
 
         if is_mti:
-            return self._mti_bulk_update(objs, list(fields_set), **kwargs)
+            return self._mti_bulk_update(objs, list(fields_set), originals=originals, **kwargs)
         else:
             return self._single_table_bulk_update(
-                objs, fields_set, auto_now_fields, **kwargs
+                objs, fields_set, auto_now_fields, originals=originals, **kwargs
             )
 
     @transaction.atomic
@@ -430,7 +439,7 @@ class BulkOperationsMixin:
                         e,
                     )
 
-    def _single_table_bulk_update(self, objs, fields_set, auto_now_fields, **kwargs):
+    def _single_table_bulk_update(self, objs, fields_set, auto_now_fields, originals=None, **kwargs):
         """
         Perform bulk_update for single-table models, handling Django semantics
         for kwargs and setting a value map for trigger execution.
@@ -439,6 +448,7 @@ class BulkOperationsMixin:
             objs (list[Model]): The model instances being updated.
             fields_set (set[str]): The names of fields to update.
             auto_now_fields (list[str]): Names of auto_now fields included in update.
+            originals (list[Model], optional): Original instances for trigger comparison.
             **kwargs: Extra arguments (only Django-supported ones are passed through).
 
         Returns:
@@ -457,6 +467,8 @@ class BulkOperationsMixin:
             set_bulk_update_value_map(value_map)
 
         try:
+            model_cls = self.model
+            
             logger.debug(
                 "Calling Django bulk_update for %d objects on fields %s",
                 len(objs),
@@ -481,7 +493,10 @@ class BulkOperationsMixin:
                             value,
                             type(value).__name__,
                         )
-            return super().bulk_update(objs, list(fields_set), **django_kwargs)
+            
+            result = super().bulk_update(objs, list(fields_set), **django_kwargs)
+            
+            return result
         finally:
             # Always clear thread-local state
             from django_bulk_triggers.context import set_bulk_update_value_map

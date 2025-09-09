@@ -667,7 +667,7 @@ class TestFullSystemIntegration(TestCase):
         # Test bulk_update performance
         # The auto-detection implementation does additional queries to detect changes
         # plus the bulk update query - refactored implementation
-        with self.assertNumQueries(313):  # SAVEPOINT + Individual SELECT queries for auto-detection + bulk update query + RELEASE - refactored implementation
+        with self.assertNumQueries(214):  # SAVEPOINT + Individual SELECT queries for originals + bulk update query + RELEASE - optimized implementation
             updated_count = TriggerModel.objects.bulk_update(created_instances)
 
         self.assertEqual(updated_count, 100)

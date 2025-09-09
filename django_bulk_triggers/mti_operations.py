@@ -517,7 +517,7 @@ class MTIOperationsMixin:
         return batch
 
     def _mti_bulk_update(
-        self, objs, fields, field_groups=None, inheritance_chain=None, **kwargs
+        self, objs, fields, field_groups=None, inheritance_chain=None, originals=None, **kwargs
     ):
         """
         Custom bulk update implementation for MTI models.
