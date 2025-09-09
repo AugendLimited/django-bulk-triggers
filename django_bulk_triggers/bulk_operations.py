@@ -467,8 +467,6 @@ class BulkOperationsMixin:
             set_bulk_update_value_map(value_map)
 
         try:
-            model_cls = self.model
-            
             logger.debug(
                 "Calling Django bulk_update for %d objects on fields %s",
                 len(objs),
