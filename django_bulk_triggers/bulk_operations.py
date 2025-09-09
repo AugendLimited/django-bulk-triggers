@@ -273,16 +273,6 @@ class BulkOperationsMixin:
         }
         originals = [original_map.get(obj.pk) for obj in objs]
         
-        # DEBUG: Log original vs new values for balance field specifically
-        logger.debug("🔍 ORIGINAL vs NEW comparison for bulk_update:")
-        for i, (obj, original) in enumerate(zip(objs, originals)):
-            if original and hasattr(obj, 'balance') and hasattr(original, 'balance'):
-                logger.debug(f"  Record {i} pk={obj.pk}:")
-                logger.debug(f"    ORIGINAL balance: {original.balance} (type: {type(original.balance).__name__})")
-                logger.debug(f"    NEW balance: {obj.balance} (type: {type(obj.balance).__name__})")
-                logger.debug(f"    Values equal: {original.balance == obj.balance}")
-                logger.debug(f"    Change detected: {original.balance != obj.balance}")
-
         changed_fields = self._detect_changed_fields(objs)
         is_mti = self._is_multi_table_inheritance()
         trigger_context, _ = self._init_trigger_context(
@@ -524,34 +514,9 @@ class BulkOperationsMixin:
             if ctx is None:
                 ctx = TriggerContext(model_cls, bypass_triggers=False)
             
-            # Only run triggers if not bypassed
-            if not ctx.bypass_triggers:
-                # Run BEFORE_UPDATE triggers with originals for condition evaluation
-                logger.debug("Running BEFORE_UPDATE triggers for bulk_update with originals")
-                
-                # DEBUG: Log values just before trigger execution
-                logger.debug("🔥 VALUES JUST BEFORE TRIGGER EXECUTION:")
-                for i, (obj, original) in enumerate(zip(objs, originals)):
-                    if hasattr(obj, 'balance'):
-                        original_balance = getattr(original, 'balance', 'NO_ORIGINAL') if original else 'NO_ORIGINAL'
-                        logger.debug(f"  Object {i} pk={obj.pk}: balance={obj.balance}, original_balance={original_balance}")
-                
-                engine.run(model_cls, BEFORE_UPDATE, objs, old_records=originals, ctx=ctx)
-            
+            # NOTE: bulk_update does NOT run triggers directly - it relies on being called
+            # from QuerySet.update() or other trigger-aware contexts that handle triggers
             result = super().bulk_update(objs, list(fields_set), **django_kwargs)
-            
-            if not ctx.bypass_triggers:
-                # Run AFTER_UPDATE triggers with originals for condition evaluation
-                logger.debug("Running AFTER_UPDATE triggers for bulk_update with originals")
-                
-                # DEBUG: Log values just before AFTER_UPDATE trigger execution
-                logger.debug("🔥 VALUES JUST BEFORE AFTER_UPDATE TRIGGER EXECUTION:")
-                for i, (obj, original) in enumerate(zip(objs, originals)):
-                    if hasattr(obj, 'balance'):
-                        original_balance = getattr(original, 'balance', 'NO_ORIGINAL') if original else 'NO_ORIGINAL'
-                        logger.debug(f"  Object {i} pk={obj.pk}: balance={obj.balance}, original_balance={original_balance}")
-                
-                engine.run(model_cls, AFTER_UPDATE, objs, old_records=originals, ctx=ctx)
             
             return result
         finally:
