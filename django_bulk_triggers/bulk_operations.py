@@ -272,6 +272,16 @@ class BulkOperationsMixin:
             obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
         }
         originals = [original_map.get(obj.pk) for obj in objs]
+        
+        # DEBUG: Log original vs new values for key fields
+        logger.debug("🔍 ORIGINAL vs NEW comparison for bulk_update:")
+        for i, (obj, original) in enumerate(zip(objs, originals)):
+            if original and hasattr(obj, 'balance') and hasattr(original, 'balance'):
+                logger.debug(f"  Record {i} pk={obj.pk}:")
+                logger.debug(f"    ORIGINAL balance: {original.balance} (type: {type(original.balance).__name__})")
+                logger.debug(f"    NEW balance: {obj.balance} (type: {type(obj.balance).__name__})")
+                logger.debug(f"    Values equal: {original.balance == obj.balance}")
+                logger.debug(f"    Change detected: {original.balance != obj.balance}")
 
         changed_fields = self._detect_changed_fields(objs)
         is_mti = self._is_multi_table_inheritance()
