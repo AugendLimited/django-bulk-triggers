@@ -29,26 +29,34 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
         logger.debug("engine.run bypassed")
         return
 
-    # Salesforce-style recursion detection: Check if we're already executing this trigger
+    # Salesforce-style trigger execution: Allow nested triggers but prevent infinite recursion
     from django_bulk_triggers.handler import trigger_vars
 
-    # Create a unique key for this trigger execution
+    # Initialize trigger execution tracking if not present
+    if not hasattr(trigger_vars, "trigger_depth"):
+        trigger_vars.trigger_depth = 0
+    if not hasattr(trigger_vars, "trigger_stack"):
+        trigger_vars.trigger_stack = []
+
+    # Create a unique key for this trigger execution context
     trigger_key = f"{model_name}.{event}"
+    
+    # Salesforce allows up to 200 levels of trigger depth - we'll use a conservative limit
+    MAX_TRIGGER_DEPTH = 50
+    
+    if trigger_vars.trigger_depth >= MAX_TRIGGER_DEPTH:
+        logger.error(
+            f"FRAMEWORK ERROR: Maximum trigger depth ({MAX_TRIGGER_DEPTH}) exceeded for {trigger_key}. "
+            "This indicates infinite recursion in triggers. Current stack: {trigger_vars.trigger_stack}"
+        )
+        raise RuntimeError(f"Maximum trigger depth exceeded for {trigger_key}")
 
-    # Check if this trigger is already executing (Salesforce-style recursion prevention)
-    if hasattr(trigger_vars, "executing_triggers"):
-        if trigger_key in trigger_vars.executing_triggers:
-            logger.debug(
-                f"FRAMEWORK DEBUG: engine.run skipping {trigger_key} - already executing (Salesforce-style recursion prevention)"
-            )
-            return
-    else:
-        trigger_vars.executing_triggers = set()
-
-    # Mark this trigger as executing
-    trigger_vars.executing_triggers.add(trigger_key)
+    # Increment trigger depth and add to stack
+    trigger_vars.trigger_depth += 1
+    trigger_vars.trigger_stack.append(trigger_key)
     logger.debug(
-        f"FRAMEWORK DEBUG: Added {trigger_key} to executing_triggers set. Current set: {trigger_vars.executing_triggers}"
+        f"FRAMEWORK DEBUG: Starting {trigger_key} at depth {trigger_vars.trigger_depth}. "
+        f"Current stack: {trigger_vars.trigger_stack}"
     )
 
     try:
@@ -89,7 +97,7 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                 else:
                     # DEBUG: Add extra logging for balance field to debug user's issue
                     if hasattr(condition, 'field') and condition.field == "balance":
-                        logger.debug(f"🔍 ENGINE DEBUG: About to check HasChanged('balance') condition")
+                        logger.debug("🔍 ENGINE DEBUG: About to check HasChanged('balance') condition")
                         logger.debug(f"  - Handler: {handler_name}.{method_name}")
                         logger.debug(f"  - New record pk: {getattr(new, 'pk', 'No PK')}")
                         logger.debug(f"  - Original record: {original}")
@@ -139,9 +147,17 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                     )
                     raise
     finally:
-        # Always remove this trigger from the executing set (Salesforce-style cleanup)
-        if hasattr(trigger_vars, "executing_triggers"):
-            trigger_vars.executing_triggers.discard(trigger_key)
-            logger.debug(
-                f"FRAMEWORK DEBUG: Removed {trigger_key} from executing_triggers set. Current set: {trigger_vars.executing_triggers}"
-            )
+        # Salesforce-style cleanup: decrement depth and remove from stack
+        if hasattr(trigger_vars, "trigger_depth") and trigger_vars.trigger_depth > 0:
+            trigger_vars.trigger_depth -= 1
+            if hasattr(trigger_vars, "trigger_stack") and trigger_vars.trigger_stack:
+                removed_trigger = trigger_vars.trigger_stack.pop()
+                logger.debug(
+                    f"FRAMEWORK DEBUG: Completed {removed_trigger} at depth {trigger_vars.trigger_depth + 1}. "
+                    f"Remaining stack: {trigger_vars.trigger_stack}"
+                )
+            
+            # Reset tracking variables when we're back to the top level
+            if trigger_vars.trigger_depth == 0:
+                trigger_vars.trigger_stack = []
+                logger.debug("FRAMEWORK DEBUG: Reset trigger stack - back to top level")

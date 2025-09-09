@@ -287,12 +287,38 @@ class BulkOperationsMixin:
         self._apply_auto_now_fields(objs, auto_now_fields)
         self._apply_custom_update_fields(objs, custom_update_fields, fields_set)
 
-        if is_mti:
-            return self._mti_bulk_update(objs, list(fields_set), originals=originals, trigger_context=trigger_context, **kwargs)
+        # Execute BEFORE_UPDATE triggers if not bypassed
+        if not bypass_triggers:
+            from django_bulk_triggers import engine
+            from django_bulk_triggers.constants import BEFORE_UPDATE, VALIDATE_UPDATE
+            
+            logger.debug(f"bulk_update: executing VALIDATE_UPDATE triggers for {model_cls.__name__}")
+            engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=trigger_context)
+            
+            logger.debug(f"bulk_update: executing BEFORE_UPDATE triggers for {model_cls.__name__}")
+            engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=trigger_context)
         else:
-            return self._single_table_bulk_update(
+            logger.debug(f"bulk_update: BEFORE_UPDATE triggers bypassed for {model_cls.__name__}")
+
+        # Execute bulk update with proper trigger handling
+        if is_mti:
+            result = self._mti_bulk_update(objs, list(fields_set), originals=originals, trigger_context=trigger_context, **kwargs)
+        else:
+            result = self._single_table_bulk_update(
                 objs, fields_set, auto_now_fields, originals=originals, trigger_context=trigger_context, **kwargs
             )
+        
+        # Execute AFTER_UPDATE triggers if not bypassed
+        if not bypass_triggers:
+            from django_bulk_triggers import engine
+            from django_bulk_triggers.constants import AFTER_UPDATE
+            
+            logger.debug(f"bulk_update: executing AFTER_UPDATE triggers for {model_cls.__name__}")
+            engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=trigger_context)
+        else:
+            logger.debug(f"bulk_update: AFTER_UPDATE triggers bypassed for {model_cls.__name__}")
+            
+        return result
 
     @transaction.atomic
     def bulk_delete(

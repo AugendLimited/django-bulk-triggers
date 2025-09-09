@@ -617,9 +617,9 @@ class TriggerQuerySetMixin(
                     f"Running bulk_update for AFTER_UPDATE trigger-modified fields: {after_trigger_modified_fields}"
                 )
                 # Use bulk_update to persist AFTER_UPDATE trigger modifications
-                # Bypass triggers to prevent recursion, but allow the update to happen
+                # Allow triggers to run - our new depth-based recursion detection will prevent infinite loops
                 logger.debug(
-                    f"FRAMEWORK DEBUG: About to call bulk_update with bypass_triggers=True for AFTER_UPDATE modifications on {model_cls.__name__}"
+                    f"FRAMEWORK DEBUG: About to call bulk_update with triggers enabled for AFTER_UPDATE modifications on {model_cls.__name__}"
                 )
                 logger.debug(
                     f"FRAMEWORK DEBUG: after_trigger_modified_fields = {after_trigger_modified_fields}"
@@ -630,10 +630,9 @@ class TriggerQuerySetMixin(
                         f"FRAMEWORK DEBUG: instance {i} pk={getattr(instance, 'pk', 'No PK')}"
                     )
 
-                # Create a new context with bypass_triggers=True to prevent recursion
-                bypass_ctx = TriggerContext(model_cls, bypass_triggers=True)
-
-                result = model_cls.objects.bulk_update(instances, bypass_triggers=True)
+                # Salesforce-style: Allow nested triggers to run for field modifications
+                # The depth-based recursion detection in engine.py will prevent infinite loops
+                result = model_cls.objects.bulk_update(instances, bypass_triggers=False)
                 logger.debug(
                     f"FRAMEWORK DEBUG: AFTER_UPDATE bulk_update result = {result}"
                 )
