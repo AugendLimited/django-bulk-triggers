@@ -279,10 +279,10 @@ class BulkOperationsMixin:
         self._apply_custom_update_fields(objs, custom_update_fields, fields_set)
 
         if is_mti:
-            return self._mti_bulk_update(objs, list(fields_set), originals=originals, **kwargs)
+            return self._mti_bulk_update(objs, list(fields_set), originals=originals, trigger_context=trigger_context, **kwargs)
         else:
             return self._single_table_bulk_update(
-                objs, fields_set, auto_now_fields, originals=originals, **kwargs
+                objs, fields_set, auto_now_fields, originals=originals, trigger_context=trigger_context, **kwargs
             )
 
     @transaction.atomic
@@ -439,7 +439,7 @@ class BulkOperationsMixin:
                         e,
                     )
 
-    def _single_table_bulk_update(self, objs, fields_set, auto_now_fields, originals=None, **kwargs):
+    def _single_table_bulk_update(self, objs, fields_set, auto_now_fields, originals=None, trigger_context=None, **kwargs):
         """
         Perform bulk_update for single-table models, handling Django semantics
         for kwargs and setting a value map for trigger execution.
@@ -492,7 +492,29 @@ class BulkOperationsMixin:
                             type(value).__name__,
                         )
             
+            # Import the trigger engine and constants
+            from django_bulk_triggers import engine
+            from django_bulk_triggers.constants import BEFORE_UPDATE, AFTER_UPDATE
+            from django_bulk_triggers.context import TriggerContext
+            
+            # Use provided trigger context or determine bypass state
+            model_cls = self.model
+            ctx = trigger_context
+            if ctx is None:
+                ctx = TriggerContext(model_cls, bypass_triggers=False)
+            
+            # Only run triggers if not bypassed
+            if not ctx.bypass_triggers:
+                # Run BEFORE_UPDATE triggers with originals for condition evaluation
+                logger.debug("Running BEFORE_UPDATE triggers for bulk_update with originals")
+                engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+            
             result = super().bulk_update(objs, list(fields_set), **django_kwargs)
+            
+            if not ctx.bypass_triggers:
+                # Run AFTER_UPDATE triggers with originals for condition evaluation
+                logger.debug("Running AFTER_UPDATE triggers for bulk_update with originals")
+                engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
             
             return result
         finally:
