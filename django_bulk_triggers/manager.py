@@ -51,7 +51,7 @@ class BulkTriggerManager(models.Manager):
         )
 
     def bulk_update(
-        self, objs, bypass_triggers=False, bypass_validation=False, **kwargs
+        self, objs, fields=None, bypass_triggers=False, bypass_validation=False, **kwargs
     ):
         """
         Delegate to QuerySet's bulk_update implementation.
@@ -61,6 +61,8 @@ class BulkTriggerManager(models.Manager):
         are not supported by bulk_update and will be ignored with a warning.
         These parameters are only available in bulk_create for UPSERT operations.
         """
+        if fields is not None:
+            kwargs['fields'] = fields
         return self.get_queryset().bulk_update(
             objs,
             bypass_triggers=bypass_triggers,

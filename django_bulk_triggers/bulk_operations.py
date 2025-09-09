@@ -256,6 +256,14 @@ class BulkOperationsMixin:
 
         self._validate_objects(objs, require_pks=True, operation_name="bulk_update")
 
+        # Check global bypass triggers context (like QuerySet.update() does)
+        from django_bulk_triggers.context import get_bypass_triggers
+        current_bypass_triggers = get_bypass_triggers()
+        
+        # If global bypass is set or explicitly requested, bypass triggers
+        if current_bypass_triggers or bypass_triggers:
+            bypass_triggers = True
+
         # Fetch original instances for trigger comparison (like QuerySet.update() does)
         # This is needed for HasChanged conditions to work properly
         model_cls = self.model
@@ -454,8 +462,10 @@ class BulkOperationsMixin:
         Returns:
             list[Model]: The updated model instances.
         """
-        # Strip out unsupported bulk_update kwargs
+        # Strip out unsupported bulk_update kwargs, excluding fields since we handle it separately
         django_kwargs = self._filter_django_kwargs(kwargs)
+        # Remove 'fields' from django_kwargs since we pass it as a positional argument
+        django_kwargs.pop('fields', None)
 
         # Build a value map: {pk -> {field: raw_value}} for later trigger use
         value_map = self._build_value_map(objs, fields_set, auto_now_fields)
