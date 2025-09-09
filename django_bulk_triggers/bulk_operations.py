@@ -278,6 +278,7 @@ class BulkOperationsMixin:
         trigger_context, _ = self._init_trigger_context(
             bypass_triggers, objs, "bulk_update"
         )
+        # Note: _init_trigger_context returns dummy originals, we use our fetched ones
 
         fields_set, auto_now_fields, custom_update_fields = self._prepare_update_fields(
             changed_fields
@@ -517,14 +518,14 @@ class BulkOperationsMixin:
             if not ctx.bypass_triggers:
                 # Run BEFORE_UPDATE triggers with originals for condition evaluation
                 logger.debug("Running BEFORE_UPDATE triggers for bulk_update with originals")
-                engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=ctx)
+                engine.run(model_cls, BEFORE_UPDATE, objs, old_records=originals, ctx=ctx)
             
             result = super().bulk_update(objs, list(fields_set), **django_kwargs)
             
             if not ctx.bypass_triggers:
                 # Run AFTER_UPDATE triggers with originals for condition evaluation
                 logger.debug("Running AFTER_UPDATE triggers for bulk_update with originals")
-                engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=ctx)
+                engine.run(model_cls, AFTER_UPDATE, objs, old_records=originals, ctx=ctx)
             
             return result
         finally:
