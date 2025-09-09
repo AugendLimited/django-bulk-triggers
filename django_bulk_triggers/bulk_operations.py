@@ -302,7 +302,9 @@ class BulkOperationsMixin:
 
         # Execute bulk update with proper trigger handling
         if is_mti:
-            result = self._mti_bulk_update(objs, list(fields_set), originals=originals, trigger_context=trigger_context, **kwargs)
+            # Remove 'fields' from kwargs to avoid conflict with positional argument
+            mti_kwargs = {k: v for k, v in kwargs.items() if k != 'fields'}
+            result = self._mti_bulk_update(objs, list(fields_set), originals=originals, trigger_context=trigger_context, **mti_kwargs)
         else:
             result = self._single_table_bulk_update(
                 objs, fields_set, auto_now_fields, originals=originals, trigger_context=trigger_context, **kwargs
