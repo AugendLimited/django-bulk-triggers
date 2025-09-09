@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 from typing import Union
 
-from django_bulk_triggers.priority import Priority
+from django_bulk_triggers.enums import Priority
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +14,16 @@ def register_trigger(
 ):
     key = (model, event)
     triggers = _triggers.setdefault(key, [])
-    triggers.append((handler_cls, method_name, condition, priority))
-    # Sort by priority (lower values first)
-    triggers.sort(key=lambda x: x[3])
-    logger.debug(f"Registered {handler_cls.__name__}.{method_name} for {model.__name__}.{event}")
+
+    # Check for duplicates before adding
+    trigger_info = (handler_cls, method_name, condition, priority)
+    if trigger_info not in triggers:
+        triggers.append(trigger_info)
+        # Sort by priority (lower values first)
+        triggers.sort(key=lambda x: x[3])
+        logger.debug(f"Registered {handler_cls.__name__}.{method_name} for {model.__name__}.{event}")
+    else:
+        logger.debug(f"Trigger {handler_cls.__name__}.{method_name} already registered for {model.__name__}.{event}")
 
 
 def get_triggers(model, event):
@@ -33,6 +39,11 @@ def clear_triggers():
     """Clear all registered triggers. Useful for testing."""
     global _triggers
     _triggers.clear()
+
+    # Also clear the TriggerMeta._registered set to ensure clean state
+    from django_bulk_triggers.handler import TriggerMeta
+    TriggerMeta._registered.clear()
+
     logger.debug("Cleared all registered triggers")
 
 
