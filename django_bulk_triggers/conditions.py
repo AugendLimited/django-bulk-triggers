@@ -79,11 +79,9 @@ class HasChanged(TriggerCondition):
 
         result = (current != previous) == self.has_changed
         
-        # DEBUG: Add detailed logging for balance field
+        # DEBUG: Add detailed logging for balance field to debug user's specific issue
         if self.field == "balance":
-            logger.debug(
-                f"🔍 HasChanged('{self.field}') DEBUG for instance {getattr(instance, 'pk', 'No PK')}:"
-            )
+            logger.debug(f"🔍 HasChanged('balance') DEBUG for instance {getattr(instance, 'pk', 'No PK')}:")
             logger.debug(f"  - Field: {self.field}")
             logger.debug(f"  - Original instance: {original_instance}")
             logger.debug(f"  - Original value: {previous} (type: {type(previous).__name__})")

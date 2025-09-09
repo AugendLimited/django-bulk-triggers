@@ -273,7 +273,7 @@ class BulkOperationsMixin:
         }
         originals = [original_map.get(obj.pk) for obj in objs]
         
-        # DEBUG: Log original vs new values for key fields
+        # DEBUG: Log original vs new values for balance field specifically
         logger.debug("🔍 ORIGINAL vs NEW comparison for bulk_update:")
         for i, (obj, original) in enumerate(zip(objs, originals)):
             if original and hasattr(obj, 'balance') and hasattr(original, 'balance'):
@@ -528,6 +528,14 @@ class BulkOperationsMixin:
             if not ctx.bypass_triggers:
                 # Run BEFORE_UPDATE triggers with originals for condition evaluation
                 logger.debug("Running BEFORE_UPDATE triggers for bulk_update with originals")
+                
+                # DEBUG: Log values just before trigger execution
+                logger.debug("🔥 VALUES JUST BEFORE TRIGGER EXECUTION:")
+                for i, (obj, original) in enumerate(zip(objs, originals)):
+                    if hasattr(obj, 'balance'):
+                        original_balance = getattr(original, 'balance', 'NO_ORIGINAL') if original else 'NO_ORIGINAL'
+                        logger.debug(f"  Object {i} pk={obj.pk}: balance={obj.balance}, original_balance={original_balance}")
+                
                 engine.run(model_cls, BEFORE_UPDATE, objs, old_records=originals, ctx=ctx)
             
             result = super().bulk_update(objs, list(fields_set), **django_kwargs)
@@ -535,6 +543,14 @@ class BulkOperationsMixin:
             if not ctx.bypass_triggers:
                 # Run AFTER_UPDATE triggers with originals for condition evaluation
                 logger.debug("Running AFTER_UPDATE triggers for bulk_update with originals")
+                
+                # DEBUG: Log values just before AFTER_UPDATE trigger execution
+                logger.debug("🔥 VALUES JUST BEFORE AFTER_UPDATE TRIGGER EXECUTION:")
+                for i, (obj, original) in enumerate(zip(objs, originals)):
+                    if hasattr(obj, 'balance'):
+                        original_balance = getattr(original, 'balance', 'NO_ORIGINAL') if original else 'NO_ORIGINAL'
+                        logger.debug(f"  Object {i} pk={obj.pk}: balance={obj.balance}, original_balance={original_balance}")
+                
                 engine.run(model_cls, AFTER_UPDATE, objs, old_records=originals, ctx=ctx)
             
             return result
