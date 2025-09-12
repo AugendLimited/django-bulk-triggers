@@ -174,6 +174,8 @@ class Trigger(metaclass=TriggerMeta):
                     logger.exception(
                         "Error in trigger %s.%s", handler_cls.__name__, method_name
                     )
+                    # Re-raise the exception to ensure transaction rollback like Salesforce
+                    raise
 
         conn = transaction.get_connection()
         logger.debug(
