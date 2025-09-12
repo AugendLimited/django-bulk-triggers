@@ -75,35 +75,12 @@ class TriggerModelMixin(models.Model):
 
             super().save(*args, **kwargs)
 
-            # Defer AFTER_CREATE triggers to on_commit to ensure subqueries can see the newly created record
-            from django.db import transaction
-
-            def run_after_create():
-                logger.debug(
-                    "DEBUG: on_commit callback executing - running deferred AFTER_CREATE trigger"
-                )
-                # Wrap trigger execution in a new transaction since on_commit callbacks
-                # run outside of the original transaction context
-                with transaction.atomic():
-                    run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
-                logger.debug(
-                    "DEBUG: on_commit callback completed - AFTER_CREATE trigger finished"
-                )
-
-            if transaction.get_connection().in_atomic_block:
-                logger.debug(
-                    "Deferring AFTER_CREATE trigger to on_commit for subquery visibility"
-                )
-                logger.debug(
-                    "DEBUG: Registering on_commit callback for AFTER_CREATE trigger"
-                )
-                transaction.on_commit(run_after_create)
-                logger.debug("DEBUG: on_commit callback registered successfully")
-            else:
-                logger.debug(
-                    "DEBUG: Not in atomic block, running AFTER_CREATE trigger immediately"
-                )
-                run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
+            # For Salesforce-like behavior, execute AFTER_CREATE triggers immediately
+            # within the same transaction to ensure rollback capability
+            logger.debug(
+                "DEBUG: Running AFTER_CREATE trigger immediately within transaction"
+            )
+            run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
         else:
             logger.debug(
                 f"save() updating existing {self.__class__.__name__} instance pk={self.pk}"

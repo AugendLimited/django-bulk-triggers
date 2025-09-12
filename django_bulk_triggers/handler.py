@@ -182,24 +182,11 @@ class Trigger(metaclass=TriggerMeta):
             f"Transaction in_atomic_block: {conn.in_atomic_block}, event: {event}"
         )
         try:
-            if conn.in_atomic_block and event.startswith("after_"):
-                logger.debug(f"Deferring {event} to on_commit")
-                logger.debug(f"DEBUG: Handler deferring {event} to on_commit")
-
-                def _execute_in_transaction():
-                    # Wrap trigger execution in a new transaction since on_commit callbacks
-                    # run outside of the original transaction context
-                    with transaction.atomic():
-                        _execute()
-
-                transaction.on_commit(_execute_in_transaction)
-                logger.debug(
-                    f"DEBUG: Handler registered on_commit callback for {event}"
-                )
-            else:
-                logger.debug(f"Executing {event} immediately")
-                logger.debug(f"DEBUG: Handler executing {event} immediately")
-                _execute()
+            # For Salesforce-like behavior, execute all triggers within the same transaction
+            # This ensures that if any trigger fails, the entire transaction rolls back
+            logger.debug(f"Executing {event} immediately within transaction")
+            logger.debug(f"DEBUG: Handler executing {event} immediately within transaction")
+            _execute()
         finally:
             trigger_vars.new = None
             trigger_vars.old = None
