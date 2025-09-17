@@ -99,15 +99,9 @@ class Trigger(metaclass=TriggerMeta):
     ) -> None:
         queue = get_trigger_queue()
         queue.append((cls, event, model, new_records, old_records, kwargs))
-        logger.debug(f"Added item to queue: {event}, depth: {trigger_vars.depth}")
+        logger.debug(f"Added item to queue: {event}")
 
-        # If we're already processing triggers (depth > 0), don't process the queue
-        # The outermost call will process the entire queue
-        if trigger_vars.depth > 0:
-            logger.debug(f"Depth > 0, returning without processing queue")
-            return
-
-        # Process the entire queue
+        # Process the entire queue immediately - no depth checking
         logger.debug(f"Processing queue with {len(queue)} items")
         while queue:
             item = queue.popleft()
@@ -129,7 +123,7 @@ class Trigger(metaclass=TriggerMeta):
         old_records,
         **kwargs,
     ):
-        trigger_vars.depth += 1
+        # Remove depth tracking - let Django handle recursion
         trigger_vars.new = new_records
         trigger_vars.old = old_records
         trigger_vars.event = event
@@ -192,4 +186,4 @@ class Trigger(metaclass=TriggerMeta):
             trigger_vars.old = None
             trigger_vars.event = None
             trigger_vars.model = None
-            trigger_vars.depth -= 1
+            # Remove depth decrement - let Django handle recursion
