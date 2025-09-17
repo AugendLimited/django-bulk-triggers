@@ -226,10 +226,6 @@ class ValidationOperationsMixin:
                     param_parts.append(f"{key}={value}")
             param_str = f", {', '.join(param_parts)}"
 
-        # Use both print and logger for consistency with existing patterns
-        print(
-            f"DEBUG: {operation_name} called for {model_cls.__name__} with {len(objs)} objects{param_str}"
-        )
         logger.debug(
             f"{operation_name} called for {model_cls.__name__} with {len(objs)} objects{param_str}"
         )

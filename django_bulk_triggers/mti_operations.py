@@ -541,7 +541,6 @@ class MTIOperationsMixin:
                     f"Parameter '{k}' is not supported by bulk_update. "
                     f"This parameter is only available in bulk_create for UPSERT operations."
                 )
-                print(f"WARNING: Parameter '{k}' is not supported by bulk_update")
             elif k not in ["bypass_triggers", "bypass_validation"]:
                 django_kwargs[k] = v
 
