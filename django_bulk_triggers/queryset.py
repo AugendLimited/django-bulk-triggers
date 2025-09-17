@@ -472,8 +472,23 @@ class TriggerQuerySetMixin(
                     pre_trigger_values = {}
                     for field in model_cls._meta.fields:
                         if field.name != "id":
-                            old_value = getattr(instance, field.name, None)
-                            new_value = getattr(refreshed_instance, field.name, None)
+                            try:
+                                old_value = getattr(instance, field.name, None)
+                            except Exception as e:
+                                # Handle foreign key DoesNotExist errors gracefully
+                                if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                                    old_value = None
+                                else:
+                                    raise
+                            
+                            try:
+                                new_value = getattr(refreshed_instance, field.name, None)
+                            except Exception as e:
+                                # Handle foreign key DoesNotExist errors gracefully
+                                if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                                    new_value = None
+                                else:
+                                    raise
                             if old_value != new_value:
                                 logger.debug(
                                     f"FRAMEWORK DEBUG: Field {field.name} changed from {old_value} to {new_value}"

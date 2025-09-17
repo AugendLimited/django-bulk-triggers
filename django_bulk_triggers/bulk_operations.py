@@ -156,13 +156,19 @@ class BulkOperationsMixin:
                                     break
 
                             if match:
-                                # Copy ALL field values from the existing object, not just pk
-                                # This ensures foreign key relationships and other fields are properly synced
+                                # Copy field values from the existing object
                                 for field in model_cls._meta.fields:
-                                    if hasattr(existing_obj, field.name):
+                                    if not hasattr(existing_obj, field.name):
+                                        continue
+                                        
+                                    if field.is_relation and not field.many_to_many:
+                                        # For foreign key fields, copy the ID to avoid stale object references
+                                        setattr(obj, field.attname, getattr(existing_obj, field.attname))
+                                    else:
+                                        # For non-relation fields, copy the value directly
                                         setattr(obj, field.name, getattr(existing_obj, field.name))
                                 
-                                # Also copy the object state
+                                # Copy the object state
                                 obj._state.adding = False
                                 obj._state.db = existing_obj._state.db
                                 
