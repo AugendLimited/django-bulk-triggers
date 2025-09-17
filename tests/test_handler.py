@@ -8,6 +8,7 @@ import pytest
 from django.db import transaction
 from django.test import TestCase
 
+from django_bulk_triggers import TriggerClass
 from django_bulk_triggers.constants import (
     AFTER_CREATE,
     AFTER_DELETE,
@@ -24,7 +25,6 @@ from django_bulk_triggers.handler import (
     get_trigger_queue,
     trigger_vars,
 )
-from django_bulk_triggers import TriggerClass
 from tests.models import SimpleModel, TriggerModel
 from tests.utils import TriggerTracker, assert_trigger_called, create_test_instances
 
@@ -34,9 +34,10 @@ class TestTriggerContextState(TestCase):
 
     def setUp(self):
         self.trigger_state = TriggerContextState()
-        
+
         # Clear the registry to prevent interference between tests
         from django_bulk_triggers.registry import clear_triggers
+
         clear_triggers()
 
     def test_is_before_property(self):
@@ -119,6 +120,7 @@ class TestTriggerMeta(TestCase):
     def setUp(self):
         # Clear the registry to prevent interference between tests
         from django_bulk_triggers.registry import clear_triggers
+
         clear_triggers()
 
     def test_trigger_registration_via_metaclass(self):
@@ -154,9 +156,10 @@ class TestTriggerHandle(TestCase):
     def setUp(self):
         self.tracker = TriggerTracker()
         self.test_instances = create_test_instances(TriggerModel, 2)
-        
+
         # Clear the registry to prevent interference between tests
         from django_bulk_triggers.registry import clear_triggers
+
         clear_triggers()
 
     def test_handle_queues_trigger_call(self):
@@ -164,7 +167,9 @@ class TestTriggerHandle(TestCase):
         queue = get_trigger_queue()
         initial_length = len(queue)
 
-        TriggerClass.handle(BEFORE_CREATE, TriggerModel, new_records=self.test_instances)
+        TriggerClass.handle(
+            BEFORE_CREATE, TriggerModel, new_records=self.test_instances
+        )
 
         # The queue should be empty after processing since depth == 0
         self.assertEqual(len(queue), 0)
@@ -173,9 +178,13 @@ class TestTriggerHandle(TestCase):
         """Test that nested handle calls don't process immediately."""
         with patch.object(TriggerClass, "_process") as mock_process:
             # First call
-            TriggerClass.handle(BEFORE_CREATE, TriggerModel, new_records=self.test_instances)
+            TriggerClass.handle(
+                BEFORE_CREATE, TriggerModel, new_records=self.test_instances
+            )
             # Second call (not nested since depth == 0)
-            TriggerClass.handle(AFTER_CREATE, TriggerModel, new_records=self.test_instances)
+            TriggerClass.handle(
+                AFTER_CREATE, TriggerModel, new_records=self.test_instances
+            )
 
             # Both calls should trigger processing since depth == 0
             self.assertEqual(mock_process.call_count, 2)
@@ -183,7 +192,9 @@ class TestTriggerHandle(TestCase):
     def test_handle_processes_queue(self):
         """Test that handle processes the entire queue."""
         with patch.object(TriggerClass, "_process") as mock_process:
-            TriggerClass.handle(BEFORE_CREATE, TriggerModel, new_records=self.test_instances)
+            TriggerClass.handle(
+                BEFORE_CREATE, TriggerModel, new_records=self.test_instances
+            )
 
             mock_process.assert_called_once()
             args = mock_process.call_args
@@ -198,9 +209,10 @@ class TestTriggerProcess(TestCase):
     def setUp(self):
         self.tracker = TriggerTracker()
         self.test_instances = create_test_instances(TriggerModel, 2)
-        
+
         # Clear the registry to prevent interference between tests
         from django_bulk_triggers.registry import clear_triggers
+
         clear_triggers()
 
     def test_process_sets_trigger_vars(self):
@@ -224,16 +236,19 @@ class TestTriggerProcess(TestCase):
         self.assertEqual(trigger_vars.depth, initial_depth)
 
     def test_process_with_transaction_commit(self):
-        """Test that _process handles transaction commits correctly."""
+        """Test that _process executes triggers immediately within transaction."""
         with patch("django.db.transaction.get_connection") as mock_get_conn:
             mock_conn = MagicMock()
             mock_conn.in_atomic_block = True
             mock_get_conn.return_value = mock_conn
 
             with patch("django.db.transaction.on_commit") as mock_on_commit:
-                TriggerClass._process(AFTER_CREATE, TriggerModel, self.test_instances, None)
+                TriggerClass._process(
+                    AFTER_CREATE, TriggerModel, self.test_instances, None
+                )
 
-                mock_on_commit.assert_called_once()
+                # Triggers are executed immediately within transaction, not deferred
+                mock_on_commit.assert_not_called()
 
     def test_process_without_transaction_commit(self):
         """Test that _process executes immediately when not in transaction."""
@@ -243,12 +258,14 @@ class TestTriggerProcess(TestCase):
             mock_get_conn.return_value = mock_conn
 
             with patch("django.db.transaction.on_commit") as mock_on_commit:
-                TriggerClass._process(BEFORE_CREATE, TriggerModel, self.test_instances, None)
+                TriggerClass._process(
+                    BEFORE_CREATE, TriggerModel, self.test_instances, None
+                )
 
                 mock_on_commit.assert_not_called()
 
     def test_process_handles_exceptions(self):
-        """Test that _process handles exceptions gracefully."""
+        """Test that _process handles exceptions by logging and re-raising them."""
         with patch("django_bulk_triggers.handler.logger") as mock_logger:
             # Create a trigger that raises an exception
             class ExceptionTrigger(TriggerClass):
@@ -256,8 +273,11 @@ class TestTriggerProcess(TestCase):
                 def on_before_create(self, new_records, old_records=None, **kwargs):
                     raise ValueError("Test exception")
 
-            # This should not raise an exception
-            TriggerClass._process(BEFORE_CREATE, TriggerModel, self.test_instances, None)
+            # This should raise an exception (for transaction rollback)
+            with self.assertRaises(ValueError, msg="Test exception"):
+                TriggerClass._process(
+                    BEFORE_CREATE, TriggerModel, self.test_instances, None
+                )
 
             # Should log the exception
             mock_logger.exception.assert_called()
@@ -269,9 +289,10 @@ class TestTriggerIntegration(TestCase):
     def setUp(self):
         self.tracker = TriggerTracker()
         self.test_instances = create_test_instances(TriggerModel, 3)
-        
+
         # Clear the registry to prevent interference between tests
         from django_bulk_triggers.registry import clear_triggers
+
         clear_triggers()
 
     def test_full_trigger_cycle(self):
@@ -279,17 +300,21 @@ class TestTriggerIntegration(TestCase):
 
         class TestTriggerClass(TriggerClass):
             tracker = TriggerTracker()  # Class variable to persist across instances
-            
+
             def __init__(self):
                 pass  # No need to create instance tracker
 
             @trigger(BEFORE_CREATE, model=TriggerModel)
             def on_before_create(self, new_records, old_records=None, **kwargs):
-                TestTriggerClass.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+                TestTriggerClass.tracker.add_call(
+                    BEFORE_CREATE, new_records, old_records, **kwargs
+                )
 
             @trigger(BEFORE_CREATE, model=TriggerModel)
             def on_after_create(self, new_records, old_records=None, **kwargs):
-                TestTriggerClass.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+                TestTriggerClass.tracker.add_call(
+                    BEFORE_CREATE, new_records, old_records, **kwargs
+                )
 
         # Triggers are automatically registered by the metaclass when the class is defined
 
@@ -297,11 +322,15 @@ class TestTriggerIntegration(TestCase):
         trigger_instance = TestTriggerClass()
 
         # Trigger triggers
-        TriggerClass.handle(BEFORE_CREATE, TriggerModel, new_records=self.test_instances)
+        TriggerClass.handle(
+            BEFORE_CREATE, TriggerModel, new_records=self.test_instances
+        )
         TriggerClass.handle(AFTER_CREATE, TriggerModel, new_records=self.test_instances)
 
         # Verify calls were tracked
-        assert_trigger_called(TestTriggerClass.tracker, BEFORE_CREATE, 2)  # Both triggers are now BEFORE_CREATE
+        assert_trigger_called(
+            TestTriggerClass.tracker, BEFORE_CREATE, 2
+        )  # Both triggers are now BEFORE_CREATE
 
     def test_trigger_with_conditions(self):
         """Test triggers with conditions."""
@@ -309,13 +338,17 @@ class TestTriggerIntegration(TestCase):
 
         class ConditionalTrigger(TriggerClass):
             tracker = TriggerTracker()  # Class variable to persist across instances
-            
+
             def __init__(self):
                 pass  # No need to create instance tracker
 
-            @trigger(BEFORE_CREATE, model=TriggerModel, condition=IsEqual("status", "active"))
+            @trigger(
+                BEFORE_CREATE, model=TriggerModel, condition=IsEqual("status", "active")
+            )
             def on_before_create(self, new_records, old_records=None, **kwargs):
-                ConditionalTrigger.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+                ConditionalTrigger.tracker.add_call(
+                    BEFORE_CREATE, new_records, old_records, **kwargs
+                )
 
         # Triggers are automatically registered by the metaclass when the class is defined
 
@@ -327,7 +360,9 @@ class TestTriggerIntegration(TestCase):
 
         # Trigger triggers
         TriggerClass.handle(
-            BEFORE_CREATE, TriggerModel, new_records=[active_instance, inactive_instance]
+            BEFORE_CREATE,
+            TriggerModel,
+            new_records=[active_instance, inactive_instance],
         )
 
         # Only the active instance should trigger the trigger

@@ -201,12 +201,19 @@ class TriggerQuerySetMixin(
                             setattr(obj, field, value)
 
         # Salesforce-style trigger behavior: Always run triggers, rely on Django's stack overflow protection
-        from django_bulk_triggers.context import get_bypass_triggers
+        from django_bulk_triggers.context import (
+            get_bulk_update_active,
+            get_bypass_triggers,
+        )
 
         current_bypass_triggers = get_bypass_triggers()
+        bulk_update_active = get_bulk_update_active()
 
-        # Only skip triggers if explicitly bypassed (not for recursion prevention)
-        if current_bypass_triggers:
+        # Skip triggers if we're in a bulk_update operation (to avoid double execution)
+        if bulk_update_active:
+            logger.debug("update: skipping triggers because we're in bulk_update")
+            ctx = TriggerContext(model_cls, bypass_triggers=True)
+        elif current_bypass_triggers:
             logger.debug("update: triggers explicitly bypassed")
             ctx = TriggerContext(model_cls, bypass_triggers=True)
         else:
@@ -476,16 +483,22 @@ class TriggerQuerySetMixin(
                                 old_value = getattr(instance, field.name, None)
                             except Exception as e:
                                 # Handle foreign key DoesNotExist errors gracefully
-                                if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                                if field.is_relation and "DoesNotExist" in str(
+                                    type(e).__name__
+                                ):
                                     old_value = None
                                 else:
                                     raise
-                            
+
                             try:
-                                new_value = getattr(refreshed_instance, field.name, None)
+                                new_value = getattr(
+                                    refreshed_instance, field.name, None
+                                )
                             except Exception as e:
                                 # Handle foreign key DoesNotExist errors gracefully
-                                if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                                if field.is_relation and "DoesNotExist" in str(
+                                    type(e).__name__
+                                ):
                                     new_value = None
                                 else:
                                     raise
@@ -505,14 +518,18 @@ class TriggerQuerySetMixin(
                                     )
                             pre_trigger_values[field.name] = new_value
                             try:
-                                refreshed_value = getattr(refreshed_instance, field.name)
+                                refreshed_value = getattr(
+                                    refreshed_instance, field.name
+                                )
                             except Exception as e:
                                 # Handle foreign key DoesNotExist errors gracefully
-                                if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                                if field.is_relation and "DoesNotExist" in str(
+                                    type(e).__name__
+                                ):
                                     refreshed_value = None
                                 else:
                                     raise
-                            
+
                             setattr(
                                 instance,
                                 field.name,
@@ -554,11 +571,13 @@ class TriggerQuerySetMixin(
                         except Exception as e:
                             # Handle foreign key DoesNotExist errors gracefully
                             field = instance._meta.get_field(field_name)
-                            if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                            if field.is_relation and "DoesNotExist" in str(
+                                type(e).__name__
+                            ):
                                 current_value = None
                             else:
                                 raise
-                        
+
                         if current_value != pre_trigger_value:
                             trigger_modified_fields.add(field_name)
 
@@ -645,11 +664,13 @@ class TriggerQuerySetMixin(
                         except Exception as e:
                             # Handle foreign key DoesNotExist errors gracefully
                             field = instance._meta.get_field(field_name)
-                            if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                            if field.is_relation and "DoesNotExist" in str(
+                                type(e).__name__
+                            ):
                                 current_value = None
                             else:
                                 raise
-                        
+
                         if current_value != pre_after_trigger_value:
                             after_trigger_modified_fields.add(field_name)
 

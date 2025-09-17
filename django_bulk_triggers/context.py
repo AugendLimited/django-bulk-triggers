@@ -38,6 +38,16 @@ def get_bulk_update_value_map():
     return getattr(_trigger_context, "bulk_update_value_map", None)
 
 
+def set_bulk_update_active(active):
+    """Set whether we're currently in a bulk_update operation."""
+    _trigger_context.bulk_update_active = active
+
+
+def get_bulk_update_active():
+    """Get whether we're currently in a bulk_update operation."""
+    return getattr(_trigger_context, "bulk_update_active", False)
+
+
 class TriggerContext:
     def __init__(self, model, bypass_triggers=False):
         self.model = model

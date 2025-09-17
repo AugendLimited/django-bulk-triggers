@@ -69,7 +69,13 @@ class TriggerMeta(type):
 
     def __new__(mcs, name, bases, namespace):
         cls = super().__new__(mcs, name, bases, namespace)
-        for method_name, method in namespace.items():
+        mcs._register_triggers_for_class(cls)
+        return cls
+
+    @classmethod
+    def _register_triggers_for_class(mcs, cls):
+        """Register triggers for a given class."""
+        for method_name, method in cls.__dict__.items():
             if hasattr(method, "triggers_triggers"):
                 for model_cls, event, condition, priority in method.triggers_triggers:
                     key = (model_cls, event, cls, method_name)
@@ -83,7 +89,22 @@ class TriggerMeta(type):
                             priority=priority,
                         )
                         TriggerMeta._registered.add(key)
-        return cls
+
+    @classmethod
+    def re_register_all_triggers(mcs):
+        """Re-register all triggers for all existing Trigger classes."""
+        # Clear the registered set so we can re-register
+        TriggerMeta._registered.clear()
+
+        # Find all Trigger classes and re-register their triggers
+        import gc
+
+        registered_classes = set()
+        for obj in gc.get_objects():
+            if isinstance(obj, type) and isinstance(obj, TriggerMeta):
+                if obj not in registered_classes:
+                    registered_classes.add(obj)
+                    mcs._register_triggers_for_class(obj)
 
 
 class Trigger(metaclass=TriggerMeta):
@@ -179,7 +200,9 @@ class Trigger(metaclass=TriggerMeta):
             # For Salesforce-like behavior, execute all triggers within the same transaction
             # This ensures that if any trigger fails, the entire transaction rolls back
             logger.debug(f"Executing {event} immediately within transaction")
-            logger.debug(f"DEBUG: Handler executing {event} immediately within transaction")
+            logger.debug(
+                f"DEBUG: Handler executing {event} immediately within transaction"
+            )
             _execute()
         finally:
             trigger_vars.new = None

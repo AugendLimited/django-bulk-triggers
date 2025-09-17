@@ -18,7 +18,7 @@ from django_bulk_triggers.constants import (
 )
 from django_bulk_triggers.decorators import trigger
 from django_bulk_triggers.enums import Priority
-from tests.models import TriggerModel, SimpleModel
+from tests.models import SimpleModel, TriggerModel
 
 
 class TriggerTracker:
@@ -181,86 +181,32 @@ def re_register_test_triggers():
     Re-register test triggers after they've been cleared.
     This is needed because the test setup calls clear_triggers() which removes
     all registered triggers, but the trigger classes are already defined.
+
+    The @trigger decorator automatically registers triggers via the TriggerMeta metaclass,
+    but only when the class is first created. After clear_triggers() is called, we need
+    to manually re-register them since the classes are already created.
     """
-    from django_bulk_triggers.registry import register_trigger, clear_triggers
-    from django_bulk_triggers.conditions import IsEqual, HasChanged
-    from tests.models import SimpleModel
+    from django_bulk_triggers.handler import TriggerMeta
+    from django_bulk_triggers.registry import clear_triggers
     from tests.test_integration import (
-        BulkCreateTestTrigger, BulkUpdateTestTrigger, BulkDeleteTestTrigger,
-        ConditionalTestTrigger, ComplexConditionalTestTrigger, ErrorTestTrigger,
-        PerformanceTestTrigger, RelatedTestTrigger, TransactionTestTrigger,
-        MultiModelTestTrigger, PriorityTestTrigger, InventoryTrigger,
-        AuditTrigger, UserRegistrationTrigger,
+        AuditTrigger,
+        BulkCreateTestTrigger,
+        BulkDeleteTestTrigger,
+        BulkUpdateTestTrigger,
+        ComplexConditionalTestTrigger,
+        ConditionalTestTrigger,
+        ErrorTestTrigger,
+        InventoryTrigger,
+        MultiModelTestTrigger,
+        PerformanceTestTrigger,
+        PriorityTestTrigger,
+        RelatedTestTrigger,
+        TransactionTestTrigger,
+        UserRegistrationTrigger,
     )
 
     # Clear the registry first to ensure clean state
     clear_triggers()
 
-    # Define all trigger registrations in a data structure for maintainability
-    trigger_registrations = [
-        # (model, event, handler_cls, method_name, condition, priority)
-
-        # BulkCreateTestTrigger
-        (TriggerModel, BEFORE_CREATE, BulkCreateTestTrigger, "on_before_create", None, Priority.NORMAL),
-        (TriggerModel, AFTER_CREATE, BulkCreateTestTrigger, "on_after_create", None, Priority.NORMAL),
-
-        # BulkUpdateTestTrigger
-        (TriggerModel, BEFORE_UPDATE, BulkUpdateTestTrigger, "on_before_update", None, Priority.NORMAL),
-        (TriggerModel, AFTER_UPDATE, BulkUpdateTestTrigger, "on_after_update", None, Priority.NORMAL),
-
-        # BulkDeleteTestTrigger
-        (TriggerModel, BEFORE_DELETE, BulkDeleteTestTrigger, "on_before_delete", None, Priority.NORMAL),
-        (TriggerModel, AFTER_DELETE, BulkDeleteTestTrigger, "on_after_delete", None, Priority.NORMAL),
-
-        # ConditionalTestTrigger
-        (TriggerModel, BEFORE_CREATE, ConditionalTestTrigger, "on_active_create", IsEqual("status", "active"), Priority.NORMAL),
-        (TriggerModel, BEFORE_UPDATE, ConditionalTestTrigger, "on_status_change", HasChanged("status"), Priority.NORMAL),
-
-        # ComplexConditionalTestTrigger
-        (TriggerModel, BEFORE_UPDATE, ComplexConditionalTestTrigger, "on_status_change", HasChanged("status"), Priority.NORMAL),
-
-        # ErrorTestTrigger
-        (TriggerModel, BEFORE_CREATE, ErrorTestTrigger, "on_before_create", None, Priority.NORMAL),
-
-        # PerformanceTestTrigger
-        (TriggerModel, BEFORE_CREATE, PerformanceTestTrigger, "on_before_create", None, Priority.NORMAL),
-
-        # RelatedTestTrigger
-        (TriggerModel, AFTER_CREATE, RelatedTestTrigger, "on_after_create", None, Priority.NORMAL),
-
-        # TransactionTestTrigger
-        (TriggerModel, AFTER_CREATE, TransactionTestTrigger, "on_after_create", None, Priority.NORMAL),
-
-        # MultiModelTestTrigger
-        (TriggerModel, BEFORE_CREATE, MultiModelTestTrigger, "on_test_model_create", None, Priority.NORMAL),
-        (SimpleModel, BEFORE_CREATE, MultiModelTestTrigger, "on_simple_model_create", None, Priority.NORMAL),
-
-        # PriorityTestTrigger
-        (TriggerModel, BEFORE_CREATE, PriorityTestTrigger, "high_priority", None, Priority.HIGH),
-        (TriggerModel, BEFORE_CREATE, PriorityTestTrigger, "normal_priority", None, Priority.NORMAL),
-        (TriggerModel, BEFORE_CREATE, PriorityTestTrigger, "low_priority", None, Priority.LOW),
-
-        # InventoryTrigger
-        (TriggerModel, BEFORE_UPDATE, InventoryTrigger, "check_stock_levels", None, Priority.NORMAL),
-        (TriggerModel, AFTER_DELETE, InventoryTrigger, "log_deletion", None, Priority.NORMAL),
-
-        # AuditTrigger
-        (TriggerModel, AFTER_CREATE, AuditTrigger, "log_creation", None, Priority.NORMAL),
-        (TriggerModel, AFTER_UPDATE, AuditTrigger, "log_status_change", None, Priority.NORMAL),
-        (TriggerModel, AFTER_DELETE, AuditTrigger, "log_deletion", None, Priority.NORMAL),
-
-        # UserRegistrationTrigger
-        (SimpleModel, BEFORE_CREATE, UserRegistrationTrigger, "validate_user", None, Priority.NORMAL),
-        (SimpleModel, AFTER_CREATE, UserRegistrationTrigger, "send_welcome_email", None, Priority.NORMAL),
-    ]
-
-    # Register all triggers in a loop
-    for model, event, handler_cls, method_name, condition, priority in trigger_registrations:
-        register_trigger(
-            model=model,
-            event=event,
-            handler_cls=handler_cls,
-            method_name=method_name,
-            condition=condition,
-            priority=priority,
-        )
+    # Re-register all triggers using the new method
+    TriggerMeta.re_register_all_triggers()

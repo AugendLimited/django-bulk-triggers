@@ -67,17 +67,27 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                     )
                 else:
                     # DEBUG: Add extra logging for balance field to debug user's issue
-                    if hasattr(condition, 'field') and condition.field == "balance":
-                        logger.debug("🔍 ENGINE DEBUG: About to check HasChanged('balance') condition")
+                    if hasattr(condition, "field") and condition.field == "balance":
+                        logger.debug(
+                            "🔍 ENGINE DEBUG: About to check HasChanged('balance') condition"
+                        )
                         logger.debug(f"  - Handler: {handler_name}.{method_name}")
-                        logger.debug(f"  - New record pk: {getattr(new, 'pk', 'No PK')}")
+                        logger.debug(
+                            f"  - New record pk: {getattr(new, 'pk', 'No PK')}"
+                        )
                         logger.debug(f"  - Original record: {original}")
-                        logger.debug(f"  - Original record pk: {getattr(original, 'pk', 'No PK') if original else 'None'}")
-                        if new and hasattr(new, 'balance'):
-                            logger.debug(f"  - New record balance: {getattr(new, 'balance', 'NO_BALANCE_FIELD')} (type: {type(getattr(new, 'balance', 'NO_BALANCE_FIELD')).__name__})")
-                        if original and hasattr(original, 'balance'):
-                            logger.debug(f"  - Original record balance: {getattr(original, 'balance', 'NO_BALANCE_FIELD')} (type: {type(getattr(original, 'balance', 'NO_BALANCE_FIELD')).__name__})")
-                        
+                        logger.debug(
+                            f"  - Original record pk: {getattr(original, 'pk', 'No PK') if original else 'None'}"
+                        )
+                        if new and hasattr(new, "balance"):
+                            logger.debug(
+                                f"  - New record balance: {getattr(new, 'balance', 'NO_BALANCE_FIELD')} (type: {type(getattr(new, 'balance', 'NO_BALANCE_FIELD')).__name__})"
+                            )
+                        if original and hasattr(original, "balance"):
+                            logger.debug(
+                                f"  - Original record balance: {getattr(original, 'balance', 'NO_BALANCE_FIELD')} (type: {type(getattr(original, 'balance', 'NO_BALANCE_FIELD')).__name__})"
+                            )
+
                     condition_result = condition.check(new, original)
                     logger.debug(
                         f"FRAMEWORK DEBUG: Condition check for {handler_name}.{method_name} on record pk={getattr(new, 'pk', 'No PK')}: {condition_result}"

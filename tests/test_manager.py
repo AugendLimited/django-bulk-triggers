@@ -9,7 +9,7 @@ from django.test import TestCase
 
 from django_bulk_triggers.manager import BulkTriggerManager
 from django_bulk_triggers.registry import clear_triggers
-from tests.models import TriggerModel, SimpleModel, ComplexModel, UserModel
+from tests.models import ComplexModel, SimpleModel, TriggerModel, UserModel
 from tests.utils import TriggerTracker, create_test_instances
 
 
@@ -20,7 +20,7 @@ class TestBulkTriggerManager(TestCase):
         self.manager = BulkTriggerManager()
         self.manager.model = TriggerModel
         self.tracker = TriggerTracker()
-        
+
         # Clear the registry to prevent interference between tests
         clear_triggers()
 
@@ -90,10 +90,15 @@ class TestBulkTriggerManager(TestCase):
             mock_queryset = MagicMock()
             mock_get_queryset.return_value = mock_queryset
 
-            self.manager.bulk_delete(test_instances, batch_size=100, bypass_triggers=False)
+            self.manager.bulk_delete(
+                test_instances, batch_size=100, bypass_triggers=False
+            )
 
             mock_queryset.bulk_delete.assert_called_once_with(
-                test_instances, bypass_triggers=False, bypass_validation=False, batch_size=100
+                test_instances,
+                bypass_triggers=False,
+                bypass_validation=False,
+                batch_size=100,
             )
 
     def test_delete_delegates_to_queryset(self):
@@ -176,8 +181,10 @@ class TestBulkTriggerManagerIntegration(TestCase):
 
     def setUp(self):
         self.tracker = TriggerTracker()
-        self.user = UserModel.objects.create(username="testuser", email="test@example.com")
-        
+        self.user = UserModel.objects.create(
+            username="testuser", email="test@example.com"
+        )
+
         # Clear the registry to prevent interference between tests
         clear_triggers()
 
@@ -222,18 +229,20 @@ class TestBulkTriggerManagerIntegration(TestCase):
         """Test manager with bypass_triggers parameter."""
         # Create a trigger to track calls
         from django_bulk_triggers import TriggerClass
-        from django_bulk_triggers.decorators import trigger
         from django_bulk_triggers.constants import BEFORE_CREATE
+        from django_bulk_triggers.decorators import trigger
 
         class TestTrigger(TriggerClass):
             tracker = TriggerTracker()  # Class variable to persist across instances
-            
+
             def __init__(self):
                 pass  # No need to create instance tracker
 
             @trigger(BEFORE_CREATE, model=TriggerModel)
             def on_before_create(self, new_records, old_records=None, **kwargs):
-                TestTrigger.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+                TestTrigger.tracker.add_call(
+                    BEFORE_CREATE, new_records, old_records, **kwargs
+                )
 
         trigger_instance = TestTrigger()
 
@@ -302,9 +311,7 @@ class TestBulkTriggerManagerIntegration(TestCase):
         # Create many instances using SimpleModel (no foreign keys for cleaner performance testing)
         test_instances = []
         for i in range(100):
-            test_instances.append(
-                SimpleModel(name=f"Test {i}", value=i)
-            )
+            test_instances.append(SimpleModel(name=f"Test {i}", value=i))
 
         # Test bulk_create performance
         # With triggers enabled, we expect 3 queries: SAVEPOINT, INSERT, RELEASE SAVEPOINT
@@ -318,9 +325,9 @@ class TestBulkTriggerManagerIntegration(TestCase):
         for instance in created_instances:
             instance.value *= 2
 
-        # With triggers enabled, we expect 8 queries (auto-detection adds 1 query):
-        # SAVEPOINT, SAVEPOINT, SELECT originals (batch 1), SELECT originals (batch 2), SELECT for auto-detection, UPDATE, RELEASE, RELEASE
-        with self.assertNumQueries(8):  # Correct behavior when triggers are enabled
+        # With triggers enabled, we expect 9 queries (auto-detection adds 2 queries):
+        # SAVEPOINT, SELECT for auto-detection (1), SELECT for auto-detection (2), SAVEPOINT, SELECT originals (batch 1), SELECT originals (batch 2), UPDATE, RELEASE, RELEASE
+        with self.assertNumQueries(9):  # Correct behavior when triggers are enabled
             updated_count = SimpleModel.objects.bulk_update(created_instances)
 
         self.assertEqual(updated_count, 100)
@@ -340,7 +347,7 @@ class TestBulkTriggerManagerEdgeCases(TestCase):
     def setUp(self):
         self.manager = BulkTriggerManager()
         self.manager.model = TriggerModel
-        
+
         # Clear the registry to prevent interference between tests
         clear_triggers()
 
@@ -352,11 +359,15 @@ class TestBulkTriggerManagerEdgeCases(TestCase):
 
         # Test bulk_update with empty list
         result = self.manager.bulk_update([])
-        self.assertEqual(result, [])  # Current implementation returns [] for empty lists
+        self.assertEqual(
+            result, []
+        )  # Current implementation returns [] for empty lists
 
         # Test bulk_delete with empty list
         result = self.manager.bulk_delete([])
-        self.assertEqual(result, 0)  # Django's delete() returns count of deleted records
+        self.assertEqual(
+            result, 0
+        )  # Django's delete() returns count of deleted records
 
     def test_manager_with_none_parameters(self):
         """Test manager with None parameters."""

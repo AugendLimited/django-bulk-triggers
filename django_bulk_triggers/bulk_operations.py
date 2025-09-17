@@ -160,18 +160,26 @@ class BulkOperationsMixin:
                                 for field in model_cls._meta.fields:
                                     if not hasattr(existing_obj, field.name):
                                         continue
-                                        
+
                                     if field.is_relation and not field.many_to_many:
                                         # For foreign key fields, copy the ID to avoid stale object references
-                                        setattr(obj, field.attname, getattr(existing_obj, field.attname))
+                                        setattr(
+                                            obj,
+                                            field.attname,
+                                            getattr(existing_obj, field.attname),
+                                        )
                                     else:
                                         # For non-relation fields, copy the value directly
-                                        setattr(obj, field.name, getattr(existing_obj, field.name))
-                                
+                                        setattr(
+                                            obj,
+                                            field.name,
+                                            getattr(existing_obj, field.name),
+                                        )
+
                                 # Copy the object state
                                 obj._state.adding = False
                                 obj._state.db = existing_obj._state.db
-                                
+
                                 existing_records.append(obj)
                                 is_existing = True
                                 break
@@ -270,10 +278,16 @@ class BulkOperationsMixin:
 
         self._validate_objects(objs, require_pks=True, operation_name="bulk_update")
 
+        # Set a context variable to indicate we're in bulk_update
+        from django_bulk_triggers.context import set_bulk_update_active
+
+        set_bulk_update_active(True)
+
         # Check global bypass triggers context (like QuerySet.update() does)
         from django_bulk_triggers.context import get_bypass_triggers
+
         current_bypass_triggers = get_bypass_triggers()
-        
+
         # If global bypass is set or explicitly requested, bypass triggers
         if current_bypass_triggers or bypass_triggers:
             bypass_triggers = True
@@ -286,7 +300,7 @@ class BulkOperationsMixin:
             obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
         }
         originals = [original_map.get(obj.pk) for obj in objs]
-        
+
         changed_fields = self._detect_changed_fields(objs)
         is_mti = self._is_multi_table_inheritance()
         trigger_context, _ = self._init_trigger_context(
@@ -305,35 +319,61 @@ class BulkOperationsMixin:
         if not bypass_triggers:
             from django_bulk_triggers import engine
             from django_bulk_triggers.constants import BEFORE_UPDATE, VALIDATE_UPDATE
-            
-            logger.debug(f"bulk_update: executing VALIDATE_UPDATE triggers for {model_cls.__name__}")
+
+            logger.debug(
+                f"bulk_update: executing VALIDATE_UPDATE triggers for {model_cls.__name__}"
+            )
             engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=trigger_context)
-            
-            logger.debug(f"bulk_update: executing BEFORE_UPDATE triggers for {model_cls.__name__}")
+
+            logger.debug(
+                f"bulk_update: executing BEFORE_UPDATE triggers for {model_cls.__name__}"
+            )
             engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=trigger_context)
         else:
-            logger.debug(f"bulk_update: BEFORE_UPDATE triggers bypassed for {model_cls.__name__}")
+            logger.debug(
+                f"bulk_update: BEFORE_UPDATE triggers bypassed for {model_cls.__name__}"
+            )
 
         # Execute bulk update with proper trigger handling
         if is_mti:
             # Remove 'fields' from kwargs to avoid conflict with positional argument
-            mti_kwargs = {k: v for k, v in kwargs.items() if k != 'fields'}
-            result = self._mti_bulk_update(objs, list(fields_set), originals=originals, trigger_context=trigger_context, **mti_kwargs)
+            mti_kwargs = {k: v for k, v in kwargs.items() if k != "fields"}
+            result = self._mti_bulk_update(
+                objs,
+                list(fields_set),
+                originals=originals,
+                trigger_context=trigger_context,
+                **mti_kwargs,
+            )
         else:
             result = self._single_table_bulk_update(
-                objs, fields_set, auto_now_fields, originals=originals, trigger_context=trigger_context, **kwargs
+                objs,
+                fields_set,
+                auto_now_fields,
+                originals=originals,
+                trigger_context=trigger_context,
+                **kwargs,
             )
-        
+
         # Execute AFTER_UPDATE triggers if not bypassed
         if not bypass_triggers:
             from django_bulk_triggers import engine
             from django_bulk_triggers.constants import AFTER_UPDATE
-            
-            logger.debug(f"bulk_update: executing AFTER_UPDATE triggers for {model_cls.__name__}")
+
+            logger.debug(
+                f"bulk_update: executing AFTER_UPDATE triggers for {model_cls.__name__}"
+            )
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=trigger_context)
         else:
-            logger.debug(f"bulk_update: AFTER_UPDATE triggers bypassed for {model_cls.__name__}")
-            
+            logger.debug(
+                f"bulk_update: AFTER_UPDATE triggers bypassed for {model_cls.__name__}"
+            )
+
+        # Clear the bulk_update_active flag
+        from django_bulk_triggers.context import set_bulk_update_active
+
+        set_bulk_update_active(False)
+
         return result
 
     @transaction.atomic
@@ -490,7 +530,15 @@ class BulkOperationsMixin:
                         e,
                     )
 
-    def _single_table_bulk_update(self, objs, fields_set, auto_now_fields, originals=None, trigger_context=None, **kwargs):
+    def _single_table_bulk_update(
+        self,
+        objs,
+        fields_set,
+        auto_now_fields,
+        originals=None,
+        trigger_context=None,
+        **kwargs,
+    ):
         """
         Perform bulk_update for single-table models, handling Django semantics
         for kwargs and setting a value map for trigger execution.
@@ -508,7 +556,7 @@ class BulkOperationsMixin:
         # Strip out unsupported bulk_update kwargs, excluding fields since we handle it separately
         django_kwargs = self._filter_django_kwargs(kwargs)
         # Remove 'fields' from django_kwargs since we pass it as a positional argument
-        django_kwargs.pop('fields', None)
+        django_kwargs.pop("fields", None)
 
         # Build a value map: {pk -> {field: raw_value}} for later trigger use
         value_map = self._build_value_map(objs, fields_set, auto_now_fields)
@@ -544,22 +592,22 @@ class BulkOperationsMixin:
                             value,
                             type(value).__name__,
                         )
-            
+
             # Import the trigger engine and constants
             from django_bulk_triggers import engine
-            from django_bulk_triggers.constants import BEFORE_UPDATE, AFTER_UPDATE
+            from django_bulk_triggers.constants import AFTER_UPDATE, BEFORE_UPDATE
             from django_bulk_triggers.context import TriggerContext
-            
+
             # Use provided trigger context or determine bypass state
             model_cls = self.model
             ctx = trigger_context
             if ctx is None:
                 ctx = TriggerContext(model_cls, bypass_triggers=False)
-            
+
             # NOTE: bulk_update does NOT run triggers directly - it relies on being called
             # from QuerySet.update() or other trigger-aware contexts that handle triggers
             result = super().bulk_update(objs, list(fields_set), **django_kwargs)
-            
+
             return result
         finally:
             # Always clear thread-local state

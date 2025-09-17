@@ -7,15 +7,30 @@ from unittest.mock import patch
 import pytest
 from django.db import transaction
 from django.test import TestCase, TransactionTestCase
+
 from django_bulk_triggers import TriggerClass
-from django_bulk_triggers.decorators import trigger
-from django_bulk_triggers.constants import (
-    BEFORE_CREATE, AFTER_CREATE, BEFORE_UPDATE, AFTER_UPDATE, 
-    BEFORE_DELETE, AFTER_DELETE, VALIDATE_CREATE, VALIDATE_UPDATE, VALIDATE_DELETE
-)
 from django_bulk_triggers.conditions import HasChanged, IsEqual, IsNotEqual, WasEqual
+from django_bulk_triggers.constants import (
+    AFTER_CREATE,
+    AFTER_DELETE,
+    AFTER_UPDATE,
+    BEFORE_CREATE,
+    BEFORE_DELETE,
+    BEFORE_UPDATE,
+    VALIDATE_CREATE,
+    VALIDATE_DELETE,
+    VALIDATE_UPDATE,
+)
+from django_bulk_triggers.decorators import trigger
 from django_bulk_triggers.priority import Priority
-from tests.models import TriggerModel, UserModel, SimpleModel, ComplexModel, Category, RelatedModel
+from tests.models import (
+    Category,
+    ComplexModel,
+    RelatedModel,
+    SimpleModel,
+    TriggerModel,
+    UserModel,
+)
 from tests.utils import TriggerTracker, create_test_instances
 
 # Define trigger classes at module level to ensure registration
@@ -27,50 +42,62 @@ _delete_tracker = TriggerTracker()
 
 class BulkCreateTestTrigger(TriggerClass):
     tracker = _create_tracker  # Class variable to persist across instances
-    
+
     def __init__(self):
         pass  # No need to create instance tracker
 
     @trigger(BEFORE_CREATE, model=TriggerModel)
     def on_before_create(self, new_records, old_records=None, **kwargs):
-        BulkCreateTestTrigger.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+        BulkCreateTestTrigger.tracker.add_call(
+            BEFORE_CREATE, new_records, old_records, **kwargs
+        )
         # Modify records before creation
         for record in new_records:
             record.name = f"Modified {record.name}"
 
     @trigger(AFTER_CREATE, model=TriggerModel)
     def on_after_create(self, new_records, old_records=None, **kwargs):
-        BulkCreateTestTrigger.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
+        BulkCreateTestTrigger.tracker.add_call(
+            AFTER_CREATE, new_records, old_records, **kwargs
+        )
 
 
 class BulkUpdateTestTrigger(TriggerClass):
     tracker = _update_tracker  # Class variable to persist across instances
-    
+
     def __init__(self):
         pass  # No need to create instance tracker
 
     @trigger(BEFORE_UPDATE, model=TriggerModel)
     def on_before_update(self, new_records, old_records=None, **kwargs):
-        BulkUpdateTestTrigger.tracker.add_call(BEFORE_UPDATE, new_records, old_records, **kwargs)
+        BulkUpdateTestTrigger.tracker.add_call(
+            BEFORE_UPDATE, new_records, old_records, **kwargs
+        )
 
     @trigger(AFTER_UPDATE, model=TriggerModel)
     def on_after_update(self, new_records, old_records=None, **kwargs):
-        BulkUpdateTestTrigger.tracker.add_call(AFTER_UPDATE, new_records, old_records, **kwargs)
+        BulkUpdateTestTrigger.tracker.add_call(
+            AFTER_UPDATE, new_records, old_records, **kwargs
+        )
 
 
 class BulkDeleteTestTrigger(TriggerClass):
     tracker = _delete_tracker  # Class variable to persist across instances
-    
+
     def __init__(self):
         pass  # No need to create instance tracker
 
     @trigger(BEFORE_DELETE, model=TriggerModel)
     def on_before_delete(self, new_records, old_records=None, **kwargs):
-        BulkDeleteTestTrigger.tracker.add_call(BEFORE_DELETE, new_records, old_records, **kwargs)
+        BulkDeleteTestTrigger.tracker.add_call(
+            BEFORE_DELETE, new_records, old_records, **kwargs
+        )
 
     @trigger(AFTER_DELETE, model=TriggerModel)
     def on_after_delete(self, new_records, old_records=None, **kwargs):
-        BulkDeleteTestTrigger.tracker.add_call(AFTER_DELETE, new_records, old_records, **kwargs)
+        BulkDeleteTestTrigger.tracker.add_call(
+            AFTER_DELETE, new_records, old_records, **kwargs
+        )
 
 
 # Additional trigger classes for specific test scenarios
@@ -121,7 +148,7 @@ class ComplexConditionalTestTrigger(TriggerClass):
 
 class ErrorTestTrigger(TriggerClass):
     error_count = 0  # Class variable to persist across instances
-    
+
     def __init__(self):
         self.tracker = _error_tracker
 
@@ -189,7 +216,7 @@ class MultiModelTestTrigger(TriggerClass):
 
 class PriorityTestTrigger(TriggerClass):
     execution_order = []  # Class variable to persist across instances
-    
+
     def __init__(self):
         self.tracker = _priority_tracker
 
@@ -216,14 +243,16 @@ class PriorityTestTrigger(TriggerClass):
 class InventoryTrigger(TriggerClass):
     low_stock_alerts = []  # Class variable to persist across instances
     tracker = TriggerTracker()  # Class variable to persist across instances
-    
+
     def __init__(self):
         pass  # No need to create instance tracker
 
     @trigger(BEFORE_UPDATE, model=TriggerModel, condition=HasChanged("value"))
     def check_stock_levels(self, new_records, old_records=None, **kwargs):
         if "inventory" in _active_triggers:
-            InventoryTrigger.tracker.add_call(BEFORE_UPDATE, new_records, old_records, **kwargs)
+            InventoryTrigger.tracker.add_call(
+                BEFORE_UPDATE, new_records, old_records, **kwargs
+            )
             # Check for low stock
             for new_record, old_record in zip(new_records, old_records or []):
                 if new_record.value < 10 and old_record.value >= 10:
@@ -232,12 +261,14 @@ class InventoryTrigger(TriggerClass):
     @trigger(AFTER_DELETE, model=TriggerModel)
     def log_deletion(self, new_records, old_records=None, **kwargs):
         if "inventory" in _active_triggers:
-            InventoryTrigger.tracker.add_call(AFTER_DELETE, new_records, old_records, **kwargs)
+            InventoryTrigger.tracker.add_call(
+                AFTER_DELETE, new_records, old_records, **kwargs
+            )
 
 
 class AuditTrigger(TriggerClass):
     audit_log = []  # Class variable to persist across instances
-    
+
     def __init__(self):
         self.tracker = TriggerTracker()
 
@@ -271,21 +302,25 @@ class AuditTrigger(TriggerClass):
 class UserRegistrationTrigger(TriggerClass):
     welcome_emails_sent = []  # Class variable to persist across instances
     tracker = TriggerTracker()  # Class variable to persist across instances
-    
+
     def __init__(self):
         pass  # No need to create instance tracker
 
-    @trigger(BEFORE_CREATE, model=TriggerModel)
+    @trigger(BEFORE_CREATE, model=SimpleModel)
     def validate_user(self, new_records, old_records=None, **kwargs):
-        UserRegistrationTrigger.tracker.add_call(BEFORE_CREATE, new_records, old_records, **kwargs)
+        UserRegistrationTrigger.tracker.add_call(
+            BEFORE_CREATE, new_records, old_records, **kwargs
+        )
         # Validate name format (should not be empty)
         for user in new_records:
             if not user.name or len(user.name.strip()) == 0:
                 raise ValueError(f"Invalid name: {user.name}")
 
-    @trigger(AFTER_CREATE, model=TriggerModel)
+    @trigger(AFTER_CREATE, model=SimpleModel)
     def send_welcome_email(self, new_records, old_records=None, **kwargs):
-        UserRegistrationTrigger.tracker.add_call(AFTER_CREATE, new_records, old_records, **kwargs)
+        UserRegistrationTrigger.tracker.add_call(
+            AFTER_CREATE, new_records, old_records, **kwargs
+        )
         # Simulate sending welcome emails (using names)
         for user in new_records:
             UserRegistrationTrigger.welcome_emails_sent.append(user.name)
@@ -300,16 +335,23 @@ class TestFullSystemIntegration(TestCase):
         self.tracker = TriggerTracker()
 
         # Create test data using bulk_create to avoid RETURNING clause issues
-        users = UserModel.objects.bulk_create([
-            UserModel(username="testuser", email="test@example.com", is_active=True, created_at=timezone.now())
-        ])
+        users = UserModel.objects.bulk_create(
+            [
+                UserModel(
+                    username="testuser",
+                    email="test@example.com",
+                    is_active=True,
+                    created_at=timezone.now(),
+                )
+            ]
+        )
         self.user = users[0]
 
-        categories = Category.objects.bulk_create([
-            Category(name="Test Category", description="", is_active=True)
-        ])
+        categories = Category.objects.bulk_create(
+            [Category(name="Test Category", description="", is_active=True)]
+        )
         self.category = categories[0]
-        
+
         # Reset the trackers for each test
         _create_tracker.reset()
         _update_tracker.reset()
@@ -330,13 +372,14 @@ class TestFullSystemIntegration(TestCase):
 
         # Clear active triggers
         _active_triggers.clear()
-        
+
         # Re-register test triggers after clearing
         self._register_test_triggers()
-    
+
     def _register_test_triggers(self):
         """Register the triggers needed for this test class."""
         from tests.utils import re_register_test_triggers
+
         re_register_test_triggers()
 
     def test_complete_bulk_create_workflow(self):
@@ -657,7 +700,9 @@ class TestFullSystemIntegration(TestCase):
             )
 
         # Test bulk_create performance
-        with self.assertNumQueries(4):  # SAVEPOINT + INSERT (batch 1) + INSERT (batch 2) + RELEASE - with transaction.atomic
+        with self.assertNumQueries(
+            4
+        ):  # SAVEPOINT + INSERT (batch 1) + INSERT (batch 2) + RELEASE - with transaction.atomic
             created_instances = TriggerModel.objects.bulk_create(test_instances)
 
         # Verify triggers were called
@@ -667,14 +712,18 @@ class TestFullSystemIntegration(TestCase):
         # Test bulk_update performance
         # The auto-detection implementation does additional queries to detect changes
         # plus the bulk update query - refactored implementation
-        with self.assertNumQueries(214):  # SAVEPOINT + Individual SELECT queries for originals + bulk update query + RELEASE - optimized implementation
+        with self.assertNumQueries(
+            214
+        ):  # SAVEPOINT + Individual SELECT queries for originals + bulk update query + RELEASE - optimized implementation
             updated_count = TriggerModel.objects.bulk_update(created_instances)
 
         self.assertEqual(updated_count, 100)
 
         # Test bulk_delete performance
         # The refactored implementation includes individual SELECT queries for field caching
-        with self.assertNumQueries(105):  # SAVEPOINT + 100 individual SELECTs + 1 bulk SELECT + 2 DELETE queries + RELEASE - refactored implementation
+        with self.assertNumQueries(
+            105
+        ):  # SAVEPOINT + 100 individual SELECTs + 1 bulk SELECT + 2 DELETE queries + RELEASE - refactored implementation
             deleted_count = TriggerModel.objects.bulk_delete(created_instances)
 
         self.assertEqual(deleted_count, 100)
@@ -687,33 +736,41 @@ class TestRealWorldScenarios(TestCase):
         from django.utils import timezone
 
         # Create test data using bulk_create to avoid RETURNING clause issues
-        users = UserModel.objects.bulk_create([
-            UserModel(username="testuser", email="test@example.com", is_active=True, created_at=timezone.now())
-        ])
+        users = UserModel.objects.bulk_create(
+            [
+                UserModel(
+                    username="testuser",
+                    email="test@example.com",
+                    is_active=True,
+                    created_at=timezone.now(),
+                )
+            ]
+        )
         self.user = users[0]
 
-        categories = Category.objects.bulk_create([
-            Category(name="Test Category", description="", is_active=True)
-        ])
+        categories = Category.objects.bulk_create(
+            [Category(name="Test Category", description="", is_active=True)]
+        )
         self.category = categories[0]
-        
+
         # Reset trigger class variables
         AuditTrigger.audit_log.clear()
         InventoryTrigger.low_stock_alerts.clear()
         UserRegistrationTrigger.welcome_emails_sent.clear()
-        
+
         # Reset trackers
         UserRegistrationTrigger.tracker.reset()
-        
+
         # Clear active triggers
         _active_triggers.clear()
-        
+
         # Re-register test triggers after clearing
         self._register_test_triggers()
 
     def _register_test_triggers(self):
         """Register the triggers needed for this test class."""
         from tests.utils import re_register_test_triggers
+
         re_register_test_triggers()
 
     def test_user_registration_workflow(self):
@@ -780,8 +837,6 @@ class TestRealWorldScenarios(TestCase):
 
         _active_triggers.add("audit")
         trigger_instance = AuditTrigger()
-        
-
 
         # Create records
         records = [
@@ -806,9 +861,11 @@ class TestRealWorldScenarios(TestCase):
         self.assertIn("Created: Modified Record 1 by testuser", AuditTrigger.audit_log)
         self.assertIn("Created: Modified Record 2 by testuser", AuditTrigger.audit_log)
         self.assertIn(
-            "Status changed: Modified Record 1 draft -> published", AuditTrigger.audit_log
+            "Status changed: Modified Record 1 draft -> published",
+            AuditTrigger.audit_log,
         )
         self.assertIn(
-            "Status changed: Modified Record 2 draft -> archived", AuditTrigger.audit_log
+            "Status changed: Modified Record 2 draft -> archived",
+            AuditTrigger.audit_log,
         )
         self.assertIn("Deleted: Modified Record 1", AuditTrigger.audit_log)
