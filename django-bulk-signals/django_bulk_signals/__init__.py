@@ -6,6 +6,7 @@ that work just like Salesforce triggers but follow Django's signal patterns.
 """
 
 from django_bulk_signals.manager import BulkSignalManager
+from django_bulk_signals.models import BulkSignalModelMixin
 from django_bulk_signals.queryset import BulkSignalQuerySet
 from django_bulk_signals.signals import (
     bulk_post_create,
@@ -25,6 +26,7 @@ __all__ = [
     "bulk_post_delete",
     "BulkSignalQuerySet",
     "BulkSignalManager",
+    "BulkSignalModelMixin",
 ]
 
 __version__ = "1.0.0"

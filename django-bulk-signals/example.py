@@ -17,7 +17,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.settings")
 django.setup()
 
 from django.db import models
-from django_bulk_signals import BulkSignalManager
+from django_bulk_signals import BulkSignalManager, BulkSignalModelMixin
 from django_bulk_signals.conditions import ChangesTo, HasChanged
 from django_bulk_signals.decorators import (
     after_create,
@@ -28,14 +28,12 @@ from django_bulk_signals.decorators import (
 )
 
 
-class Account(models.Model):
+class Account(BulkSignalModelMixin):
     """Account model - similar to Salesforce Account."""
 
     name = models.CharField(max_length=100)
     status = models.CharField(max_length=20, default="active")
     balance = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-
-    objects = BulkSignalManager()
 
     class Meta:
         app_label = "example"
