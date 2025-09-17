@@ -504,10 +504,19 @@ class TriggerQuerySetMixin(
                                         f"DEBUG: AGGREGATE FIELD {field.name} changed from {old_value} (type: {type(old_value).__name__}) to {new_value} (type: {type(new_value).__name__})"
                                     )
                             pre_trigger_values[field.name] = new_value
+                            try:
+                                refreshed_value = getattr(refreshed_instance, field.name)
+                            except Exception as e:
+                                # Handle foreign key DoesNotExist errors gracefully
+                                if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                                    refreshed_value = None
+                                else:
+                                    raise
+                            
                             setattr(
                                 instance,
                                 field.name,
-                                getattr(refreshed_instance, field.name),
+                                refreshed_value,
                             )
                     pre_trigger_state[instance.pk] = pre_trigger_values
                     logger.debug(
