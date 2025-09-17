@@ -56,17 +56,28 @@ class BulkSignalQuerySet(QuerySet):
             f"bulk_create: Creating {len(objs)} objects for {self.model.__name__}"
         )
 
+        # Validate objects
+        for obj in objs:
+            if not isinstance(obj, self.model):
+                raise TypeError(
+                    f"Expected {self.model.__name__} instance, got {type(obj).__name__}"
+                )
+
         # Fire BEFORE_CREATE signal (Salesforce-style)
-        bulk_pre_create.send(
-            sender=self.model,
-            instances=objs,
-            batch_size=batch_size,
-            ignore_conflicts=ignore_conflicts,
-            update_conflicts=update_conflicts,
-            update_fields=update_fields,
-            unique_fields=unique_fields,
-            **kwargs,
-        )
+        try:
+            bulk_pre_create.send(
+                sender=self.model,
+                instances=objs,
+                batch_size=batch_size,
+                ignore_conflicts=ignore_conflicts,
+                update_conflicts=update_conflicts,
+                update_fields=update_fields,
+                unique_fields=unique_fields,
+                **kwargs,
+            )
+        except Exception as e:
+            logger.error(f"BEFORE_CREATE signal handler failed: {e}")
+            raise
 
         # Perform the bulk create operation
         django_kwargs = {
@@ -84,16 +95,20 @@ class BulkSignalQuerySet(QuerySet):
         result = super().bulk_create(objs, **django_kwargs)
 
         # Fire AFTER_CREATE signal (Salesforce-style)
-        bulk_post_create.send(
-            sender=self.model,
-            instances=result,
-            batch_size=batch_size,
-            ignore_conflicts=ignore_conflicts,
-            update_conflicts=update_conflicts,
-            update_fields=update_fields,
-            unique_fields=unique_fields,
-            **kwargs,
-        )
+        try:
+            bulk_post_create.send(
+                sender=self.model,
+                instances=result,
+                batch_size=batch_size,
+                ignore_conflicts=ignore_conflicts,
+                update_conflicts=update_conflicts,
+                update_fields=update_fields,
+                unique_fields=unique_fields,
+                **kwargs,
+            )
+        except Exception as e:
+            logger.error(f"AFTER_CREATE signal handler failed: {e}")
+            raise
 
         logger.debug(
             f"bulk_create: Created {len(result)} objects for {self.model.__name__}"
@@ -121,12 +136,20 @@ class BulkSignalQuerySet(QuerySet):
             f"bulk_update: Updating {len(objs)} objects for {self.model.__name__}"
         )
 
+        # Validate objects
+        for obj in objs:
+            if not isinstance(obj, self.model):
+                raise TypeError(
+                    f"Expected {self.model.__name__} instance, got {type(obj).__name__}"
+                )
+
         # Get original instances for OLD/NEW comparison (Salesforce-style)
         pks = [obj.pk for obj in objs if obj.pk is not None]
         if not pks:
             raise ValueError("All objects must have primary keys for bulk_update")
 
-        originals = list(self.model.objects.filter(pk__in=pks))
+        # Use _base_manager to avoid triggering signals recursively
+        originals = list(self.model._base_manager.filter(pk__in=pks))
         original_map = {obj.pk: obj for obj in originals}
 
         # Ensure we have originals for all objects
@@ -135,14 +158,18 @@ class BulkSignalQuerySet(QuerySet):
                 logger.warning(f"bulk_update: No original found for object {obj.pk}")
 
         # Fire BEFORE_UPDATE signal (Salesforce-style)
-        bulk_pre_update.send(
-            sender=self.model,
-            instances=objs,
-            originals=originals,
-            fields=fields,
-            batch_size=batch_size,
-            **kwargs,
-        )
+        try:
+            bulk_pre_update.send(
+                sender=self.model,
+                instances=objs,
+                originals=originals,
+                fields=fields,
+                batch_size=batch_size,
+                **kwargs,
+            )
+        except Exception as e:
+            logger.error(f"BEFORE_UPDATE signal handler failed: {e}")
+            raise
 
         # Perform the bulk update operation
         django_kwargs = {
@@ -156,14 +183,18 @@ class BulkSignalQuerySet(QuerySet):
         result = super().bulk_update(objs, fields, **django_kwargs)
 
         # Fire AFTER_UPDATE signal (Salesforce-style)
-        bulk_post_update.send(
-            sender=self.model,
-            instances=objs,
-            originals=originals,
-            fields=fields,
-            batch_size=batch_size,
-            **kwargs,
-        )
+        try:
+            bulk_post_update.send(
+                sender=self.model,
+                instances=objs,
+                originals=originals,
+                fields=fields,
+                batch_size=batch_size,
+                **kwargs,
+            )
+        except Exception as e:
+            logger.error(f"AFTER_UPDATE signal handler failed: {e}")
+            raise
 
         logger.debug(f"bulk_update: Updated {result} objects for {self.model.__name__}")
         return result
@@ -182,14 +213,29 @@ class BulkSignalQuerySet(QuerySet):
             f"bulk_delete: Deleting {len(objs)} objects for {self.model.__name__}"
         )
 
+        # Validate objects
+        for obj in objs:
+            if not isinstance(obj, self.model):
+                raise TypeError(
+                    f"Expected {self.model.__name__} instance, got {type(obj).__name__}"
+                )
+
         # Fire BEFORE_DELETE signal (Salesforce-style)
-        bulk_pre_delete.send(sender=self.model, instances=objs, **kwargs)
+        try:
+            bulk_pre_delete.send(sender=self.model, instances=objs, **kwargs)
+        except Exception as e:
+            logger.error(f"BEFORE_DELETE signal handler failed: {e}")
+            raise
 
         # Perform the bulk delete operation
         result = super().bulk_delete(objs, **kwargs)
 
         # Fire AFTER_DELETE signal (Salesforce-style)
-        bulk_post_delete.send(sender=self.model, instances=objs, **kwargs)
+        try:
+            bulk_post_delete.send(sender=self.model, instances=objs, **kwargs)
+        except Exception as e:
+            logger.error(f"AFTER_DELETE signal handler failed: {e}")
+            raise
 
         logger.debug(f"bulk_delete: Deleted {result} objects for {self.model.__name__}")
         return result

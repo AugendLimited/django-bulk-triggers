@@ -52,14 +52,12 @@ class BulkSignalManager(models.Manager):
             **kwargs,
         )
 
-    def bulk_update(self, objs, fields=None, batch_size=None, **kwargs):
+    def bulk_update(self, objs, fields, batch_size=None, **kwargs):
         """
         Delegate to QuerySet's bulk_update implementation.
 
         This follows Django's pattern where Manager methods call QuerySet methods.
         """
-        if fields is not None:
-            kwargs["fields"] = fields
         return self.get_queryset().bulk_update(
             objs, fields=fields, batch_size=batch_size, **kwargs
         )
