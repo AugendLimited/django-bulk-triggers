@@ -100,8 +100,8 @@ Change a condition → 1 file changes:
 
 ```python
 from django_bulk_signals import BulkSignalManager
-from django_bulk_signals.decorators_simple import before_create, after_update
-from django_bulk_signals.conditions_simple import HasChanged
+from django_bulk_signals.decorators import before_create, after_update
+from django_bulk_signals.conditions import HasChanged
 
 class Account(models.Model):
     name = models.CharField(max_length=100)
@@ -178,8 +178,8 @@ from django_bulk_signals.conditions import HasChanged
 
 # After (zero-coupling)
 from django_bulk_signals import BulkSignalManager  # Same!
-from django_bulk_signals.decorators_simple import before_create  # Same API!
-from django_bulk_signals.conditions_simple import HasChanged  # Same API!
+from django_bulk_signals.decorators import before_create  # Same API!
+from django_bulk_signals.conditions import HasChanged  # Same API!
 ```
 
 **Result**: Same API, zero coupling, bulletproof architecture.
@@ -187,9 +187,9 @@ from django_bulk_signals.conditions_simple import HasChanged  # Same API!
 ## Files Created
 
 1. **`core.py`** - Core QuerySet and Manager (zero dependencies)
-2. **`decorators_simple.py`** - Simple decorators (zero dependencies)
-3. **`conditions_simple.py`** - Simple conditions (zero dependencies)
-4. **`__init___simple.py`** - Simple exports (zero dependencies)
+2. **`decorators.py`** - Simple decorators (zero dependencies)
+3. **`conditions.py`** - Simple conditions (zero dependencies)
+4. **`__init__.py`** - Simple exports (zero dependencies)
 5. **`example_simple.py`** - Complete example (zero dependencies)
 6. **`test_simple.py`** - Simple tests (zero dependencies)
 

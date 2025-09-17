@@ -7,8 +7,8 @@ Each component has a single responsibility and zero dependencies on other compon
 
 from django.db import models
 from django_bulk_signals import BulkSignalManager
-from django_bulk_signals.conditions_simple import ChangesTo, HasChanged, IsEqual
-from django_bulk_signals.decorators_simple import (
+from django_bulk_signals.conditions import ChangesTo, HasChanged, IsEqual
+from django_bulk_signals.decorators import (
     after_create,
     after_update,
     before_create,

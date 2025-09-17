@@ -17,8 +17,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.settings")
 django.setup()
 
 from django_bulk_signals import BulkSignalManager
-from django_bulk_signals.conditions_simple import ChangesTo, HasChanged
-from django_bulk_signals.decorators_simple import after_update, before_create
+from django_bulk_signals.conditions import ChangesTo, HasChanged
+from django_bulk_signals.decorators import after_update, before_create
 
 
 class TestAccount(models.Model):
@@ -102,7 +102,7 @@ class TestZeroCouplingArchitecture(TestCase):
 
         # Test decorator in isolation (no dependencies)
         from django_bulk_signals.core import bulk_pre_create
-        from django_bulk_signals.decorators_simple import bulk_trigger
+        from django_bulk_signals.decorators import bulk_trigger
 
         # This should work without any service or executor dependencies
         decorator = bulk_trigger(bulk_pre_create, TestAccount, condition)
