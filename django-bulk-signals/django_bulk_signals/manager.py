@@ -16,7 +16,14 @@ class BulkSignalManager(models.Manager):
 
     This manager returns BulkSignalQuerySet instances that fire signals
     for bulk operations, providing Salesforce-style trigger behavior.
+
+    The manager follows Django's pattern of delegating to QuerySet methods
+    rather than duplicating the interface.
     """
+
+    def __init__(self, trigger_service=None):
+        super().__init__()
+        self.trigger_service = trigger_service
 
     def get_queryset(self):
         """
@@ -25,47 +32,9 @@ class BulkSignalManager(models.Manager):
         This ensures that all bulk operations (bulk_create, bulk_update, bulk_delete)
         fire appropriate signals.
         """
-        return BulkSignalQuerySet(self.model, using=self._db, hints=self._hints)
-
-    def bulk_create(
-        self,
-        objs,
-        batch_size=None,
-        ignore_conflicts=False,
-        update_conflicts=False,
-        update_fields=None,
-        unique_fields=None,
-        **kwargs,
-    ):
-        """
-        Delegate to QuerySet's bulk_create implementation.
-
-        This follows Django's pattern where Manager methods call QuerySet methods.
-        """
-        return self.get_queryset().bulk_create(
-            objs,
-            batch_size=batch_size,
-            ignore_conflicts=ignore_conflicts,
-            update_conflicts=update_conflicts,
-            update_fields=update_fields,
-            unique_fields=unique_fields,
-            **kwargs,
+        return BulkSignalQuerySet(
+            self.model,
+            using=self._db,
+            hints=self._hints,
+            trigger_service=self.trigger_service,
         )
-
-    def bulk_update(self, objs, fields, batch_size=None, **kwargs):
-        """
-        Delegate to QuerySet's bulk_update implementation.
-
-        This follows Django's pattern where Manager methods call QuerySet methods.
-        """
-        return self.get_queryset().bulk_update(
-            objs, fields=fields, batch_size=batch_size, **kwargs
-        )
-
-    def bulk_delete(self, objs, **kwargs):
-        """
-        Delegate to QuerySet's bulk_delete implementation.
-
-        This follows Django's pattern where Manager methods call QuerySet methods.
-        """
-        return self.get_queryset().bulk_delete(objs, **kwargs)

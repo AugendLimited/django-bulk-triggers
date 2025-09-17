@@ -45,8 +45,12 @@ class TestBulkSignals(TestCase):
     def test_bulk_create_signals(self):
         """Test that bulk_create fires appropriate signals."""
         with (
-            patch("django_bulk_signals.signals.bulk_pre_create.send") as mock_pre,
-            patch("django_bulk_signals.signals.bulk_post_create.send") as mock_post,
+            patch(
+                "django_bulk_signals.services.trigger_service.execute_before_triggers"
+            ) as mock_pre,
+            patch(
+                "django_bulk_signals.services.trigger_service.execute_after_triggers"
+            ) as mock_post,
             patch("django.db.models.QuerySet.bulk_create") as mock_bulk_create,
         ):
             mock_bulk_create.return_value = self.objs
@@ -74,8 +78,12 @@ class TestBulkSignals(TestCase):
             obj.pk = i + 1
 
         with (
-            patch("django_bulk_signals.signals.bulk_pre_update.send") as mock_pre,
-            patch("django_bulk_signals.signals.bulk_post_update.send") as mock_post,
+            patch(
+                "django_bulk_signals.services.trigger_service.execute_before_triggers"
+            ) as mock_pre,
+            patch(
+                "django_bulk_signals.services.trigger_service.execute_after_triggers"
+            ) as mock_post,
             patch("django.db.models.QuerySet.bulk_update") as mock_bulk_update,
             patch("django.db.models.QuerySet.filter") as mock_filter,
         ):
@@ -103,8 +111,12 @@ class TestBulkSignals(TestCase):
     def test_bulk_delete_signals(self):
         """Test that bulk_delete fires appropriate signals."""
         with (
-            patch("django_bulk_signals.signals.bulk_pre_delete.send") as mock_pre,
-            patch("django_bulk_signals.signals.bulk_post_delete.send") as mock_post,
+            patch(
+                "django_bulk_signals.services.trigger_service.execute_before_triggers"
+            ) as mock_pre,
+            patch(
+                "django_bulk_signals.services.trigger_service.execute_after_triggers"
+            ) as mock_post,
             patch("django.db.models.QuerySet.bulk_delete") as mock_bulk_delete,
         ):
             mock_bulk_delete.return_value = len(self.objs)
@@ -154,9 +166,19 @@ class TestBulkSignals(TestCase):
 
     def test_transaction_atomic(self):
         """Test that bulk operations are wrapped in transactions."""
-        with patch("django.db.transaction.atomic") as mock_atomic:
+        with (
+            patch("django.db.transaction.atomic") as mock_atomic,
+            patch(
+                "django_bulk_signals.services.trigger_service.execute_before_triggers"
+            ) as mock_pre,
+            patch(
+                "django_bulk_signals.services.trigger_service.execute_after_triggers"
+            ) as mock_post,
+            patch("django.db.models.QuerySet.bulk_create") as mock_bulk_create,
+        ):
             mock_atomic.return_value.__enter__ = Mock()
             mock_atomic.return_value.__exit__ = Mock(return_value=None)
+            mock_bulk_create.return_value = self.objs
 
             queryset = BulkSignalQuerySet(TestModel)
             queryset.bulk_create(self.objs)

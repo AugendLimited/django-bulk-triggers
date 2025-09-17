@@ -1,8 +1,11 @@
 """
 Model mixin for individual model operations with signal support.
 
-This module provides TriggerModelMixin that enables BEFORE/AFTER signals
+This module provides BulkSignalModelMixin that enables BEFORE/AFTER signals
 for individual model operations (save, delete) and admin form validation.
+
+The mixin now delegates signal orchestration to the service layer,
+maintaining proper separation of concerns.
 """
 
 import logging
@@ -10,6 +13,7 @@ import logging
 from django.db import models
 
 from django_bulk_signals.manager import BulkSignalManager
+from django_bulk_signals.services import _default_service
 from django_bulk_signals.signals import (
     bulk_post_create,
     bulk_post_delete,
@@ -30,6 +34,9 @@ class BulkSignalModelMixin(models.Model):
     - Individual model save() operations
     - Individual model delete() operations
     - Admin form validation via clean()
+
+    The mixin delegates signal orchestration to the service layer,
+    maintaining proper separation of concerns.
 
     Usage:
         class MyModel(BulkSignalModelMixin):
@@ -81,13 +88,23 @@ class BulkSignalModelMixin(models.Model):
         if is_create:
             logger.debug(f"save() creating new {self.__class__.__name__} instance")
             # For create operations, fire BEFORE_CREATE signal
-            bulk_pre_create.send(sender=self.__class__, instances=[self], **kwargs)
+            _default_service.execute_before_triggers(
+                bulk_pre_create,
+                sender=self.__class__,
+                instances=[self],
+                **kwargs,
+            )
 
             super().save(*args, **kwargs)
 
             # Fire AFTER_CREATE signal
             logger.debug("Running AFTER_CREATE signal for individual save()")
-            bulk_post_create.send(sender=self.__class__, instances=[self], **kwargs)
+            _default_service.execute_after_triggers(
+                bulk_post_create,
+                sender=self.__class__,
+                instances=[self],
+                **kwargs,
+            )
         else:
             logger.debug(
                 f"save() updating existing {self.__class__.__name__} instance pk={self.pk}"
@@ -98,7 +115,8 @@ class BulkSignalModelMixin(models.Model):
                 old_instance = self.__class__._base_manager.get(pk=self.pk)
 
                 # Fire BEFORE_UPDATE signal
-                bulk_pre_update.send(
+                _default_service.execute_before_triggers(
+                    bulk_pre_update,
                     sender=self.__class__,
                     instances=[self],
                     originals=[old_instance],
@@ -109,7 +127,8 @@ class BulkSignalModelMixin(models.Model):
                 super().save(*args, **kwargs)
 
                 # Fire AFTER_UPDATE signal
-                bulk_post_update.send(
+                _default_service.execute_after_triggers(
+                    bulk_post_update,
                     sender=self.__class__,
                     instances=[self],
                     originals=[old_instance],
@@ -123,12 +142,22 @@ class BulkSignalModelMixin(models.Model):
                 )
 
                 # Fire BEFORE_CREATE signal
-                bulk_pre_create.send(sender=self.__class__, instances=[self], **kwargs)
+                _default_service.execute_before_triggers(
+                    bulk_pre_create,
+                    sender=self.__class__,
+                    instances=[self],
+                    **kwargs,
+                )
 
                 super().save(*args, **kwargs)
 
                 # Fire AFTER_CREATE signal
-                bulk_post_create.send(sender=self.__class__, instances=[self], **kwargs)
+                _default_service.execute_after_triggers(
+                    bulk_post_create,
+                    sender=self.__class__,
+                    instances=[self],
+                    **kwargs,
+                )
 
         return self
 
@@ -145,11 +174,21 @@ class BulkSignalModelMixin(models.Model):
             return self.__class__._base_manager.delete(self, *args, **kwargs)
 
         # Fire BEFORE_DELETE signal
-        bulk_pre_delete.send(sender=self.__class__, instances=[self], **kwargs)
+        _default_service.execute_before_triggers(
+            bulk_pre_delete,
+            sender=self.__class__,
+            instances=[self],
+            **kwargs,
+        )
 
         result = super().delete(*args, **kwargs)
 
         # Fire AFTER_DELETE signal
-        bulk_post_delete.send(sender=self.__class__, instances=[self], **kwargs)
+        _default_service.execute_after_triggers(
+            bulk_post_delete,
+            sender=self.__class__,
+            instances=[self],
+            **kwargs,
+        )
 
         return result

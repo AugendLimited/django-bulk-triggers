@@ -185,8 +185,14 @@ class TestTriggerConditions(TestCase):
 
     def test_condition_with_missing_field(self):
         """Test conditions with missing fields."""
+        # Create real objects without the missing field
+        from types import SimpleNamespace
+
+        instance = SimpleNamespace(field1="value1")
+        original = SimpleNamespace(field1="value2")
+
         condition = HasChanged("missing_field")
-        result = condition.check(self.instance, self.original)
+        result = condition.check(instance, original)
         self.assertFalse(result)  # Should handle missing fields gracefully
 
     def test_condition_with_none_values(self):

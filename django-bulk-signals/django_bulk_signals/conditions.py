@@ -61,6 +61,13 @@ class HasChanged(TriggerCondition):
         if not original_instance:
             return False
 
+        # Check if field exists on both instances
+        if not hasattr(instance, self.field) or not hasattr(
+            original_instance, self.field
+        ):
+            logger.debug(f"Field '{self.field}' not found on instance or original")
+            return False
+
         current_value = getattr(instance, self.field, None)
         previous_value = getattr(original_instance, self.field, None)
 
@@ -96,10 +103,18 @@ class IsEqual(TriggerCondition):
 
     def check(self, instance: Any, original_instance: Optional[Any] = None) -> bool:
         """Check if the field equals the specified value."""
+        # Check if field exists on instance
+        if not hasattr(instance, self.field):
+            logger.debug(f"Field '{self.field}' not found on instance")
+            return False
+
         current_value = getattr(instance, self.field, None)
 
         if self.only_on_change:
             if not original_instance:
+                return False
+            if not hasattr(original_instance, self.field):
+                logger.debug(f"Field '{self.field}' not found on original instance")
                 return False
             previous_value = getattr(original_instance, self.field, None)
             return previous_value != self.value and current_value == self.value
@@ -127,10 +142,18 @@ class IsNotEqual(TriggerCondition):
 
     def check(self, instance: Any, original_instance: Optional[Any] = None) -> bool:
         """Check if the field does not equal the specified value."""
+        # Check if field exists on instance
+        if not hasattr(instance, self.field):
+            logger.debug(f"Field '{self.field}' not found on instance")
+            return False
+
         current_value = getattr(instance, self.field, None)
 
         if self.only_on_change:
             if not original_instance:
+                return False
+            if not hasattr(original_instance, self.field):
+                logger.debug(f"Field '{self.field}' not found on original instance")
                 return False
             previous_value = getattr(original_instance, self.field, None)
             return previous_value == self.value and current_value != self.value
@@ -161,9 +184,17 @@ class WasEqual(TriggerCondition):
         if not original_instance:
             return False
 
+        # Check if field exists on original instance
+        if not hasattr(original_instance, self.field):
+            logger.debug(f"Field '{self.field}' not found on original instance")
+            return False
+
         previous_value = getattr(original_instance, self.field, None)
 
         if self.only_on_change:
+            if not hasattr(instance, self.field):
+                logger.debug(f"Field '{self.field}' not found on instance")
+                return False
             current_value = getattr(instance, self.field, None)
             return previous_value == self.value and current_value != self.value
         else:
@@ -189,6 +220,13 @@ class ChangesTo(TriggerCondition):
     def check(self, instance: Any, original_instance: Optional[Any] = None) -> bool:
         """Check if the field has changed to the specified value."""
         if not original_instance:
+            return False
+
+        # Check if field exists on both instances
+        if not hasattr(instance, self.field) or not hasattr(
+            original_instance, self.field
+        ):
+            logger.debug(f"Field '{self.field}' not found on instance or original")
             return False
 
         current_value = getattr(instance, self.field, None)

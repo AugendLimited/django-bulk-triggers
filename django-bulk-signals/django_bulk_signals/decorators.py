@@ -3,6 +3,9 @@ Decorators for bulk operation triggers.
 
 This module provides decorators for easily registering trigger handlers
 for bulk operations, similar to Salesforce trigger patterns.
+
+The decorators are now purely for registration - business logic is handled
+by the service layer.
 """
 
 import logging
@@ -36,6 +39,9 @@ def bulk_trigger(
     This decorator provides a clean way to register trigger handlers
     for bulk operations, similar to Salesforce trigger patterns.
 
+    The decorator is now purely for registration - condition filtering
+    is handled by the service layer during signal execution.
+
     Args:
         signal: The signal to listen for (e.g., bulk_pre_update)
         sender: The model class to listen for
@@ -52,47 +58,14 @@ def bulk_trigger(
     """
 
     def decorator(func: Callable) -> Callable:
+        # Store condition metadata on the function for service layer to use
+        func._trigger_condition = condition
+
         @receiver(signal, sender=sender, dispatch_uid=dispatch_uid)
         @wraps(func)
         def wrapper(sender, **kwargs):
-            # If no condition, fire for all instances
-            if not condition:
-                return func(sender, **kwargs)
-
-            # Filter instances based on condition
-            instances = kwargs.get("instances", [])
-            originals = kwargs.get("originals", [])
-
-            if not instances:
-                return
-
-            # Apply condition to filter instances
-            filtered_instances = []
-            filtered_originals = []
-
-            for instance, original in zip(
-                instances, originals or [None] * len(instances)
-            ):
-                if condition.check(instance, original):
-                    filtered_instances.append(instance)
-                    filtered_originals.append(original)
-
-            # Only call the handler if there are instances that meet the condition
-            if filtered_instances:
-                # Update kwargs with filtered instances
-                kwargs["instances"] = filtered_instances
-                kwargs["originals"] = filtered_originals
-
-                logger.debug(
-                    f"Trigger {func.__name__} firing for {len(filtered_instances)} "
-                    f"instances (filtered from {len(instances)})"
-                )
-
-                return func(sender, **kwargs)
-            else:
-                logger.debug(
-                    f"Trigger {func.__name__} skipped - no instances met condition"
-                )
+            # Pure handler execution - no business logic here
+            return func(sender, **kwargs)
 
         return wrapper
 
@@ -176,6 +149,9 @@ def process_instances(condition: Optional[TriggerCondition] = None):
     """
 
     def decorator(func: Callable) -> Callable:
+        # Store condition metadata on the function
+        func._trigger_condition = condition
+
         @wraps(func)
         def wrapper(sender, instances=None, originals=None, **kwargs):
             if not instances:
