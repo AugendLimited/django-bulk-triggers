@@ -549,7 +549,16 @@ class TriggerQuerySetMixin(
                 if instance.pk in pre_trigger_state:
                     pre_trigger_values = pre_trigger_state[instance.pk]
                     for field_name, pre_trigger_value in pre_trigger_values.items():
-                        current_value = getattr(instance, field_name)
+                        try:
+                            current_value = getattr(instance, field_name)
+                        except Exception as e:
+                            # Handle foreign key DoesNotExist errors gracefully
+                            field = instance._meta.get_field(field_name)
+                            if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                                current_value = None
+                            else:
+                                raise
+                        
                         if current_value != pre_trigger_value:
                             trigger_modified_fields.add(field_name)
 
@@ -631,7 +640,16 @@ class TriggerQuerySetMixin(
                         field_name,
                         pre_after_trigger_value,
                     ) in pre_after_trigger_values.items():
-                        current_value = getattr(instance, field_name)
+                        try:
+                            current_value = getattr(instance, field_name)
+                        except Exception as e:
+                            # Handle foreign key DoesNotExist errors gracefully
+                            field = instance._meta.get_field(field_name)
+                            if field.is_relation and 'DoesNotExist' in str(type(e).__name__):
+                                current_value = None
+                            else:
+                                raise
+                        
                         if current_value != pre_after_trigger_value:
                             after_trigger_modified_fields.add(field_name)
 
