@@ -15,6 +15,7 @@ DEBUG = True
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
+    "django_bulk_signals",
     "tests",
 ]
 
@@ -28,13 +29,8 @@ DATABASES = {
 USE_TZ = True
 
 
-# Disable migrations for testing
-class DisableMigrations:
-    def __contains__(self, item):
-        return True
-
-    def __getitem__(self, item):
-        return None
-
-
-MIGRATION_MODULES = DisableMigrations()
+# Use in-memory database and disable migrations for testing
+MIGRATION_MODULES = {
+    'tests': None,
+    'django_bulk_signals': None,
+}

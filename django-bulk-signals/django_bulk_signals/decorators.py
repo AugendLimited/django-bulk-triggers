@@ -1,17 +1,18 @@
 """
-Simple decorators for bulk operation triggers.
+Decorators for bulk operation triggers.
 
-These decorators have ZERO dependencies on services, executors, or configuration.
-They only register signal handlers using Django's native @receiver decorator.
+This module provides decorators for easily registering trigger handlers
+for bulk operations, similar to Salesforce trigger patterns.
 """
 
+import logging
 from functools import wraps
 from typing import Callable, Optional
 
 from django.dispatch import receiver
 
 from django_bulk_signals.conditions import TriggerCondition
-from django_bulk_signals.core import (
+from django_bulk_signals.signals import (
     bulk_post_create,
     bulk_post_delete,
     bulk_post_update,
@@ -19,6 +20,8 @@ from django_bulk_signals.core import (
     bulk_pre_delete,
     bulk_pre_update,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def bulk_trigger(
@@ -30,45 +33,73 @@ def bulk_trigger(
     """
     Decorator for registering bulk operation triggers.
 
-    This decorator has ZERO dependencies on services or configuration.
-    It only registers signal handlers and stores condition metadata.
+    This decorator provides a clean way to register trigger handlers
+    for bulk operations, similar to Salesforce trigger patterns.
+
+    Args:
+        signal: The signal to listen for (e.g., bulk_pre_update)
+        sender: The model class to listen for
+        condition: Optional condition to filter when the trigger fires
+        dispatch_uid: Optional unique identifier for the handler
+
+    Example:
+        @bulk_trigger(bulk_pre_update, MyModel, condition=HasChanged('status'))
+        def handle_status_change(sender, instances, originals, **kwargs):
+            for instance, original in zip(instances, originals):
+                if instance.status != original.status:
+                    # Handle status change
+                    pass
     """
 
     def decorator(func: Callable) -> Callable:
-        # Store condition metadata on function
-        func._trigger_condition = condition
-
         @receiver(signal, sender=sender, dispatch_uid=dispatch_uid)
         @wraps(func)
-        def wrapper(sender, instances=None, originals=None, **kwargs):
-            # Apply condition filtering if present
-            if condition and instances:
-                filtered_instances = []
-                filtered_originals = []
+        def wrapper(sender, **kwargs):
+            # If no condition, fire for all instances
+            if not condition:
+                return func(sender, **kwargs)
 
-                for instance, original in zip(
-                    instances, originals or [None] * len(instances)
-                ):
-                    if condition.check(instance, original):
-                        filtered_instances.append(instance)
-                        filtered_originals.append(original)
+            # Filter instances based on condition
+            instances = kwargs.get("instances", [])
+            originals = kwargs.get("originals", [])
 
-                if filtered_instances:
-                    return func(
-                        sender,
-                        instances=filtered_instances,
-                        originals=filtered_originals,
-                        **kwargs,
-                    )
+            if not instances:
+                return
+
+            # Apply condition to filter instances
+            filtered_instances = []
+            filtered_originals = []
+
+            for instance, original in zip(
+                instances, originals or [None] * len(instances)
+            ):
+                if condition.check(instance, original):
+                    filtered_instances.append(instance)
+                    filtered_originals.append(original)
+
+            # Only call the handler if there are instances that meet the condition
+            if filtered_instances:
+                # Update kwargs with filtered instances
+                kwargs["instances"] = filtered_instances
+                kwargs["originals"] = filtered_originals
+
+                logger.debug(
+                    f"Trigger {func.__name__} firing for {len(filtered_instances)} "
+                    f"instances (filtered from {len(instances)})"
+                )
+
+                return func(sender, **kwargs)
             else:
-                return func(sender, instances=instances, originals=originals, **kwargs)
+                logger.debug(
+                    f"Trigger {func.__name__} skipped - no instances met condition"
+                )
 
         return wrapper
 
     return decorator
 
 
-# Convenience decorators
+# Convenience decorators for specific trigger types
 def before_create(
     sender,
     condition: Optional[TriggerCondition] = None,
@@ -121,3 +152,57 @@ def after_delete(
 ):
     """Decorator for AFTER_DELETE triggers."""
     return bulk_trigger(bulk_post_delete, sender, condition, dispatch_uid)
+
+
+# Utility decorator for processing instances with conditions
+def process_instances(condition: Optional[TriggerCondition] = None):
+    """
+    Decorator for processing instances in trigger handlers.
+
+    This decorator can be used to wrap trigger handler functions
+    to automatically filter instances based on conditions.
+
+    Args:
+        condition: Optional condition to filter instances
+
+    Example:
+        @after_update(MyModel)
+        @process_instances(HasChanged('status'))
+        def handle_status_change(sender, instances, originals, **kwargs):
+            # This function will only be called with instances where status changed
+            for instance, original in zip(instances, originals):
+                # Handle status change
+                pass
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(sender, instances=None, originals=None, **kwargs):
+            if not instances:
+                return
+
+            if condition:
+                # Filter instances based on condition
+                filtered_instances = []
+                filtered_originals = []
+
+                for instance, original in zip(
+                    instances, originals or [None] * len(instances)
+                ):
+                    if condition.check(instance, original):
+                        filtered_instances.append(instance)
+                        filtered_originals.append(original)
+
+                if filtered_instances:
+                    return func(
+                        sender,
+                        instances=filtered_instances,
+                        originals=filtered_originals,
+                        **kwargs,
+                    )
+            else:
+                return func(sender, instances=instances, originals=originals, **kwargs)
+
+        return wrapper
+
+    return decorator
