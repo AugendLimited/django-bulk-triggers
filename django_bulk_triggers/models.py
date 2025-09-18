@@ -58,12 +58,11 @@ class TriggerModelMixin(models.Model):
                 run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
 
     def save(self, *args, bypass_triggers=False, **kwargs):
-        # If bypass_triggers is True, use base manager to avoid triggering triggers
         if bypass_triggers:
             logger.debug(
                 f"save() called with bypass_triggers=True for {self.__class__.__name__} pk={self.pk}"
             )
-            return self.__class__._base_manager.save(self, *args, **kwargs)
+            return super().save(*args, **kwargs)
 
         is_create = self.pk is None
 
@@ -78,7 +77,7 @@ class TriggerModelMixin(models.Model):
             # For Salesforce-like behavior, execute AFTER_CREATE triggers immediately
             # within the same transaction to ensure rollback capability
             logger.debug(
-                "DEBUG: Running AFTER_CREATE trigger immediately within transaction"
+                "Running AFTER_CREATE trigger immediately within transaction"
             )
             run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
         else:

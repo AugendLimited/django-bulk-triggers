@@ -445,7 +445,7 @@ class BulkOperationsMixin:
                     # Only assign if pre_save returned something
                     if new_value is not None:
                         logger.debug(
-                            "DEBUG: pre_save() returned value %s (type: %s) for field %s on object %s",
+                            "pre_save() returned value %s (type: %s) for field %s on object %s",
                             new_value,
                             type(new_value).__name__,
                             field.name,
@@ -457,7 +457,7 @@ class BulkOperationsMixin:
                             field, "many_to_many", False
                         ):
                             logger.debug(
-                                "DEBUG: Field %s is a relation field (is_relation=True, many_to_many=False)",
+                                "Field %s is a relation field (is_relation=True, many_to_many=False)",
                                 field.name,
                             )
                             # For ForeignKey fields, check if we need to assign to the _id field
@@ -466,7 +466,7 @@ class BulkOperationsMixin:
                                 and field.attname != field.name
                             ):
                                 logger.debug(
-                                    "DEBUG: Assigning ForeignKey value %s to _id field %s (original field: %s)",
+                                    "Assigning ForeignKey value %s to _id field %s (original field: %s)",
                                     new_value,
                                     field.attname,
                                     field.name,
@@ -480,12 +480,12 @@ class BulkOperationsMixin:
                                 ):
                                     fields_set.add(field.attname)
                                     logger.debug(
-                                        "DEBUG: Added _id field %s to fields_set",
+                                        "Added _id field %s to fields_set",
                                         field.attname,
                                     )
                             else:
                                 logger.debug(
-                                    "DEBUG: Direct assignment for relation field %s (attname=%s)",
+                                    "Direct assignment for relation field %s (attname=%s)",
                                     field.name,
                                     getattr(field, "attname", "None"),
                                 )
@@ -493,7 +493,7 @@ class BulkOperationsMixin:
                                 setattr(obj, field.name, new_value)
                         else:
                             logger.debug(
-                                "DEBUG: Non-relation field %s, assigning directly",
+                                "Non-relation field %s, assigning directly",
                                 field.name,
                             )
                             # Non-relation field, assign directly
@@ -506,7 +506,7 @@ class BulkOperationsMixin:
                         ):
                             fields_set.add(field.name)
                             logger.debug(
-                                "DEBUG: Added field %s to fields_set",
+                                "Added field %s to fields_set",
                                 field.name,
                             )
 
@@ -517,7 +517,7 @@ class BulkOperationsMixin:
                         )
                     else:
                         logger.debug(
-                            "DEBUG: pre_save() returned None for field %s on object %s",
+                            "pre_save() returned None for field %s on object %s",
                             field.name,
                             obj.pk,
                         )
@@ -573,9 +573,9 @@ class BulkOperationsMixin:
                 len(objs),
                 list(fields_set),
             )
-            logger.debug("DEBUG: bulk_update objects before call:")
+            logger.debug("bulk_update objects before call:")
             for i, obj in enumerate(objs):
-                logger.debug("DEBUG: Object %d pk=%s", i, getattr(obj, "pk", "None"))
+                logger.debug("Object %d pk=%s", i, getattr(obj, "pk", "None"))
                 # Log key aggregate fields
                 for field_name in [
                     "disbursement",
@@ -586,7 +586,7 @@ class BulkOperationsMixin:
                     if hasattr(obj, field_name):
                         value = getattr(obj, field_name)
                         logger.debug(
-                            "DEBUG: Object %d %s = %s (type: %s)",
+                            "Object %d %s = %s (type: %s)",
                             i,
                             field_name,
                             value,

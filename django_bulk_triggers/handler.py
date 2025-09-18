@@ -201,7 +201,7 @@ class Trigger(metaclass=TriggerMeta):
             # This ensures that if any trigger fails, the entire transaction rolls back
             logger.debug(f"Executing {event} immediately within transaction")
             logger.debug(
-                f"DEBUG: Handler executing {event} immediately within transaction"
+                f"Handler executing {event} immediately within transaction"
             )
             _execute()
         finally:

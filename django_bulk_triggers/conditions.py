@@ -71,7 +71,7 @@ class HasChanged(TriggerCondition):
         self.has_changed = has_changed
 
     def check(self, instance, original_instance=None):
-        # DEBUG: Always log balance field checks to debug user's specific issue
+        # Always log balance field checks to debug user's specific issue
         if self.field == "balance":
             logger.debug(f"🔍 HasChanged('{self.field}') check() called for instance {getattr(instance, 'pk', 'No PK')}")
             logger.debug(f"  - original_instance provided: {original_instance is not None}")
@@ -88,7 +88,7 @@ class HasChanged(TriggerCondition):
 
         result = (current != previous) == self.has_changed
         
-        # DEBUG: Add detailed logging for balance field to debug user's specific issue
+        # Add detailed logging for balance field to debug user's specific issue
         if self.field == "balance":
             logger.debug(f"🔍 HasChanged('{self.field}') DETAILED DEBUG for instance {getattr(instance, 'pk', 'No PK')}:")
             logger.debug(f"  - Field: {self.field}")
