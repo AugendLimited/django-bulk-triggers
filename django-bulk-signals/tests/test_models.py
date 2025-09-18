@@ -14,7 +14,7 @@ from django_bulk_signals.models import BulkSignalModel
 from django_bulk_signals.manager import BulkSignalManager
 
 
-class TestBulkModel(BulkSignalModel):
+class BulkModel(BulkSignalModel):
     """Test model that inherits from BulkSignalModel."""
     
     name = models.CharField(max_length=100)
@@ -29,20 +29,20 @@ class TestBulkSignalModel(TestCase):
 
     def setUp(self):
         """Set up test data."""
-        self.test_obj = TestBulkModel(name="test", value=42)
+        self.test_obj = BulkModel(name="test", value=42)
 
     def test_model_inheritance(self):
         """Test that BulkSignalModel is properly inherited."""
         self.assertIsInstance(self.test_obj, BulkSignalModel)
-        self.assertIsInstance(TestBulkModel.objects, BulkSignalManager)
+        self.assertIsInstance(BulkModel.objects, BulkSignalManager)
 
     def test_manager_assignment(self):
         """Test that BulkSignalManager is assigned to objects."""
-        self.assertIsInstance(TestBulkModel.objects, BulkSignalManager)
+        self.assertIsInstance(BulkModel.objects, BulkSignalManager)
 
     def test_save_with_signals_new_object(self):
         """Test save() method for new objects (pk=None) with signals enabled."""
-        with patch.object(TestBulkModel.objects, 'bulk_create') as mock_bulk_create:
+        with patch.object(BulkModel.objects, 'bulk_create') as mock_bulk_create:
             self.test_obj.save()
             
             # Should call bulk_create since pk is None
@@ -52,7 +52,7 @@ class TestBulkSignalModel(TestCase):
         """Test save() method for existing objects (pk set) with signals enabled."""
         self.test_obj.pk = 1  # Simulate existing object
         
-        with patch.object(TestBulkModel.objects, 'bulk_update') as mock_bulk_update:
+        with patch.object(BulkModel.objects, 'bulk_update') as mock_bulk_update:
             self.test_obj.save()
             
             # Should call bulk_update since pk is set
@@ -60,7 +60,7 @@ class TestBulkSignalModel(TestCase):
 
     def test_save_skip_signals_new_object(self):
         """Test save() method with skip_signals=True for new objects."""
-        with patch.object(TestBulkModel.objects, 'bulk_create') as mock_bulk_create:
+        with patch.object(BulkModel.objects, 'bulk_create') as mock_bulk_create:
             # Mock the parent save method
             with patch('django.db.models.Model.save') as mock_parent_save:
                 self.test_obj.save(skip_signals=True)
@@ -73,7 +73,7 @@ class TestBulkSignalModel(TestCase):
         """Test save() method with skip_signals=True for existing objects."""
         self.test_obj.pk = 1  # Simulate existing object
         
-        with patch.object(TestBulkModel.objects, 'bulk_update') as mock_bulk_update:
+        with patch.object(BulkModel.objects, 'bulk_update') as mock_bulk_update:
             # Mock the parent save method
             with patch('django.db.models.Model.save') as mock_parent_save:
                 self.test_obj.save(skip_signals=True)
@@ -84,7 +84,7 @@ class TestBulkSignalModel(TestCase):
 
     def test_save_with_additional_args(self):
         """Test save() method passes additional arguments correctly."""
-        with patch.object(TestBulkModel.objects, 'bulk_create') as mock_bulk_create:
+        with patch.object(BulkModel.objects, 'bulk_create') as mock_bulk_create:
             self.test_obj.save(force_insert=True, update_fields=['name'])
             
             # Should pass additional kwargs to bulk_create
@@ -92,7 +92,7 @@ class TestBulkSignalModel(TestCase):
 
     def test_delete_with_signals_new_object(self):
         """Test delete() method for new objects (pk=None) with signals enabled."""
-        with patch.object(TestBulkModel.objects, 'bulk_delete') as mock_bulk_delete:
+        with patch.object(BulkModel.objects, 'bulk_delete') as mock_bulk_delete:
             self.test_obj.delete()
             
             # Should call bulk_delete since pk is None
@@ -102,7 +102,7 @@ class TestBulkSignalModel(TestCase):
         """Test delete() method for existing objects (pk set) with signals enabled."""
         self.test_obj.pk = 1  # Simulate existing object
         
-        with patch.object(TestBulkModel.objects, 'bulk_delete') as mock_bulk_delete:
+        with patch.object(BulkModel.objects, 'bulk_delete') as mock_bulk_delete:
             self.test_obj.delete()
             
             # Should call bulk_delete since pk is set
@@ -110,7 +110,7 @@ class TestBulkSignalModel(TestCase):
 
     def test_delete_skip_signals_new_object(self):
         """Test delete() method with skip_signals=True for new objects."""
-        with patch.object(TestBulkModel.objects, 'bulk_delete') as mock_bulk_delete:
+        with patch.object(BulkModel.objects, 'bulk_delete') as mock_bulk_delete:
             # Mock the parent delete method
             with patch('django.db.models.Model.delete') as mock_parent_delete:
                 self.test_obj.delete(skip_signals=True)
@@ -123,7 +123,7 @@ class TestBulkSignalModel(TestCase):
         """Test delete() method with skip_signals=True for existing objects."""
         self.test_obj.pk = 1  # Simulate existing object
         
-        with patch.object(TestBulkModel.objects, 'bulk_delete') as mock_bulk_delete:
+        with patch.object(BulkModel.objects, 'bulk_delete') as mock_bulk_delete:
             # Mock the parent delete method
             with patch('django.db.models.Model.delete') as mock_parent_delete:
                 self.test_obj.delete(skip_signals=True)
@@ -134,7 +134,7 @@ class TestBulkSignalModel(TestCase):
 
     def test_delete_with_additional_args(self):
         """Test delete() method passes additional arguments correctly."""
-        with patch.object(TestBulkModel.objects, 'bulk_delete') as mock_bulk_delete:
+        with patch.object(BulkModel.objects, 'bulk_delete') as mock_bulk_delete:
             self.test_obj.delete(using='other_db')
             
             # Should pass additional kwargs to bulk_delete
@@ -148,17 +148,17 @@ class TestBulkSignalModel(TestCase):
         """Test that manager returns BulkSignalQuerySet."""
         from django_bulk_signals.queryset import BulkSignalQuerySet
         
-        queryset = TestBulkModel.objects.get_queryset()
+        queryset = BulkModel.objects.get_queryset()
         self.assertIsInstance(queryset, BulkSignalQuerySet)
 
     def test_manager_bulk_create_delegation(self):
         """Test that manager bulk_create delegates to queryset."""
-        with patch.object(TestBulkModel.objects, 'get_queryset') as mock_get_queryset:
+        with patch.object(BulkModel.objects, 'get_queryset') as mock_get_queryset:
             mock_queryset = Mock()
             mock_get_queryset.return_value = mock_queryset
             
-            objs = [TestBulkModel(name="test1"), TestBulkModel(name="test2")]
-            TestBulkModel.objects.bulk_create(objs, batch_size=100)
+            objs = [BulkModel(name="test1"), BulkModel(name="test2")]
+            BulkModel.objects.bulk_create(objs, batch_size=100)
             
             mock_queryset.bulk_create.assert_called_once_with(
                 objs, batch_size=100, ignore_conflicts=False, 
@@ -167,12 +167,12 @@ class TestBulkSignalModel(TestCase):
 
     def test_manager_bulk_update_delegation(self):
         """Test that manager bulk_update delegates to queryset."""
-        with patch.object(TestBulkModel.objects, 'get_queryset') as mock_get_queryset:
+        with patch.object(BulkModel.objects, 'get_queryset') as mock_get_queryset:
             mock_queryset = Mock()
             mock_get_queryset.return_value = mock_queryset
             
-            objs = [TestBulkModel(name="test1"), TestBulkModel(name="test2")]
-            TestBulkModel.objects.bulk_update(objs, fields=['name'], batch_size=50)
+            objs = [BulkModel(name="test1"), BulkModel(name="test2")]
+            BulkModel.objects.bulk_update(objs, fields=['name'], batch_size=50)
             
             mock_queryset.bulk_update.assert_called_once_with(
                 objs, fields=['name'], batch_size=50
@@ -180,12 +180,12 @@ class TestBulkSignalModel(TestCase):
 
     def test_manager_bulk_delete_delegation(self):
         """Test that manager bulk_delete delegates to queryset."""
-        with patch.object(TestBulkModel.objects, 'get_queryset') as mock_get_queryset:
+        with patch.object(BulkModel.objects, 'get_queryset') as mock_get_queryset:
             mock_queryset = Mock()
             mock_get_queryset.return_value = mock_queryset
             
-            objs = [TestBulkModel(name="test1"), TestBulkModel(name="test2")]
-            TestBulkModel.objects.bulk_delete(objs)
+            objs = [BulkModel(name="test1"), BulkModel(name="test2")]
+            BulkModel.objects.bulk_delete(objs)
             
             mock_queryset.bulk_delete.assert_called_once_with(objs)
 
@@ -206,9 +206,9 @@ class TestBulkSignalModel(TestCase):
 
     def test_model_string_representation(self):
         """Test model string representation."""
-        # TestBulkModel doesn't define __str__, so it should use Django's default
+        # BulkModel doesn't define __str__, so it should use Django's default
         # which shows the model name and pk
         self.test_obj.pk = 1
         str_repr = str(self.test_obj)
-        self.assertIn("TestBulkModel", str_repr)
+        self.assertIn("BulkModel", str_repr)
         self.assertIn("1", str_repr)
