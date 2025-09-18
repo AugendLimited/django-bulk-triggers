@@ -267,20 +267,27 @@ class TestTriggerProcess(TestCase):
     def test_process_handles_exceptions(self):
         """Test that _process handles exceptions by logging and re-raising them."""
         with patch("django_bulk_triggers.handler.logger") as mock_logger:
-            # Create a trigger that raises an exception
-            class ExceptionTrigger(TriggerClass):
-                @trigger(BEFORE_CREATE, model=TriggerModel)
-                def on_before_create(self, new_records, old_records=None, **kwargs):
-                    raise ValueError("Test exception")
+            # Mock the get_triggers function to return a trigger that will raise an exception
+            def mock_get_triggers(model, event):
+                # Return a mock trigger that will raise an exception when called
+                class MockHandler:
+                    def __init__(self):
+                        pass
+                    
+                    def on_before_create(self, new_records, old_records=None, **kwargs):
+                        raise ValueError("Test exception")
+                
+                return [(MockHandler, "on_before_create", None, 50)]
+            
+            with patch("django_bulk_triggers.handler.get_triggers", side_effect=mock_get_triggers):
+                # This should raise an exception (for transaction rollback)
+                with self.assertRaises(ValueError, msg="Test exception"):
+                    TriggerClass._process(
+                        BEFORE_CREATE, TriggerModel, self.test_instances, None
+                    )
 
-            # This should raise an exception (for transaction rollback)
-            with self.assertRaises(ValueError, msg="Test exception"):
-                TriggerClass._process(
-                    BEFORE_CREATE, TriggerModel, self.test_instances, None
-                )
-
-            # Should log the exception
-            mock_logger.exception.assert_called()
+                # Should log the exception
+                mock_logger.exception.assert_called()
 
 
 class TestTriggerIntegration(TestCase):
@@ -316,21 +323,26 @@ class TestTriggerIntegration(TestCase):
                     BEFORE_CREATE, new_records, old_records, **kwargs
                 )
 
-        # Triggers are automatically registered by the metaclass when the class is defined
+        try:
+            # Triggers are automatically registered by the metaclass when the class is defined
 
-        # Create trigger instance
-        trigger_instance = TestTriggerClass()
+            # Create trigger instance
+            trigger_instance = TestTriggerClass()
 
-        # Trigger triggers
-        TriggerClass.handle(
-            BEFORE_CREATE, TriggerModel, new_records=self.test_instances
-        )
-        TriggerClass.handle(AFTER_CREATE, TriggerModel, new_records=self.test_instances)
+            # Trigger triggers
+            TriggerClass.handle(
+                BEFORE_CREATE, TriggerModel, new_records=self.test_instances
+            )
+            TriggerClass.handle(AFTER_CREATE, TriggerModel, new_records=self.test_instances)
 
-        # Verify calls were tracked
-        assert_trigger_called(
-            TestTriggerClass.tracker, BEFORE_CREATE, 2
-        )  # Both triggers are now BEFORE_CREATE
+            # Verify calls were tracked
+            assert_trigger_called(
+                TestTriggerClass.tracker, BEFORE_CREATE, 2
+            )  # Both triggers are now BEFORE_CREATE
+        finally:
+            # Clean up the trigger to prevent it from affecting other tests
+            from django_bulk_triggers.registry import clear_triggers
+            clear_triggers()
 
     def test_trigger_with_conditions(self):
         """Test triggers with conditions."""
@@ -350,20 +362,25 @@ class TestTriggerIntegration(TestCase):
                     BEFORE_CREATE, new_records, old_records, **kwargs
                 )
 
-        # Triggers are automatically registered by the metaclass when the class is defined
+        try:
+            # Triggers are automatically registered by the metaclass when the class is defined
 
-        # Create instances with different statuses
-        active_instance = TriggerModel(name="Active", status="active")
-        inactive_instance = TriggerModel(name="Inactive", status="inactive")
+            # Create instances with different statuses
+            active_instance = TriggerModel(name="Active", status="active")
+            inactive_instance = TriggerModel(name="Inactive", status="inactive")
 
-        trigger_instance = ConditionalTrigger()
+            trigger_instance = ConditionalTrigger()
 
-        # Trigger triggers
-        TriggerClass.handle(
-            BEFORE_CREATE,
-            TriggerModel,
-            new_records=[active_instance, inactive_instance],
-        )
+            # Trigger triggers
+            TriggerClass.handle(
+                BEFORE_CREATE,
+                TriggerModel,
+                new_records=[active_instance, inactive_instance],
+            )
 
-        # Only the active instance should trigger the trigger
-        assert_trigger_called(ConditionalTrigger.tracker, BEFORE_CREATE, 1)
+            # Only the active instance should trigger the trigger
+            assert_trigger_called(ConditionalTrigger.tracker, BEFORE_CREATE, 1)
+        finally:
+            # Clean up the trigger to prevent it from affecting other tests
+            from django_bulk_triggers.registry import clear_triggers
+            clear_triggers()
