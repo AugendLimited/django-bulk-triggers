@@ -58,8 +58,6 @@ class BulkSignalManager(models.Manager):
 
         This follows Django's pattern where Manager methods call QuerySet methods.
         """
-        if fields is not None:
-            kwargs["fields"] = fields
         return self.get_queryset().bulk_update(
             objs, fields=fields, batch_size=batch_size, **kwargs
         )

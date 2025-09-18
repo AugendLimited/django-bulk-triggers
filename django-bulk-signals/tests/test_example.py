@@ -162,10 +162,19 @@ class TestSalesforceStyleTriggers(TestCase):
 
         with (
             patch("django.db.models.QuerySet.bulk_update") as mock_bulk_update,
-            patch("django.db.models.QuerySet.filter") as mock_filter,
+            patch("django_bulk_signals.queryset.BulkSignalQuerySet.filter") as mock_filter,
+            patch.object(Opportunity.objects, "filter") as mock_opp_filter,
         ):
             mock_bulk_update.return_value = 3
-            mock_filter.return_value = originals
+            # Create a mock queryset that can be iterated
+            mock_queryset = Mock()
+            mock_queryset.__iter__ = Mock(return_value=iter(originals))
+            mock_filter.return_value = mock_queryset
+            
+            # Mock the opportunity filter to return empty queryset
+            mock_opp_queryset = Mock()
+            mock_opp_queryset.__iter__ = Mock(return_value=iter([]))
+            mock_opp_filter.return_value = mock_opp_queryset
 
             Account.objects.bulk_update(self.accounts, ["status"])
 
@@ -207,11 +216,20 @@ class TestSalesforceStyleTriggers(TestCase):
 
         with (
             patch("django.db.models.QuerySet.bulk_update") as mock_bulk_update,
-            patch("django.db.models.QuerySet.filter") as mock_filter,
-            patch("django.db.models.QuerySet.save") as mock_save,
+            patch("django_bulk_signals.queryset.BulkSignalQuerySet.filter") as mock_filter,
+            patch.object(Opportunity.objects, "filter") as mock_opp_filter,
+            patch.object(Opportunity, "save") as mock_save,
         ):
             mock_bulk_update.return_value = 3
-            mock_filter.return_value = originals
+            # Create a mock queryset that can be iterated
+            mock_queryset = Mock()
+            mock_queryset.__iter__ = Mock(return_value=iter(originals))
+            mock_filter.return_value = mock_queryset
+            
+            # Mock the opportunity filter to return empty queryset
+            mock_opp_queryset = Mock()
+            mock_opp_queryset.__iter__ = Mock(return_value=iter([]))
+            mock_opp_filter.return_value = mock_opp_queryset
 
             Account.objects.bulk_update(self.accounts, ["balance"])
 
@@ -240,12 +258,14 @@ class TestSalesforceStyleTriggers(TestCase):
                     )
 
         with (
-            patch("django.db.models.QuerySet.bulk_delete") as mock_bulk_delete,
-            patch("django.db.models.QuerySet.filter") as mock_filter,
-            patch("django.db.models.QuerySet.exists") as mock_exists,
+            patch("django.db.models.QuerySet.delete") as mock_delete,
+            patch.object(Opportunity.objects, "filter") as mock_opp_filter,
         ):
-            mock_bulk_delete.return_value = 3
-            mock_filter.return_value.filter.return_value.exists.return_value = False
+            mock_delete.return_value = (3, {})
+            # Mock the opportunity filter to return no open opportunities
+            mock_queryset = Mock()
+            mock_queryset.exists.return_value = False
+            mock_opp_filter.return_value = mock_queryset
 
             Account.objects.bulk_delete(self.accounts)
 
@@ -272,11 +292,11 @@ class TestSalesforceStyleTriggers(TestCase):
                     opp.save()
 
         with (
-            patch("django.db.models.QuerySet.bulk_delete") as mock_bulk_delete,
+            patch("django.db.models.QuerySet.delete") as mock_delete,
             patch("django.db.models.QuerySet.filter") as mock_filter,
-            patch("django.db.models.QuerySet.save") as mock_save,
+            patch.object(Opportunity, "save") as mock_save,
         ):
-            mock_bulk_delete.return_value = 3
+            mock_delete.return_value = (3, {})
 
             Account.objects.bulk_delete(self.accounts)
 
@@ -323,11 +343,20 @@ class TestSalesforceStyleTriggers(TestCase):
 
         with (
             patch("django.db.models.QuerySet.bulk_update") as mock_bulk_update,
-            patch("django.db.models.QuerySet.filter") as mock_filter,
-            patch("django.db.models.QuerySet.save") as mock_save,
+            patch("django_bulk_signals.queryset.BulkSignalQuerySet.filter") as mock_filter,
+            patch.object(Opportunity.objects, "filter") as mock_opp_filter,
+            patch.object(Opportunity, "save") as mock_save,
         ):
             mock_bulk_update.return_value = 3
-            mock_filter.return_value = originals
+            # Create a mock queryset that can be iterated
+            mock_queryset = Mock()
+            mock_queryset.__iter__ = Mock(return_value=iter(originals))
+            mock_filter.return_value = mock_queryset
+            
+            # Mock the opportunity filter to return empty queryset
+            mock_opp_queryset = Mock()
+            mock_opp_queryset.__iter__ = Mock(return_value=iter([]))
+            mock_opp_filter.return_value = mock_opp_queryset
 
             Account.objects.bulk_update(self.accounts, ["status", "balance"])
 

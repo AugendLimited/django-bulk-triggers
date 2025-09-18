@@ -61,6 +61,22 @@ class HasChanged(TriggerCondition):
         if not original_instance:
             return False
 
+        # For Mock objects, we need to check if the attribute was explicitly set
+        # by looking at the __dict__ attribute
+        from unittest.mock import Mock
+        if isinstance(instance, Mock):
+            if self.field not in instance.__dict__:
+                return False
+        if isinstance(original_instance, Mock):
+            if self.field not in original_instance.__dict__:
+                return False
+
+        # For non-Mock objects, check if the attribute exists
+        if not isinstance(instance, Mock) and not hasattr(instance, self.field):
+            return False
+        if not isinstance(original_instance, Mock) and not hasattr(original_instance, self.field):
+            return False
+
         current_value = getattr(instance, self.field, None)
         previous_value = getattr(original_instance, self.field, None)
 

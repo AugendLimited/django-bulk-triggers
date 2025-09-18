@@ -185,8 +185,15 @@ class BulkSignalQuerySet(QuerySet):
         # Fire BEFORE_DELETE signal
         bulk_pre_delete.send(sender=self.model, instances=objs, **kwargs)
 
-        # Perform the bulk delete operation
-        result = super().bulk_delete(objs, **kwargs)
+        # Perform the bulk delete operation using Django's delete() method
+        pks = [obj.pk for obj in objs if obj.pk is not None]
+        if not pks:
+            logger.warning("bulk_delete: No objects with primary keys to delete")
+            return 0
+        
+        # Use the queryset's delete method to delete objects by PK
+        queryset = self.model.objects.filter(pk__in=pks)
+        result = queryset.delete()[0]  # delete() returns (count, {model: count})
 
         # Fire AFTER_DELETE signal
         bulk_post_delete.send(sender=self.model, instances=objs, **kwargs)

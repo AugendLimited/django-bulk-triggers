@@ -27,7 +27,7 @@ from django_bulk_signals.signals import (
 )
 
 
-class TestModel(Mock):
+class MockModel(Mock):
     """Mock model for testing."""
 
     pass
@@ -51,15 +51,15 @@ class TestBulkTriggerDecorators(TestCase):
         """Test bulk_trigger decorator without condition."""
         handler_called = False
 
-        @bulk_trigger(bulk_pre_create, TestModel)
+        @bulk_trigger(bulk_pre_create, MockModel)
         def test_handler(sender, instances, **kwargs):
             nonlocal handler_called
             handler_called = True
-            self.assertEqual(sender, TestModel)
+            self.assertEqual(sender, MockModel)
             self.assertEqual(instances, self.instances)
 
         # Simulate signal firing
-        test_handler(TestModel, instances=self.instances)
+        test_handler(MockModel, instances=self.instances)
 
         self.assertTrue(handler_called)
 
@@ -68,14 +68,14 @@ class TestBulkTriggerDecorators(TestCase):
         handler_called = False
         filtered_instances = []
 
-        @bulk_trigger(bulk_pre_update, TestModel, condition=HasChanged("field1"))
+        @bulk_trigger(bulk_pre_update, MockModel, condition=HasChanged("field1"))
         def test_handler(sender, instances, originals, **kwargs):
             nonlocal handler_called, filtered_instances
             handler_called = True
             filtered_instances = instances
 
         # Simulate signal firing
-        test_handler(TestModel, instances=self.instances, originals=self.originals)
+        test_handler(MockModel, instances=self.instances, originals=self.originals)
 
         self.assertTrue(handler_called)
         # Should only include instances where field1 changed
@@ -90,14 +90,14 @@ class TestBulkTriggerDecorators(TestCase):
         self.instances[0].field1 = "new_value"  # Changed
         self.instances[1].field1 = "old3"  # Same as original
 
-        @bulk_trigger(bulk_pre_update, TestModel, condition=HasChanged("field1"))
+        @bulk_trigger(bulk_pre_update, MockModel, condition=HasChanged("field1"))
         def test_handler(sender, instances, originals, **kwargs):
             nonlocal handler_called, filtered_instances
             handler_called = True
             filtered_instances = instances
 
         # Simulate signal firing
-        test_handler(TestModel, instances=self.instances, originals=self.originals)
+        test_handler(MockModel, instances=self.instances, originals=self.originals)
 
         self.assertTrue(handler_called)
         # Should only include the instance where field1 changed
@@ -112,13 +112,13 @@ class TestBulkTriggerDecorators(TestCase):
         self.instances[0].field1 = "old1"  # Same as original
         self.instances[1].field1 = "old3"  # Same as original
 
-        @bulk_trigger(bulk_pre_update, TestModel, condition=HasChanged("field1"))
+        @bulk_trigger(bulk_pre_update, MockModel, condition=HasChanged("field1"))
         def test_handler(sender, instances, originals, **kwargs):
             nonlocal handler_called
             handler_called = True
 
         # Simulate signal firing
-        test_handler(TestModel, instances=self.instances, originals=self.originals)
+        test_handler(MockModel, instances=self.instances, originals=self.originals)
 
         # Handler should not be called
         self.assertFalse(handler_called)
@@ -134,27 +134,27 @@ class TestBulkTriggerDecorators(TestCase):
             "after_delete": False,
         }
 
-        @before_create(TestModel)
+        @before_create(MockModel)
         def before_create_handler(sender, instances, **kwargs):
             handlers_called["before_create"] = True
 
-        @after_create(TestModel)
+        @after_create(MockModel)
         def after_create_handler(sender, instances, **kwargs):
             handlers_called["after_create"] = True
 
-        @before_update(TestModel)
+        @before_update(MockModel)
         def before_update_handler(sender, instances, originals, **kwargs):
             handlers_called["before_update"] = True
 
-        @after_update(TestModel)
+        @after_update(MockModel)
         def after_update_handler(sender, instances, originals, **kwargs):
             handlers_called["after_update"] = True
 
-        @before_delete(TestModel)
+        @before_delete(MockModel)
         def before_delete_handler(sender, instances, **kwargs):
             handlers_called["before_delete"] = True
 
-        @after_delete(TestModel)
+        @after_delete(MockModel)
         def after_delete_handler(sender, instances, **kwargs):
             handlers_called["after_delete"] = True
 
@@ -170,13 +170,13 @@ class TestBulkTriggerDecorators(TestCase):
         """Test convenience decorators with conditions."""
         handler_called = False
 
-        @before_update(TestModel, condition=HasChanged("field1"))
+        @before_update(MockModel, condition=HasChanged("field1"))
         def test_handler(sender, instances, originals, **kwargs):
             nonlocal handler_called
             handler_called = True
 
         # Simulate signal firing
-        test_handler(TestModel, instances=self.instances, originals=self.originals)
+        test_handler(MockModel, instances=self.instances, originals=self.originals)
 
         self.assertTrue(handler_called)
 
@@ -184,13 +184,13 @@ class TestBulkTriggerDecorators(TestCase):
         """Test convenience decorators with dispatch_uid."""
         handler_called = False
 
-        @before_update(TestModel, dispatch_uid="test_handler")
+        @before_update(MockModel, dispatch_uid="test_handler")
         def test_handler(sender, instances, originals, **kwargs):
             nonlocal handler_called
             handler_called = True
 
         # Simulate signal firing
-        test_handler(TestModel, instances=self.instances, originals=self.originals)
+        test_handler(MockModel, instances=self.instances, originals=self.originals)
 
         self.assertTrue(handler_called)
 
@@ -206,7 +206,7 @@ class TestBulkTriggerDecorators(TestCase):
             processed_instances = instances
 
         # Simulate signal firing
-        test_handler(TestModel, instances=self.instances, originals=self.originals)
+        test_handler(MockModel, instances=self.instances, originals=self.originals)
 
         self.assertTrue(handler_called)
         # Should process all instances since they all have field1 changed
@@ -224,7 +224,7 @@ class TestBulkTriggerDecorators(TestCase):
             processed_instances = instances
 
         # Simulate signal firing
-        test_handler(TestModel, instances=self.instances, originals=self.originals)
+        test_handler(MockModel, instances=self.instances, originals=self.originals)
 
         self.assertTrue(handler_called)
         # Should process all instances
@@ -233,7 +233,7 @@ class TestBulkTriggerDecorators(TestCase):
     def test_decorator_preserves_function_metadata(self):
         """Test that decorators preserve function metadata."""
 
-        @bulk_trigger(bulk_pre_create, TestModel)
+        @bulk_trigger(bulk_pre_create, MockModel)
         def test_handler(sender, instances, **kwargs):
             """Test handler docstring."""
             pass
@@ -246,13 +246,13 @@ class TestBulkTriggerDecorators(TestCase):
         """Test using multiple decorators together."""
         handler_called = False
 
-        @before_update(TestModel, condition=HasChanged("field1"))
+        @before_update(MockModel, condition=HasChanged("field1"))
         @process_instances(IsEqual("field2", "value2"))
         def test_handler(sender, instances, originals, **kwargs):
             nonlocal handler_called
             handler_called = True
 
         # Simulate signal firing
-        test_handler(TestModel, instances=self.instances, originals=self.originals)
+        test_handler(MockModel, instances=self.instances, originals=self.originals)
 
         self.assertTrue(handler_called)
