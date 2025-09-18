@@ -263,10 +263,12 @@ class TestBulkTriggerDecorators(TestCase):
 
         # Create a mock signal that can be connected
         from django.dispatch import Signal
+
         mock_signal = Signal()
 
         # Create a mock model that can be used as sender
         from unittest.mock import Mock
+
         mock_model = Mock()
 
         @bulk_trigger(mock_model, mock_signal, condition=HasChanged("field1"))
@@ -286,6 +288,7 @@ class TestBulkTriggerDecorators(TestCase):
 
         # Create a mock signal that can be connected
         from django.dispatch import Signal
+
         mock_signal = Signal()
 
         @process_instances(mock_signal)
