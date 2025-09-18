@@ -1,4 +1,5 @@
 from django.db import models
+
 from django_bulk_signals.manager import BulkSignalManager
 
 
@@ -15,6 +16,7 @@ class BulkSignalModel(models.Model):
         if self.pk is None:
             self.__class__.objects.bulk_create([self])
         else:
+            # Use automatic field detection for single object updates
             self.__class__.objects.bulk_update([self])
 
     def delete(self, *args, skip_signals=False, **kwargs):

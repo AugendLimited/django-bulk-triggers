@@ -11,6 +11,7 @@ Django Bulk Signals provides a clean, production-grade way to add trigger-like b
 - ✅ **No thread-local state** - No hidden dependencies or complex state management
 - ✅ **Conditional triggers** - Fire triggers only when specific conditions are met
 - ✅ **OLD/NEW value access** - Compare original and updated values like Salesforce
+- ✅ **Automatic field detection** - Automatically detects changed fields for bulk operations
 - ✅ **Transaction safety** - All operations wrapped in database transactions
 - ✅ **Easy testing** - Simple to mock and test
 - ✅ **Production ready** - Robust, maintainable, and well-tested
@@ -171,6 +172,58 @@ def handle_high_value_account(sender, instances, originals, **kwargs):
     # Only fires for high-value accounts
     pass
 ```
+
+## Automatic Field Detection
+
+Django Bulk Signals automatically detects which fields have changed and includes them in bulk operations, eliminating the need to manually specify `update_fields`.
+
+### How It Works
+
+When you call `bulk_update()` without specifying the `fields` parameter, the framework:
+
+1. **Compares objects with database values** - Detects which fields have actually changed
+2. **Includes auto_now fields** - Automatically adds fields with `auto_now=True`
+3. **Applies timestamps** - Sets current time for auto_now fields
+
+### Examples
+
+```python
+# Without automatic field detection (manual approach)
+users = [user1, user2, user3]
+# You'd need to manually specify which fields changed
+User.objects.bulk_update(users, fields=['name', 'email', 'status'])
+
+# With automatic field detection (django-bulk-signals)
+users = [user1, user2, user3]
+# Framework automatically detects changed fields
+User.objects.bulk_update(users)  # No fields parameter needed!
+```
+
+### Single Object Updates
+
+Even single object saves benefit from automatic field detection:
+
+```python
+user = User.objects.get(pk=1)
+user.name = "New Name"
+user.email = "new@example.com"
+user.save()  # Automatically detects name and email changes
+```
+
+### Field Detection Details
+
+The framework detects changes by:
+
+- **Comparing current values** with database values
+- **Including auto_now fields** (like `updated_at`) automatically
+- **Excluding auto_now_add fields** from updates (only relevant at creation)
+
+### Performance Benefits
+
+- **Reduced database writes** - Only changed fields are updated
+- **Automatic optimization** - No need to manually track field changes
+- **Consistent behavior** - Same logic for single saves and bulk operations
+- **Simple and maintainable** - Clean, straightforward implementation
 
 ## Convenience Functions
 
