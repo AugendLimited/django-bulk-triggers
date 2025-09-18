@@ -201,3 +201,176 @@ class TestTriggerConditions(TestCase):
         condition = IsEqual("field1", None)
         result = condition.check(self.instance, self.original)
         self.assertTrue(result)  # None == None
+
+    def test_abstract_condition_not_implemented(self):
+        """Test that abstract TriggerCondition raises NotImplementedError."""
+        from django_bulk_signals.conditions import TriggerCondition
+        
+        class TestCondition(TriggerCondition):
+            pass
+        
+        condition = TestCondition()
+        with self.assertRaises(NotImplementedError):
+            condition.check(self.instance, self.original)
+
+    def test_condition_with_missing_field_mock_original(self):
+        """Test condition when original instance is Mock and field is missing."""
+        from unittest.mock import Mock
+        
+        # Create a Mock original instance without the field
+        mock_original = Mock()
+        mock_original.__dict__ = {}  # No field in __dict__
+        
+        condition = HasChanged("missing_field")
+        result = condition.check(self.instance, mock_original)
+        self.assertFalse(result)
+
+    def test_condition_with_missing_field_non_mock_instance(self):
+        """Test condition when instance is not Mock and field is missing."""
+        from unittest.mock import Mock
+        
+        # Create a non-Mock instance without the field
+        class NoFieldInstance:
+            pass
+        
+        no_field_instance = NoFieldInstance()
+        mock_original = Mock()
+        
+        condition = HasChanged("missing_field")
+        result = condition.check(no_field_instance, mock_original)
+        self.assertFalse(result)
+
+    def test_condition_with_missing_field_non_mock_original(self):
+        """Test condition when original instance is not Mock and field is missing."""
+        from unittest.mock import Mock
+        
+        # Create a non-Mock original instance without the field
+        class NoFieldOriginal:
+            pass
+        
+        no_field_original = NoFieldOriginal()
+        mock_instance = Mock()
+        
+        condition = HasChanged("missing_field")
+        result = condition.check(mock_instance, no_field_original)
+        self.assertFalse(result)
+
+    def test_is_equal_only_on_change_no_original(self):
+        """Test IsEqual with only_on_change=True but no original instance."""
+        condition = IsEqual("field1", "value1", only_on_change=True)
+        result = condition.check(self.instance, None)
+        self.assertFalse(result)
+
+    def test_is_not_equal_only_on_change_no_original(self):
+        """Test IsNotEqual with only_on_change=True but no original instance."""
+        condition = IsNotEqual("field1", "value1", only_on_change=True)
+        result = condition.check(self.instance, None)
+        self.assertFalse(result)
+
+    def test_was_equal_only_on_change_no_original(self):
+        """Test WasEqual with only_on_change=True but no original instance."""
+        condition = WasEqual("field1", "value1", only_on_change=True)
+        result = condition.check(self.instance, None)
+        self.assertFalse(result)
+
+    def test_changes_to_no_original(self):
+        """Test ChangesTo condition with no original instance."""
+        from django_bulk_signals.conditions import ChangesTo
+        
+        condition = ChangesTo("field1", "new_value")
+        result = condition.check(self.instance, None)
+        self.assertFalse(result)
+
+    def test_condition_with_missing_field_non_mock_instance_hasattr(self):
+        """Test condition when instance is not Mock and field is missing (hasattr check)."""
+        from unittest.mock import Mock
+        
+        # Create a non-Mock instance without the field
+        class NoFieldInstance:
+            pass
+        
+        no_field_instance = NoFieldInstance()
+        mock_original = Mock()
+        
+        condition = HasChanged("missing_field")
+        result = condition.check(no_field_instance, mock_original)
+        self.assertFalse(result)
+
+    def test_condition_with_missing_field_non_mock_original_hasattr(self):
+        """Test condition when original instance is not Mock and field is missing (hasattr check)."""
+        from unittest.mock import Mock
+        
+        # Create a non-Mock original instance without the field
+        class NoFieldOriginal:
+            pass
+        
+        no_field_original = NoFieldOriginal()
+        mock_instance = Mock()
+        
+        condition = HasChanged("missing_field")
+        result = condition.check(mock_instance, no_field_original)
+        self.assertFalse(result)
+
+    def test_is_not_equal_only_on_change_no_original_condition(self):
+        """Test IsNotEqual with only_on_change=True but no original instance (condition check)."""
+        condition = IsNotEqual("field1", "value1", only_on_change=True)
+        result = condition.check(self.instance, None)
+        self.assertFalse(result)
+
+    def test_was_equal_only_on_change_no_original_condition(self):
+        """Test WasEqual with only_on_change=True but no original instance (condition check)."""
+        condition = WasEqual("field1", "value1", only_on_change=True)
+        result = condition.check(self.instance, None)
+        self.assertFalse(result)
+
+    def test_has_changed_missing_field_non_mock_instance(self):
+        """Test HasChanged with missing field on non-Mock instance (line 76)."""
+        # Create a non-Mock instance without the field
+        class TestObj:
+            pass
+        
+        instance = TestObj()
+        # instance.field1 is missing
+        
+        original = TestObj()
+        original.field1 = "old_value"
+        
+        condition = HasChanged("field1")
+        result = condition.check(instance, original)
+        self.assertFalse(result)
+
+    def test_has_changed_missing_field_non_mock_original(self):
+        """Test HasChanged with missing field on non-Mock original (line 78)."""
+        # Create a non-Mock instance without the field
+        class TestObj:
+            pass
+        
+        instance = TestObj()
+        instance.field1 = "new_value"
+        
+        original = TestObj()
+        # original.field1 is missing
+        
+        condition = HasChanged("field1")
+        result = condition.check(instance, original)
+        self.assertFalse(result)
+
+    def test_is_not_equal_only_on_change_with_original(self):
+        """Test IsNotEqual with only_on_change=True and original instance (lines 151-152)."""
+        # Set up original to have the value we're checking against
+        self.original.field1 = "value1"
+        self.instance.field1 = "different_value"
+        
+        condition = IsNotEqual("field1", "value1", only_on_change=True)
+        result = condition.check(self.instance, self.original)
+        self.assertTrue(result)  # Changed from 'value1' to 'different_value'
+
+    def test_was_equal_only_on_change_with_original(self):
+        """Test WasEqual with only_on_change=True and original instance (lines 183-184)."""
+        # Set up original to have the value we're checking against
+        self.original.field1 = "value1"
+        self.instance.field1 = "different_value"
+        
+        condition = WasEqual("field1", "value1", only_on_change=True)
+        result = condition.check(self.instance, self.original)
+        self.assertTrue(result)  # Changed from 'value1' to 'different_value'

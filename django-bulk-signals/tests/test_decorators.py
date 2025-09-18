@@ -256,3 +256,45 @@ class TestBulkTriggerDecorators(TestCase):
         test_handler(MockModel, instances=self.instances, originals=self.originals)
 
         self.assertTrue(handler_called)
+
+    def test_bulk_trigger_with_empty_instances(self):
+        """Test bulk_trigger decorator with empty instances list."""
+        handler_called = False
+
+        # Create a mock signal that can be connected
+        from django.dispatch import Signal
+        mock_signal = Signal()
+
+        # Create a mock model that can be used as sender
+        from unittest.mock import Mock
+        mock_model = Mock()
+
+        @bulk_trigger(mock_model, mock_signal, condition=HasChanged("field1"))
+        def test_handler(sender, instances=None, **kwargs):
+            nonlocal handler_called
+            handler_called = True
+
+        # Simulate signal firing with empty instances
+        test_handler(mock_model, instances=[])
+
+        # Handler should not be called with empty instances
+        self.assertFalse(handler_called)
+
+    def test_process_instances_with_empty_instances(self):
+        """Test process_instances decorator with empty instances list."""
+        handler_called = False
+
+        # Create a mock signal that can be connected
+        from django.dispatch import Signal
+        mock_signal = Signal()
+
+        @process_instances(mock_signal)
+        def test_handler(sender, instances=None, **kwargs):
+            nonlocal handler_called
+            handler_called = True
+
+        # Simulate signal firing with empty instances
+        test_handler(MockModel, instances=[])
+
+        # Handler should not be called with empty instances
+        self.assertFalse(handler_called)
