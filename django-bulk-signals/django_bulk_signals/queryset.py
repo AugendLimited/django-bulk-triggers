@@ -190,7 +190,7 @@ class BulkSignalQuerySet(QuerySet):
         if not pks:
             logger.warning("bulk_delete: No objects with primary keys to delete")
             return 0
-        
+
         # Use the queryset's delete method to delete objects by PK
         queryset = self.model.objects.filter(pk__in=pks)
         result = queryset.delete()[0]  # delete() returns (count, {model: count})
