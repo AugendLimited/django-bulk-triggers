@@ -2,15 +2,22 @@ import logging
 
 from django.db import models, transaction
 
+from django_bulk_triggers.bulk_operations import BulkOperationsMixin
 from django_bulk_triggers.core import TriggerEngine
-from django_bulk_triggers.operations import CoreOperationsMixin, BulkOperationsMixin
+from django_bulk_triggers.field_operations import FieldOperationsMixin
+from django_bulk_triggers.mti_operations import MTIOperationsMixin
+from django_bulk_triggers.trigger_operations import TriggerOperationsMixin
+from django_bulk_triggers.validation_operations import ValidationOperationsMixin
 
 logger = logging.getLogger(__name__)
 
 
 class TriggerQuerySetMixin(
-    CoreOperationsMixin,
     BulkOperationsMixin,
+    FieldOperationsMixin,
+    MTIOperationsMixin,
+    TriggerOperationsMixin,
+    ValidationOperationsMixin,
 ):
     """
     A mixin that provides bulk trigger functionality to any QuerySet.
@@ -32,7 +39,7 @@ class TriggerQuerySetMixin(
 
         # Use TriggerEngine to handle all trigger execution
         def delete_operation():
-            return super(TriggerQuerySetMixin, self).delete()
+            return super().delete()
         
         return self.trigger_engine.execute_delete_triggers(objs, delete_operation)
 
@@ -48,7 +55,7 @@ class TriggerQuerySetMixin(
 
         # Use TriggerEngine to handle all trigger execution and complex update logic
         def update_operation(**update_kwargs):
-            return super(TriggerQuerySetMixin, self).update(**update_kwargs)
+            return super().update(**update_kwargs)
         
         return self.trigger_engine.execute_update_triggers(instances, update_operation, **kwargs)
 
