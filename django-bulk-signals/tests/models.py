@@ -6,21 +6,31 @@ from django.db import models
 from django_bulk_signals.models import BulkSignalModel
 
 
-class QuerySetTestModel(BulkSignalModel):
-    """Test model for queryset tests."""
-
-    name = models.CharField(max_length=100)
-    value = models.IntegerField(default=0)
-
-    class Meta:
-        app_label = "tests"
-
-
-class TestModelWithAutoNow(BulkSignalModel):
-    """Test model with auto_now field."""
-
-    name = models.CharField(max_length=100)
+class AuditableModel(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        app_label = "tests"
+        abstract = True
+
+
+class AbstractTestModel(AuditableModel, BulkSignalModel):
+    class Meta:
+        abstract = True
+
+
+class Order(AbstractTestModel):
+    order_date = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, default="pending")
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    shipping_address = models.TextField(blank=True, null=True)
+    billing_address = models.TextField(blank=True, null=True)
+    payment_method = models.CharField(max_length=50, blank=True, null=True)
+
+
+class OrderItem(AbstractTestModel):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey("Product", on_delete=models.PROTECT)
+    quantity = models.PositiveIntegerField(default=1)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    subtotal = models.DecimalField(max_digits=10, decimal_places=2)
