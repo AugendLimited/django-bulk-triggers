@@ -35,42 +35,12 @@ class TriggerQuerySetMixin(
         objs = list(self)
         if not objs:
             return 0
-
-        model_cls = self.model
-        ctx = TriggerContext(model_cls)
-
-        # Run validation triggers first
-        engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
-
-        # Then run business logic triggers
-        engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
-
-        # Before deletion, ensure all related fields are properly cached
-        # to avoid DoesNotExist errors in AFTER_DELETE triggers
-        for obj in objs:
-            if obj.pk is not None:
-                # Cache all foreign key relationships by accessing them
-                for field in model_cls._meta.fields:
-                    if (
-                        field.is_relation
-                        and not field.many_to_many
-                        and not field.one_to_many
-                    ):
-                        try:
-                            # Access the related field to cache it before deletion
-                            getattr(obj, field.name)
-                        except Exception:
-                            # If we can't access the field (e.g., already deleted, no permission, etc.)
-                            # continue with other fields
-                            pass
-
-        # Use Django's standard delete() method
-        result = super().delete()
-
-        # Run AFTER_DELETE triggers
-        engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
-
-        return result
+        ctx = TriggerContext(self.model)
+        return self._execute_delete_triggers_with_operation(
+            lambda: super().delete(),
+            objs,
+            ctx=ctx,
+        )
 
     @transaction.atomic
     def update(self, **kwargs):
