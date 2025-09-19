@@ -4,11 +4,6 @@ from django.db import models, transaction
 
 from django_bulk_triggers import engine
 from django_bulk_triggers.bulk_operations import BulkOperationsMixin
-from django_bulk_triggers.constants import (
-    AFTER_DELETE,
-    BEFORE_DELETE,
-    VALIDATE_DELETE,
-)
 from django_bulk_triggers.context import TriggerContext
 from django_bulk_triggers.field_operations import FieldOperationsMixin
 from django_bulk_triggers.mti_operations import MTIOperationsMixin
@@ -122,39 +117,10 @@ class TriggerQuerySetMixin(
 
         per_object_values = get_bulk_update_value_map()
 
-        # For Subquery updates, skip all in-memory field assignments to prevent
-        # expression objects from reaching triggers
-        if has_subquery:
-            logger.debug(
-                "Skipping in-memory field assignments due to Subquery detection"
-            )
-        else:
-            for obj in instances:
-                if per_object_values and obj.pk in per_object_values:
-                    for field, value in per_object_values[obj.pk].items():
-                        setattr(obj, field, value)
-                else:
-                    for field, value in kwargs.items():
-                        # Skip assigning expression-like objects (they will be handled at DB level)
-                        is_expression_like = hasattr(value, "resolve_expression")
-                        if is_expression_like:
-                            # Special-case Value() which can be unwrapped safely
-                            from django.db.models import Value
-
-                            if isinstance(value, Value):
-                                try:
-                                    setattr(obj, field, value.value)
-                                except Exception:
-                                    # If Value cannot be unwrapped for any reason, skip assignment
-                                    continue
-                            else:
-                                # Do not assign unresolved expressions to in-memory objects
-                                logger.debug(
-                                    f"Skipping assignment of expression {type(value).__name__} to field {field}"
-                                )
-                                continue
-                        else:
-                            setattr(obj, field, value)
+        # For Subquery updates, skip in-memory assignments; otherwise apply safely
+        self._apply_in_memory_assignments(
+            instances, kwargs, per_object_values, has_subquery
+        )
 
         # Salesforce-style trigger behavior: Always run triggers, rely on Django's stack overflow protection
         from django_bulk_triggers.context import (
@@ -673,6 +639,49 @@ class TriggerQuerySetMixin(
             logger.debug("update: AFTER_UPDATE explicitly bypassed")
 
         return update_count
+
+    def _apply_in_memory_assignments(
+        self, instances, kwargs, per_object_values, has_subquery
+    ):
+        """
+        Apply field values to in-memory instances prior to DB update when safe.
+
+        - Skips assignment entirely if a Subquery is present in kwargs
+        - Uses per_object_values (from bulk_update) when provided
+        - Avoids assigning unresolved expression objects to Python instances
+        """
+        if has_subquery:
+            logger.debug(
+                "Skipping in-memory field assignments due to Subquery detection"
+            )
+            return
+
+        for obj in instances:
+            if per_object_values and obj.pk in per_object_values:
+                for field, value in per_object_values[obj.pk].items():
+                    setattr(obj, field, value)
+            else:
+                for field, value in kwargs.items():
+                    # Skip assigning expression-like objects (they will be handled at DB level)
+                    is_expression_like = hasattr(value, "resolve_expression")
+                    if is_expression_like:
+                        # Special-case Value() which can be unwrapped safely
+                        from django.db.models import Value
+
+                        if isinstance(value, Value):
+                            try:
+                                setattr(obj, field, value.value)
+                            except Exception:
+                                # If Value cannot be unwrapped for any reason, skip assignment
+                                continue
+                        else:
+                            # Do not assign unresolved expressions to in-memory objects
+                            logger.debug(
+                                f"Skipping assignment of expression {type(value).__name__} to field {field}"
+                            )
+                            continue
+                    else:
+                        setattr(obj, field, value)
 
     def _detect_subquery_fields(self, update_kwargs, Subquery):
         """
