@@ -72,21 +72,7 @@ class TriggerQuerySetMixin(
             logger.error(f"Failed to import Subquery: {e}")
             raise
 
-        logger.debug(f"Checking for Subquery objects in {len(kwargs)} kwargs")
-
-        subquery_detected = []
-        for key, value in kwargs.items():
-            is_subquery = isinstance(value, Subquery)
-            logger.debug(
-                f"Key '{key}': type={type(value).__name__}, is_subquery={is_subquery}"
-            )
-            if is_subquery:
-                subquery_detected.append(key)
-
-        has_subquery = len(subquery_detected) > 0
-        logger.debug(
-            f"Subquery detection result: {has_subquery}, detected keys: {subquery_detected}"
-        )
+        has_subquery, subquery_detected = self._detect_subquery_fields(kwargs, Subquery)
 
         # Debug logging for Subquery detection
         logger.debug(f"Update kwargs: {list(kwargs.keys())}")
@@ -687,6 +673,45 @@ class TriggerQuerySetMixin(
             logger.debug("update: AFTER_UPDATE explicitly bypassed")
 
         return update_count
+
+    def _detect_subquery_fields(self, update_kwargs, Subquery):
+        """
+        Detect Subquery-valued fields in update kwargs.
+
+        Returns:
+            (bool, list[str]): (has_subquery, detected_field_names)
+        """
+        logger.debug(f"Checking for Subquery objects in {len(update_kwargs)} kwargs")
+
+        subquery_detected = []
+        for key, value in update_kwargs.items():
+            is_subquery = isinstance(value, Subquery)
+            logger.debug(
+                f"Key '{key}': type={type(value).__name__}, is_subquery={is_subquery}"
+            )
+            if is_subquery:
+                subquery_detected.append(key)
+
+        has_subquery = len(subquery_detected) > 0
+        logger.debug(
+            f"Subquery detection result: {has_subquery}, detected keys: {subquery_detected}"
+        )
+
+        if not has_subquery:
+            # Check if we missed any Subquery-like objects for visibility
+            for k, v in update_kwargs.items():
+                if hasattr(v, "query") and hasattr(v, "resolve_expression"):
+                    logger.warning(
+                        f"Potential Subquery-like object detected but not recognized: {k}={type(v).__name__}"
+                    )
+                    logger.warning(
+                        f"Object attributes: query={hasattr(v, 'query')}, resolve_expression={hasattr(v, 'resolve_expression')}"
+                    )
+                    logger.warning(
+                        f"Object dir: {[attr for attr in dir(v) if not attr.startswith('_')][:10]}"
+                    )
+
+        return has_subquery, subquery_detected
 
 
 class TriggerQuerySet(TriggerQuerySetMixin, models.QuerySet):
