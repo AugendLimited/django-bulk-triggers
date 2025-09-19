@@ -139,11 +139,11 @@ class BulkSignalQuerySet(QuerySet):
 
         # Auto-detect fields if not provided
         if fields is None:
-            changed_fields = self._detect_changed_fields(objs)
-            fields = self._prepare_update_fields(changed_fields)
-
-            # Apply auto_now timestamps
+            # Apply auto_now timestamps first so they get detected as changed
             self._apply_auto_now_fields(objs)
+
+            changed_fields = self._detect_changed_fields(objs, original_map)
+            fields = list(changed_fields)
 
             logger.debug(f"bulk_update: Auto-detected fields: {fields}")
 
@@ -214,82 +214,45 @@ class BulkSignalQuerySet(QuerySet):
         logger.debug(f"bulk_delete: Deleted {result} objects for {self.model.__name__}")
         return result
 
-    def _detect_changed_fields(self, objs):
+    def _detect_changed_fields(self, objs, original_map=None):
         """
-        Auto-detect which fields have changed by comparing objects with database values.
+        Auto-detect which fields have changed by comparing objects with original values.
         Returns a set of field names that have changed across all objects.
+
+        Args:
+            objs: List of objects to check for changes
+            original_map: Optional dict mapping pk to original objects (if already fetched)
         """
         if not objs:
             return set()
 
-        model_cls = self.model
         changed_fields = set()
 
-        # Get primary key field names
-        pk_fields = [f.name for f in model_cls._meta.pk_fields]
-        if not pk_fields:
-            pk_fields = ["pk"]
+        # Use provided original_map or fetch from database
+        if original_map is None:
+            obj_pks = [obj.pk for obj in objs if obj.pk is not None]
+            if not obj_pks:
+                return set()
+            original_map = {
+                obj.pk: obj for obj in self.model.objects.filter(pk__in=obj_pks)
+            }
 
-        # Get all object PKs
-        obj_pks = []
         for obj in objs:
-            if hasattr(obj, "pk") and obj.pk is not None:
-                obj_pks.append(obj.pk)
-            else:
-                # Skip objects without PKs
+            if obj.pk is None:
                 continue
 
-        if not obj_pks:
-            return set()
+            old_obj = original_map.get(obj.pk)
+            if old_obj is None:
+                continue  # Object not found in database
 
-        # Fetch current database values for all objects
-        existing_objs = {
-            obj.pk: obj for obj in model_cls.objects.filter(pk__in=obj_pks)
-        }
-
-        # Compare each object's current values with database values
-        for obj in objs:
-            if obj.pk not in existing_objs:
-                continue
-
-            db_obj = existing_objs[obj.pk]
-
-            # Check all concrete fields for changes
-            for field in model_cls._meta.concrete_fields:
-                field_name = field.name
-
-                # Skip primary key fields
-                if field_name in pk_fields:
+            for field in obj._meta.concrete_fields:
+                if field.primary_key:
                     continue
 
-                # Get current value from object
-                current_value = getattr(obj, field_name, None)
-                # Get database value
-                db_value = getattr(db_obj, field_name, None)
-
-                # Compare values (handle None cases)
-                if current_value != db_value:
-                    changed_fields.add(field_name)
+                if getattr(obj, field.name) != getattr(old_obj, field.name):
+                    changed_fields.add(field.name)
 
         return changed_fields
-
-    def _prepare_update_fields(self, changed_fields):
-        """
-        Determine the final set of fields to update, including auto_now fields.
-        """
-        model_cls = self.model
-        fields_set = set(changed_fields)
-        pk_field_names = [f.name for f in model_cls._meta.pk_fields]
-
-        # Add auto_now fields
-        for field in model_cls._meta.local_concrete_fields:
-            if getattr(field, "auto_now", False):
-                if field.name not in fields_set and field.name not in pk_field_names:
-                    fields_set.add(field.name)
-                    if field.name != field.attname:  # handle attname vs name
-                        fields_set.add(field.attname)
-
-        return list(fields_set)
 
     def _apply_auto_now_fields(self, objs):
         """Apply current timestamp to auto_now fields."""
