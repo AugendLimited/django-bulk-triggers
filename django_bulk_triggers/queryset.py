@@ -260,95 +260,7 @@ class TriggerQuerySetMixin(
 
         # Additional safety check: ensure Subquery objects are properly handled
         # This prevents the "cannot adapt type 'Subquery'" error
-        safe_kwargs = {}
-        logger.debug(f"Processing {len(kwargs)} kwargs for safety check")
-
-        for key, value in kwargs.items():
-            logger.debug(
-                f"Processing key '{key}' with value type {type(value).__name__}"
-            )
-
-            if isinstance(value, Subquery):
-                logger.debug(f"Found Subquery for field {key}")
-                # Ensure Subquery has proper output_field
-                if not hasattr(value, "output_field") or value.output_field is None:
-                    logger.warning(
-                        f"Subquery for field {key} missing output_field, attempting to infer"
-                    )
-                    # Try to infer from the model field
-                    try:
-                        field = model_cls._meta.get_field(key)
-                        logger.debug(f"Inferred field type: {type(field).__name__}")
-                        value = value.resolve_expression(None, None)
-                        value.output_field = field
-                        logger.debug(f"Set output_field to {field}")
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to infer output_field for Subquery on {key}: {e}"
-                        )
-                        raise
-                else:
-                    logger.debug(
-                        f"Subquery for field {key} already has output_field: {value.output_field}"
-                    )
-                safe_kwargs[key] = value
-            elif hasattr(value, "get_source_expressions") and hasattr(
-                value, "resolve_expression"
-            ):
-                # Handle Case statements and other complex expressions
-                logger.debug(
-                    f"Found complex expression for field {key}: {type(value).__name__}"
-                )
-
-                # Check if this expression contains any Subquery objects
-                source_expressions = value.get_source_expressions()
-                has_nested_subquery = False
-
-                for expr in source_expressions:
-                    if isinstance(expr, Subquery):
-                        has_nested_subquery = True
-                        logger.debug(f"Found nested Subquery in {type(value).__name__}")
-                        # Ensure the nested Subquery has proper output_field
-                        if (
-                            not hasattr(expr, "output_field")
-                            or expr.output_field is None
-                        ):
-                            try:
-                                field = model_cls._meta.get_field(key)
-                                expr.output_field = field
-                                logger.debug(
-                                    f"Set output_field for nested Subquery to {field}"
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"Failed to set output_field for nested Subquery: {e}"
-                                )
-                                raise
-
-                if has_nested_subquery:
-                    logger.debug(
-                        "Expression contains Subquery, ensuring proper output_field"
-                    )
-                    # Try to resolve the expression to ensure it's properly formatted
-                    try:
-                        resolved_value = value.resolve_expression(None, None)
-                        safe_kwargs[key] = resolved_value
-                        logger.debug(f"Successfully resolved expression for {key}")
-                    except Exception as e:
-                        logger.error(f"Failed to resolve expression for {key}: {e}")
-                        raise
-                else:
-                    safe_kwargs[key] = value
-            else:
-                logger.debug(
-                    f"Non-Subquery value for field {key}: {type(value).__name__}"
-                )
-                safe_kwargs[key] = value
-
-        logger.debug(f"Safe kwargs keys: {list(safe_kwargs.keys())}")
-        logger.debug(
-            f"Safe kwargs types: {[(k, type(v).__name__) for k, v in safe_kwargs.items()]}"
-        )
+        safe_kwargs = self._make_safe_kwargs(kwargs, model_cls)
 
         logger.debug(f"Calling super().update() with {len(safe_kwargs)} kwargs")
         try:
@@ -639,6 +551,100 @@ class TriggerQuerySetMixin(
             logger.debug("update: AFTER_UPDATE explicitly bypassed")
 
         return update_count
+
+    def _make_safe_kwargs(self, kwargs, model_cls):
+        from django.db.models import Subquery
+
+        logger.debug(f"Processing {len(kwargs)} kwargs for safety check")
+        safe_kwargs = {}
+
+        for key, value in kwargs.items():
+            logger.debug(
+                f"Processing key '{key}' with value type {type(value).__name__}"
+            )
+
+            if isinstance(value, Subquery):
+                logger.debug(f"Found Subquery for field {key}")
+                # Ensure Subquery has proper output_field
+                if not hasattr(value, "output_field") or value.output_field is None:
+                    logger.warning(
+                        f"Subquery for field {key} missing output_field, attempting to infer"
+                    )
+                    # Try to infer from the model field
+                    try:
+                        field = model_cls._meta.get_field(key)
+                        logger.debug(f"Inferred field type: {type(field).__name__}")
+                        value = value.resolve_expression(None, None)
+                        value.output_field = field
+                        logger.debug(f"Set output_field to {field}")
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to infer output_field for Subquery on {key}: {e}"
+                        )
+                        raise
+                else:
+                    logger.debug(
+                        f"Subquery for field {key} already has output_field: {value.output_field}"
+                    )
+                safe_kwargs[key] = value
+            elif hasattr(value, "get_source_expressions") and hasattr(
+                value, "resolve_expression"
+            ):
+                # Handle Case statements and other complex expressions
+                logger.debug(
+                    f"Found complex expression for field {key}: {type(value).__name__}"
+                )
+
+                # Check if this expression contains any Subquery objects
+                source_expressions = value.get_source_expressions()
+                has_nested_subquery = False
+
+                for expr in source_expressions:
+                    if isinstance(expr, Subquery):
+                        has_nested_subquery = True
+                        logger.debug(f"Found nested Subquery in {type(value).__name__}")
+                        # Ensure the nested Subquery has proper output_field
+                        if (
+                            not hasattr(expr, "output_field")
+                            or expr.output_field is None
+                        ):
+                            try:
+                                field = model_cls._meta.get_field(key)
+                                expr.output_field = field
+                                logger.debug(
+                                    f"Set output_field for nested Subquery to {field}"
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"Failed to set output_field for nested Subquery: {e}"
+                                )
+                                raise
+
+                if has_nested_subquery:
+                    logger.debug(
+                        "Expression contains Subquery, ensuring proper output_field"
+                    )
+                    # Try to resolve the expression to ensure it's properly formatted
+                    try:
+                        resolved_value = value.resolve_expression(None, None)
+                        safe_kwargs[key] = resolved_value
+                        logger.debug(f"Successfully resolved expression for {key}")
+                    except Exception as e:
+                        logger.error(f"Failed to resolve expression for {key}: {e}")
+                        raise
+                else:
+                    safe_kwargs[key] = value
+            else:
+                logger.debug(
+                    f"Non-Subquery value for field {key}: {type(value).__name__}"
+                )
+                safe_kwargs[key] = value
+
+        logger.debug(f"Safe kwargs keys: {list(safe_kwargs.keys())}")
+        logger.debug(
+            f"Safe kwargs types: {[(k, type(v).__name__) for k, v in safe_kwargs.items()]}"
+        )
+        return safe_kwargs
 
     def _apply_in_memory_assignments(
         self, instances, kwargs, per_object_values, has_subquery
