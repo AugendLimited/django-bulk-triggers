@@ -164,68 +164,9 @@ class TriggerQuerySetMixin(
                 extra_fields = []  # Skip for Subquery updates
 
             if extra_fields:
-                from django.db.models import Case, Value, When
-
-                case_statements = {}
-                for field_name in extra_fields:
-                    try:
-                        field_obj = model_cls._meta.get_field(field_name)
-                    except Exception:
-                        # Skip unknown fields
-                        continue
-
-                    when_statements = []
-                    for obj in instances:
-                        obj_pk = getattr(obj, "pk", None)
-                        if obj_pk is None:
-                            continue
-
-                        # Determine value and output field
-                        if getattr(field_obj, "is_relation", False):
-                            # For FK fields, store the raw id and target field output type
-                            value = getattr(obj, field_obj.attname, None)
-                            output_field = field_obj.target_field
-                            target_name = (
-                                field_obj.attname
-                            )  # use column name (e.g., fk_id)
-                        else:
-                            value = getattr(obj, field_name)
-                            output_field = field_obj
-                            target_name = field_name
-
-                        # Special handling for Subquery and other expression values in CASE statements
-                        if isinstance(value, Subquery):
-                            logger.debug(
-                                f"Creating When statement with Subquery for {field_name}"
-                            )
-                            # Ensure the Subquery has proper output_field
-                            if (
-                                not hasattr(value, "output_field")
-                                or value.output_field is None
-                            ):
-                                value.output_field = output_field
-                                logger.debug(
-                                    f"Set output_field for Subquery in When statement to {output_field}"
-                                )
-                            when_statements.append(When(pk=obj_pk, then=value))
-                        elif hasattr(value, "resolve_expression"):
-                            # Handle other expression objects (Case, F, etc.)
-                            logger.debug(
-                                f"Creating When statement with expression for {field_name}: {type(value).__name__}"
-                            )
-                            when_statements.append(When(pk=obj_pk, then=value))
-                        else:
-                            when_statements.append(
-                                When(
-                                    pk=obj_pk,
-                                    then=Value(value, output_field=output_field),
-                                )
-                            )
-
-                    if when_statements:
-                        case_statements[target_name] = Case(
-                            *when_statements, output_field=output_field
-                        )
+                case_statements = self._build_case_statements_for_extra_fields(
+                    instances, extra_fields, model_cls
+                )
 
                 # Merge extra CASE updates into kwargs for DB update
                 if case_statements:
@@ -551,6 +492,69 @@ class TriggerQuerySetMixin(
             logger.debug("update: AFTER_UPDATE explicitly bypassed")
 
         return update_count
+
+    def _build_case_statements_for_extra_fields(
+        self, instances, extra_fields, model_cls
+    ):
+        from django.db.models import Case, Subquery, Value, When
+
+        case_statements = {}
+        for field_name in extra_fields:
+            try:
+                field_obj = model_cls._meta.get_field(field_name)
+            except Exception:
+                # Skip unknown fields
+                continue
+
+            when_statements = []
+            for obj in instances:
+                obj_pk = getattr(obj, "pk", None)
+                if obj_pk is None:
+                    continue
+
+                # Determine value and output field
+                if getattr(field_obj, "is_relation", False):
+                    # For FK fields, store the raw id and target field output type
+                    value = getattr(obj, field_obj.attname, None)
+                    output_field = field_obj.target_field
+                    target_name = field_obj.attname  # use column name (e.g., fk_id)
+                else:
+                    value = getattr(obj, field_name)
+                    output_field = field_obj
+                    target_name = field_name
+
+                # Special handling for Subquery and other expression values in CASE statements
+                if isinstance(value, Subquery):
+                    logger.debug(
+                        f"Creating When statement with Subquery for {field_name}"
+                    )
+                    # Ensure the Subquery has proper output_field
+                    if not hasattr(value, "output_field") or value.output_field is None:
+                        value.output_field = output_field
+                        logger.debug(
+                            f"Set output_field for Subquery in When statement to {output_field}"
+                        )
+                    when_statements.append(When(pk=obj_pk, then=value))
+                elif hasattr(value, "resolve_expression"):
+                    # Handle other expression objects (Case, F, etc.)
+                    logger.debug(
+                        f"Creating When statement with expression for {field_name}: {type(value).__name__}"
+                    )
+                    when_statements.append(When(pk=obj_pk, then=value))
+                else:
+                    when_statements.append(
+                        When(
+                            pk=obj_pk,
+                            then=Value(value, output_field=output_field),
+                        )
+                    )
+
+            if when_statements:
+                case_statements[target_name] = Case(
+                    *when_statements, output_field=output_field
+                )
+
+        return case_statements
 
     def _make_safe_kwargs(self, kwargs, model_cls):
         from django.db.models import Subquery
