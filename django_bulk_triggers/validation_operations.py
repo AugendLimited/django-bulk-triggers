@@ -141,23 +141,23 @@ class ValidationOperationsMixin:
         """
         value_map = {}
         logger.debug(
-            "DEBUG: Building value_map for %d objects with fields: %s",
+            "Building value_map for %d objects with fields: %s",
             len(objs),
             list(fields_set),
         )
 
         for obj in objs:
             if obj.pk is None:
-                logger.debug("DEBUG: Skipping object with no pk")
+                logger.debug("Skipping object with no pk")
                 continue  # skip unsaved objects
             field_values = {}
-            logger.debug("DEBUG: Processing object pk=%s", obj.pk)
+            logger.debug("Processing object pk=%s", obj.pk)
 
             for field_name in fields_set:
                 value = getattr(obj, field_name)
                 field_values[field_name] = value
                 logger.debug(
-                    "DEBUG: Object %s field %s = %s (type: %s)",
+                    "Object %s field %s = %s (type: %s)",
                     obj.pk,
                     field_name,
                     value,
@@ -170,17 +170,17 @@ class ValidationOperationsMixin:
             if field_values:
                 value_map[obj.pk] = field_values
                 logger.debug(
-                    "DEBUG: Added value_map entry for pk=%s with %d fields",
+                    "Added value_map entry for pk=%s with %d fields",
                     obj.pk,
                     len(field_values),
                 )
             else:
-                logger.debug("DEBUG: No field values for object pk=%s", obj.pk)
+                logger.debug("No field values for object pk=%s", obj.pk)
 
         logger.debug("Built value_map for %d objects", len(value_map))
-        logger.debug("DEBUG: Final value_map keys: %s", list(value_map.keys()))
+        logger.debug("Final value_map keys: %s", list(value_map.keys()))
         for pk, values in value_map.items():
-            logger.debug("DEBUG: value_map[%s] = %s", pk, list(values.keys()))
+            logger.debug("value_map[%s] = %s", pk, list(values.keys()))
         return value_map
 
     def _filter_django_kwargs(self, kwargs):

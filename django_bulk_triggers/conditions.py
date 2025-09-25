@@ -71,16 +71,7 @@ class HasChanged(TriggerCondition):
         self.has_changed = has_changed
 
     def check(self, instance, original_instance=None):
-        # DEBUG: Always log balance field checks to debug user's specific issue
-        if self.field == "balance":
-            logger.debug(f"🔍 HasChanged('{self.field}') check() called for instance {getattr(instance, 'pk', 'No PK')}")
-            logger.debug(f"  - original_instance provided: {original_instance is not None}")
-            if original_instance:
-                logger.debug(f"  - original_instance pk: {getattr(original_instance, 'pk', 'No PK')}")
-            
         if not original_instance:
-            if self.field == "balance":
-                logger.debug(f"🔍 HasChanged('{self.field}') returning False - no original_instance provided")
             return False
 
         current = resolve_dotted_attr(instance, self.field)
@@ -88,21 +79,6 @@ class HasChanged(TriggerCondition):
 
         result = (current != previous) == self.has_changed
         
-        # DEBUG: Add detailed logging for balance field to debug user's specific issue
-        if self.field == "balance":
-            logger.debug(f"🔍 HasChanged('{self.field}') DETAILED DEBUG for instance {getattr(instance, 'pk', 'No PK')}:")
-            logger.debug(f"  - Field: {self.field}")
-            logger.debug(f"  - Original instance: {original_instance}")
-            logger.debug(f"  - Original value: {previous} (type: {type(previous).__name__})")
-            logger.debug(f"  - Current value: {current} (type: {type(current).__name__})")
-            logger.debug(f"  - Values equal: {current == previous}")
-            logger.debug(f"  - Values not equal: {current != previous}")
-            logger.debug(f"  - has_changed setting: {self.has_changed}")
-            logger.debug(f"  - Comparison (current != previous): {current != previous}")
-            logger.debug(f"  - Expression ((current != previous) == self.has_changed): {(current != previous) == self.has_changed}")
-            logger.debug(f"  - Final result: {result}")
-            logger.debug(f"  ---")
-            
         # Only log when there's an actual change to reduce noise
         if result:
             logger.debug(

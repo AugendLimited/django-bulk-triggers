@@ -32,7 +32,7 @@ class TriggerQuerySetMixin(
             return 0
         ctx = TriggerContext(self.model)
         return self._execute_delete_triggers_with_operation(
-            lambda: super().delete(),
+            lambda: super(TriggerQuerySetMixin, self).delete(),
             objs,
             ctx=ctx,
         )
@@ -80,19 +80,19 @@ class TriggerQuerySetMixin(
                 f"Detected Subquery in update: {[k for k, v in kwargs.items() if isinstance(v, Subquery)]}"
             )
             logger.debug(
-                f"FRAMEWORK DEBUG: Subquery update detected for {model_cls.__name__}"
+                f"Subquery update detected for {model_cls.__name__}"
             )
-            logger.debug(f"FRAMEWORK DEBUG: Subquery kwargs = {list(kwargs.keys())}")
+            logger.debug(f"Subquery kwargs = {list(kwargs.keys())}")
             for key, value in kwargs.items():
                 logger.debug(
-                    f"FRAMEWORK DEBUG: Subquery {key} = {type(value).__name__}"
+                    f"Subquery {key} = {type(value).__name__}"
                 )
                 if isinstance(value, Subquery):
                     logger.debug(
-                        f"FRAMEWORK DEBUG: Subquery {key} detected (contains OuterRef - cannot log query string)"
+                        f"Subquery {key} detected (contains OuterRef - cannot log query string)"
                     )
                     logger.debug(
-                        f"FRAMEWORK DEBUG: Subquery {key} output_field: {getattr(value, 'output_field', 'None')}"
+                        f"Subquery {key} output_field: {getattr(value, 'output_field', 'None')}"
                     )
         else:
             # Check if we missed any Subquery objects
@@ -208,12 +208,12 @@ class TriggerQuerySetMixin(
             update_count = super().update(**safe_kwargs)
             logger.debug(f"Super update successful, count: {update_count}")
             logger.debug(
-                f"FRAMEWORK DEBUG: Super update completed for {model_cls.__name__} with count {update_count}"
+                f"Super update completed for {model_cls.__name__} with count {update_count}"
             )
             if has_subquery:
-                logger.debug("FRAMEWORK DEBUG: Subquery update completed successfully")
+                logger.debug("Subquery update completed successfully")
                 logger.debug(
-                    "FRAMEWORK DEBUG: About to refresh instances to get computed values"
+                    "About to refresh instances to get computed values"
                 )
         except Exception as e:
             logger.error(f"Super update failed: {e}")
@@ -228,9 +228,9 @@ class TriggerQuerySetMixin(
                 "Refreshing instances with Subquery computed values before running triggers"
             )
             logger.debug(
-                f"FRAMEWORK DEBUG: Refreshing {len(instances)} instances for {model_cls.__name__} after Subquery update"
+                f"Refreshing {len(instances)} instances for {model_cls.__name__} after Subquery update"
             )
-            logger.debug(f"DEBUG: Subquery update kwargs were: {list(kwargs.keys())}")
+            logger.debug(f"Subquery update kwargs were: {list(kwargs.keys())}")
             for key, value in kwargs.items():
                 if isinstance(value, Subquery):
                     logger.debug(
@@ -248,7 +248,7 @@ class TriggerQuerySetMixin(
                 if instance.pk in refreshed_instances:
                     refreshed_instance = refreshed_instances[instance.pk]
                     logger.debug(
-                        f"FRAMEWORK DEBUG: Refreshing instance pk={instance.pk}"
+                        f"Refreshing instance pk={instance.pk}"
                     )
                     # Save current state before modifying for trigger comparison
                     pre_trigger_values = {}
@@ -279,7 +279,7 @@ class TriggerQuerySetMixin(
                                     raise
                             if old_value != new_value:
                                 logger.debug(
-                                    f"FRAMEWORK DEBUG: Field {field.name} changed from {old_value} to {new_value}"
+                                    f"Field {field.name} changed from {old_value} to {new_value}"
                                 )
                                 # Extra debug for aggregate fields
                                 if field.name in [
@@ -312,7 +312,7 @@ class TriggerQuerySetMixin(
                             )
                     pre_trigger_state[instance.pk] = pre_trigger_values
                     logger.debug(
-                        f"FRAMEWORK DEBUG: Instance pk={instance.pk} refreshed successfully"
+                        f"Instance pk={instance.pk} refreshed successfully"
                     )
                     # Log final state of key aggregate fields
                     for field_name in [
@@ -328,7 +328,7 @@ class TriggerQuerySetMixin(
                             )
                 else:
                     logger.warning(
-                        f"FRAMEWORK DEBUG: Could not find refreshed instance for pk={instance.pk}"
+                        f"Could not find refreshed instance for pk={instance.pk}"
                     )
 
             # Now run BEFORE_UPDATE triggers with refreshed instances so conditions work
@@ -364,21 +364,21 @@ class TriggerQuerySetMixin(
                 # Use bulk_update to persist trigger modifications
                 # Let Django handle recursion naturally - triggers will detect if they're already executing
                 logger.debug(
-                    f"FRAMEWORK DEBUG: About to call bulk_update with bypass_triggers=False for {model_cls.__name__}"
+                    f"About to call bulk_update with bypass_triggers=False for {model_cls.__name__}"
                 )
                 logger.debug(
-                    f"FRAMEWORK DEBUG: trigger_modified_fields = {trigger_modified_fields}"
+                    f"trigger_modified_fields = {trigger_modified_fields}"
                 )
-                logger.debug(f"FRAMEWORK DEBUG: instances count = {len(instances)}")
+                logger.debug(f"Instances count = {len(instances)}")
                 for i, instance in enumerate(instances):
                     logger.debug(
-                        f"FRAMEWORK DEBUG: instance {i} pk={getattr(instance, 'pk', 'No PK')}"
+                        f"instance {i} pk={getattr(instance, 'pk', 'No PK')}"
                     )
 
                 result = model_cls.objects.bulk_update(
                     instances, trigger_modified_fields, bypass_triggers=False
                 )
-                logger.debug(f"FRAMEWORK DEBUG: bulk_update result = {result}")
+                logger.debug(f"Bulk_update result = {result}")
 
             # Run AFTER_UPDATE triggers for the Subquery update now that instances are refreshed
             # and any trigger modifications have been persisted
@@ -386,25 +386,11 @@ class TriggerQuerySetMixin(
                 "Running AFTER_UPDATE triggers after Subquery update and refresh"
             )
             logger.debug(
-                "FRAMEWORK DEBUG: About to run AFTER_UPDATE for %s with %d instances",
+                "About to run AFTER_UPDATE for %s with %d instances",
                 model_cls.__name__,
                 len(instances),
             )
-            logger.debug("FRAMEWORK DEBUG: Instance data before AFTER_UPDATE:")
-            for i, instance in enumerate(instances):
-                logger.debug(f"FRAMEWORK DEBUG: Instance {i} pk={instance.pk}")
-                # Log key fields that might be relevant for aggregates
-                for field_name in [
-                    "disbursement",
-                    "disbursements",
-                    "amount",
-                    "balance",
-                ]:
-                    if hasattr(instance, field_name):
-                        value = getattr(instance, field_name)
-                        logger.debug(
-                            f"FRAMEWORK DEBUG: Instance {i} {field_name}={value} (type: {type(value).__name__})"
-                        )
+            logger.debug("Running AFTER_UPDATE triggers for %d instances", len(instances))
 
             from django_bulk_triggers.constants import AFTER_UPDATE
 
@@ -422,7 +408,7 @@ class TriggerQuerySetMixin(
 
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
             logger.debug(
-                f"FRAMEWORK DEBUG: AFTER_UPDATE completed for {model_cls.__name__}"
+                f"AFTER_UPDATE completed for {model_cls.__name__}"
             )
 
             # Check if AFTER_UPDATE triggers modified any fields and persist them with bulk_update
@@ -457,22 +443,22 @@ class TriggerQuerySetMixin(
                 # Use bulk_update to persist AFTER_UPDATE trigger modifications
                 # Allow triggers to run - our new depth-based recursion detection will prevent infinite loops
                 logger.debug(
-                    f"FRAMEWORK DEBUG: About to call bulk_update with triggers enabled for AFTER_UPDATE modifications on {model_cls.__name__}"
+                    f"About to call bulk_update with triggers enabled for AFTER_UPDATE modifications on {model_cls.__name__}"
                 )
                 logger.debug(
-                    f"FRAMEWORK DEBUG: after_trigger_modified_fields = {after_trigger_modified_fields}"
+                    f"after_trigger_modified_fields = {after_trigger_modified_fields}"
                 )
-                logger.debug(f"FRAMEWORK DEBUG: instances count = {len(instances)}")
+                logger.debug(f"Instances count = {len(instances)}")
                 for i, instance in enumerate(instances):
                     logger.debug(
-                        f"FRAMEWORK DEBUG: instance {i} pk={getattr(instance, 'pk', 'No PK')}"
+                        f"instance {i} pk={getattr(instance, 'pk', 'No PK')}"
                     )
 
                 # Salesforce-style: Allow nested triggers to run for field modifications
                 # The depth-based recursion detection in engine.py will prevent infinite loops
                 result = model_cls.objects.bulk_update(instances, bypass_triggers=False)
                 logger.debug(
-                    f"FRAMEWORK DEBUG: AFTER_UPDATE bulk_update result = {result}"
+                    f"AFTER_UPDATE bulk_update result = {result}"
                 )
 
         # Salesforce-style: Always run AFTER_UPDATE triggers unless explicitly bypassed
@@ -483,7 +469,7 @@ class TriggerQuerySetMixin(
             if not has_subquery:
                 logger.debug("update: running AFTER_UPDATE")
                 logger.debug(
-                    f"FRAMEWORK DEBUG: Running AFTER_UPDATE for {model_cls.__name__} with {len(instances)} instances"
+                    f"Running AFTER_UPDATE for {model_cls.__name__} with {len(instances)} instances"
                 )
                 engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)
             else:

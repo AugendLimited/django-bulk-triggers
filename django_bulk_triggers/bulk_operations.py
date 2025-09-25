@@ -573,25 +573,6 @@ class BulkOperationsMixin:
                 len(objs),
                 list(fields_set),
             )
-            logger.debug("DEBUG: bulk_update objects before call:")
-            for i, obj in enumerate(objs):
-                logger.debug("DEBUG: Object %d pk=%s", i, getattr(obj, "pk", "None"))
-                # Log key aggregate fields
-                for field_name in [
-                    "disbursement",
-                    "disbursements",
-                    "balance",
-                    "amount",
-                ]:
-                    if hasattr(obj, field_name):
-                        value = getattr(obj, field_name)
-                        logger.debug(
-                            "DEBUG: Object %d %s = %s (type: %s)",
-                            i,
-                            field_name,
-                            value,
-                            type(value).__name__,
-                        )
 
             # Import the trigger engine and constants
             from django_bulk_triggers import engine
