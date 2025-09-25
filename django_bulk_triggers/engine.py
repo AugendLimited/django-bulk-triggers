@@ -51,6 +51,23 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
             handler_instance = handler_cls()
             func = getattr(handler_instance, method_name)
 
+            preload_related = getattr(func, "_select_related_preload", None)
+            if preload_related and new_records:
+                try:
+                    from django_bulk_triggers.constants import BEFORE_CREATE
+
+                    model_cls_override = getattr(handler_instance, "model_cls", None)
+
+                    if event == BEFORE_CREATE:
+                        preload_related(new_records, model_cls=model_cls_override)
+                except Exception:
+                    logger.debug(
+                        "select_related preload failed for %s.%s",
+                        handler_name,
+                        method_name,
+                        exc_info=True,
+                    )
+
             to_process_new = []
             to_process_old = []
 

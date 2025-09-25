@@ -333,6 +333,8 @@ class TriggerQuerySetMixin(
 
             # Now run BEFORE_UPDATE triggers with refreshed instances so conditions work
             logger.debug("Running BEFORE_UPDATE triggers after Subquery refresh")
+            from django_bulk_triggers.constants import BEFORE_UPDATE
+
             engine.run(model_cls, BEFORE_UPDATE, instances, originals, ctx=ctx)
 
             # Check if triggers modified any fields and persist them with bulk_update
