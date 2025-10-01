@@ -324,6 +324,146 @@ class MTIOperationsMixin:
                         obj_without_pk._state.adding = False
                         obj_without_pk._state.db = self.db
 
+    def _can_use_bulk_parent_insert(self):
+        """
+        Check if the database supports bulk insert with RETURNING (getting PKs back).
+        This is available on PostgreSQL, Oracle 12+, SQLite 3.35+, and recent MySQL/MariaDB.
+        """
+        from django.db import connection
+        
+        # Use Django's feature detection
+        features = connection.features
+        return getattr(features, 'can_return_rows_from_bulk_insert', False)
+    
+    def _bulk_create_parents(
+        self,
+        new_objects,
+        inheritance_chain,
+        bypass_triggers=False,
+        bypass_validation=False
+    ):
+        """
+        OPTIMIZED: Bulk insert parent objects using Django's bulk_create with RETURNING.
+        This reduces N inserts to 1 bulk insert per parent level.
+        
+        Returns: parent_objects_map dict mapping object id() to parent instances
+        """
+        parent_objects_map = {}
+        
+        # Process each level of the inheritance chain (excluding child)
+        for level_idx, model_class in enumerate(inheritance_chain[:-1]):
+            # Step 1: Create parent instances for all objects at this level
+            parent_objs_for_level = []
+            obj_to_parent_map = {}  # Map original obj to its parent instance
+            
+            for obj in new_objects:
+                # Get the current parent for this object (from previous level)
+                current_parent = None
+                if level_idx > 0:
+                    prev_parents = parent_objects_map.get(id(obj), {})
+                    current_parent = prev_parents.get(inheritance_chain[level_idx - 1])
+                
+                parent_obj = self._create_parent_instance(obj, model_class, current_parent)
+                parent_objs_for_level.append(parent_obj)
+                obj_to_parent_map[id(parent_obj)] = obj
+            
+            # Step 2: Fire BEFORE triggers in bulk
+            if not bypass_triggers:
+                ctx = TriggerContext(model_class)
+                if not bypass_validation:
+                    engine.run(model_class, VALIDATE_CREATE, parent_objs_for_level, ctx=ctx)
+                engine.run(model_class, BEFORE_CREATE, parent_objs_for_level, ctx=ctx)
+            
+            # Step 3: BULK INSERT with RETURNING - this is the key optimization!
+            created_parents = model_class._base_manager.using(self.db).bulk_create(
+                parent_objs_for_level,
+                batch_size=len(parent_objs_for_level)
+            )
+            
+            # Step 4: Copy all fields back from created objects (Django sets PKs automatically)
+            for created_parent, parent_obj in zip(created_parents, parent_objs_for_level):
+                # Copy all fields including auto-generated ones
+                for field in model_class._meta.local_fields:
+                    created_value = getattr(created_parent, field.name, None)
+                    if created_value is not None:
+                        setattr(parent_obj, field.name, created_value)
+                
+                parent_obj._state.adding = False
+                parent_obj._state.db = self.db
+            
+            # Step 5: Fire AFTER triggers in bulk
+            if not bypass_triggers:
+                engine.run(model_class, AFTER_CREATE, parent_objs_for_level, ctx=ctx)
+            
+            # Step 6: Store parent instances in the map
+            for parent_obj in parent_objs_for_level:
+                original_obj = obj_to_parent_map[id(parent_obj)]
+                if id(original_obj) not in parent_objects_map:
+                    parent_objects_map[id(original_obj)] = {}
+                parent_objects_map[id(original_obj)][model_class] = parent_obj
+        
+        logger.debug(f"Bulk created parents for {len(new_objects)} objects across {len(inheritance_chain) - 1} levels")
+        return parent_objects_map
+    
+    def _loop_create_parents(
+        self,
+        new_objects,
+        inheritance_chain,
+        bypass_triggers=False,
+        bypass_validation=False
+    ):
+        """
+        FALLBACK: Create parent objects one-by-one in a loop.
+        Used when database doesn't support RETURNING or bulk insert fails.
+        
+        Returns: parent_objects_map dict mapping object id() to parent instances
+        """
+        parent_objects_map = {}
+        
+        for obj in new_objects:
+            parent_instances = {}
+            current_parent = None
+            
+            for model_class in inheritance_chain[:-1]:
+                parent_obj = self._create_parent_instance(obj, model_class, current_parent)
+                
+                # Fire parent triggers if not bypassed
+                if not bypass_triggers:
+                    ctx = TriggerContext(model_class)
+                    if not bypass_validation:
+                        engine.run(model_class, VALIDATE_CREATE, [parent_obj], ctx=ctx)
+                    engine.run(model_class, BEFORE_CREATE, [parent_obj], ctx=ctx)
+                
+                # Use Django's base manager to create the object and get PKs back
+                field_values = {
+                    field.name: getattr(parent_obj, field.name)
+                    for field in model_class._meta.local_fields
+                    if hasattr(parent_obj, field.name)
+                    and getattr(parent_obj, field.name) is not None
+                }
+                created_obj = model_class._base_manager.using(self.db).create(**field_values)
+                
+                # Copy ALL fields back from created_obj to parent_obj
+                for field in model_class._meta.local_fields:
+                    created_value = getattr(created_obj, field.name, None)
+                    if created_value is not None:
+                        setattr(parent_obj, field.name, created_value)
+                
+                parent_obj._state.adding = False
+                parent_obj._state.db = self.db
+                
+                # Fire AFTER_CREATE triggers for parent
+                if not bypass_triggers:
+                    engine.run(model_class, AFTER_CREATE, [parent_obj], ctx=ctx)
+                
+                parent_instances[model_class] = parent_obj
+                current_parent = parent_obj
+            
+            parent_objects_map[id(obj)] = parent_instances
+        
+        logger.debug(f"Loop created parents for {len(new_objects)} objects")
+        return parent_objects_map
+    
     def _process_mti_bulk_create_batch(
         self,
         batch,
@@ -334,94 +474,90 @@ class MTIOperationsMixin:
     ):
         """
         Process a single batch of objects through the inheritance chain.
-        Implements Django's suggested workaround #2: O(n) normal inserts into parent
-        tables to get primary keys back, then single bulk insert into childmost table.
+        
+        OPTIMIZED APPROACH (bulk-first with fallback):
+        1. Try BULK INSERT for parent tables (works on PostgreSQL, Oracle, newer DBs)
+        2. If successful, all parents inserted in O(k) queries where k = inheritance depth
+        3. Fall back to O(n) individual inserts only if bulk fails or unsupported
+        
+        This gives us MASSIVE performance gains on modern databases while maintaining compatibility.
         """
-        # For MTI, we need to save parent objects first to get PKs
-        # Then we can use Django's bulk_create for the child objects
-        parent_objects_map = {}
-
-        # Step 1: Do O(n) normal inserts into parent tables to get primary keys back
-        # Get bypass_triggers from kwargs
         bypass_triggers = kwargs.get("bypass_triggers", False)
         bypass_validation = kwargs.get("bypass_validation", False)
-
-        # Create a list for lookup (since model instances without PKs are not hashable)
         existing_records_list = existing_records if existing_records else []
-
-        for obj in batch:
+        
+        # Separate new and existing objects
+        new_objects_in_batch = [obj for obj in batch if obj not in existing_records_list]
+        existing_objects_in_batch = [obj for obj in batch if obj in existing_records_list]
+        
+        # Step 1: Create parent objects - TRY BULK FIRST, then fallback to loop
+        if new_objects_in_batch and self._can_use_bulk_parent_insert():
+            try:
+                parent_objects_map = self._bulk_create_parents(
+                    new_objects_in_batch,
+                    inheritance_chain,
+                    bypass_triggers,
+                    bypass_validation
+                )
+                logger.info(
+                    f"✓ BULK optimization: Inserted {len(new_objects_in_batch)} parent objects "
+                    f"in {len(inheritance_chain) - 1} queries (vs {len(new_objects_in_batch) * (len(inheritance_chain) - 1)} in loop)"
+                )
+            except Exception as e:
+                # Fall back to loop if bulk fails
+                logger.warning(f"Bulk parent insert failed, falling back to loop: {e}")
+                parent_objects_map = self._loop_create_parents(
+                    new_objects_in_batch,
+                    inheritance_chain,
+                    bypass_triggers,
+                    bypass_validation
+                )
+        elif new_objects_in_batch:
+            # Database doesn't support RETURNING, use loop approach
+            logger.debug("Using loop approach for parent inserts (DB doesn't support RETURNING)")
+            parent_objects_map = self._loop_create_parents(
+                new_objects_in_batch,
+                inheritance_chain,
+                bypass_triggers,
+                bypass_validation
+            )
+        else:
+            parent_objects_map = {}
+        
+        # Step 2: Handle existing objects separately (they always need individual saves)
+        for obj in existing_objects_in_batch:
             parent_instances = {}
             current_parent = None
-            is_existing_record = obj in existing_records_list
 
             for model_class in inheritance_chain[:-1]:
-                parent_obj = self._create_parent_instance(
-                    obj, model_class, current_parent
-                )
+                parent_obj = self._create_parent_instance(obj, model_class, current_parent)
 
-                if is_existing_record:
-                    # For existing records, we need to update the parent object instead of creating
-                    # The parent_obj should already have the correct PK from the database lookup
-                    # Fire parent triggers for updates
-                    if not bypass_triggers:
-                        ctx = TriggerContext(model_class)
-                        if not bypass_validation:
-                            engine.run(
-                                model_class, VALIDATE_UPDATE, [parent_obj], ctx=ctx
-                            )
-                        engine.run(model_class, BEFORE_UPDATE, [parent_obj], ctx=ctx)
+                # For existing records, update the parent object
+                if not bypass_triggers:
+                    ctx = TriggerContext(model_class)
+                    if not bypass_validation:
+                        engine.run(model_class, VALIDATE_UPDATE, [parent_obj], ctx=ctx)
+                    engine.run(model_class, BEFORE_UPDATE, [parent_obj], ctx=ctx)
 
-                    # Update the existing parent object
-                    # Filter update_fields to only include fields that exist in the parent model
-                    parent_update_fields = kwargs.get("update_fields")
-                    if parent_update_fields:
-                        # Only include fields that exist in the parent model
-                        parent_model_fields = {
-                            field.name for field in model_class._meta.local_fields
-                        }
-                        filtered_update_fields = [
-                            field
-                            for field in parent_update_fields
-                            if field in parent_model_fields
-                        ]
-                        parent_obj.save(update_fields=filtered_update_fields)
-                    else:
-                        parent_obj.save()
-
-                    # Fire AFTER_UPDATE triggers for parent
-                    if not bypass_triggers:
-                        engine.run(model_class, AFTER_UPDATE, [parent_obj], ctx=ctx)
-                else:
-                    # For new records, create the parent object as before
-                    # Fire parent triggers if not bypassed
-                    if not bypass_triggers:
-                        ctx = TriggerContext(model_class)
-                        if not bypass_validation:
-                            engine.run(
-                                model_class, VALIDATE_CREATE, [parent_obj], ctx=ctx
-                            )
-                        engine.run(model_class, BEFORE_CREATE, [parent_obj], ctx=ctx)
-
-                    # Use Django's base manager to create the object and get PKs back
-                    # This bypasses triggers and the MTI exception
-                    field_values = {
-                        field.name: getattr(parent_obj, field.name)
-                        for field in model_class._meta.local_fields
-                        if hasattr(parent_obj, field.name)
-                        and getattr(parent_obj, field.name) is not None
+                # Update the existing parent object
+                parent_update_fields = kwargs.get("update_fields")
+                if parent_update_fields:
+                    # Only include fields that exist in the parent model
+                    parent_model_fields = {
+                        field.name for field in model_class._meta.local_fields
                     }
-                    created_obj = model_class._base_manager.using(self.db).create(
-                        **field_values
-                    )
+                    filtered_update_fields = [
+                        field
+                        for field in parent_update_fields
+                        if field in parent_model_fields
+                    ]
+                    parent_obj.save(update_fields=filtered_update_fields)
+                else:
+                    parent_obj.save()
 
-                    # Update the parent_obj with the created object's PK
-                    parent_obj.pk = created_obj.pk
-                    parent_obj._state.adding = False
-                    parent_obj._state.db = self.db
-
-                    # Fire AFTER_CREATE triggers for parent
-                    if not bypass_triggers:
-                        engine.run(model_class, AFTER_CREATE, [parent_obj], ctx=ctx)
+                # Fire AFTER_UPDATE triggers for parent
+                if not bypass_triggers:
+                    engine.run(model_class, AFTER_UPDATE, [parent_obj], ctx=ctx)
 
                 parent_instances[model_class] = parent_obj
                 current_parent = parent_obj
@@ -500,19 +636,74 @@ class MTIOperationsMixin:
         # Step 3: Update original objects with generated PKs and state
         pk_field_name = child_model._meta.pk.name
 
-        # Handle new objects
-        for orig_obj, child_obj in zip(batch, all_child_objects):
-            child_pk = getattr(child_obj, pk_field_name)
-            setattr(orig_obj, pk_field_name, child_pk)
-            orig_obj._state.adding = False
-            orig_obj._state.db = self.db
-
-        # Handle existing objects (they already have PKs, just update state)
+        # CRITICAL: We need to map new objects to their child objects correctly
+        # all_child_objects only contains NEW objects, not existing ones
+        # So we must iterate through batch and only update new objects with their corresponding child object
+        new_obj_index = 0
         for orig_obj in batch:
             is_existing_record = orig_obj in existing_records_list
+            
             if is_existing_record:
+                # Existing objects already have their PKs, just update state
                 orig_obj._state.adding = False
                 orig_obj._state.db = self.db
+            else:
+                # New objects need to get their PKs and auto-generated field values 
+                # from the corresponding child object AND parent objects
+                if new_obj_index < len(all_child_objects):
+                    child_obj = all_child_objects[new_obj_index]
+                    
+                    # Copy PK back to original object
+                    child_pk = getattr(child_obj, pk_field_name)
+                    setattr(orig_obj, pk_field_name, child_pk)
+                    
+                    # Get the parent instances for this object
+                    parent_instances = parent_objects_map.get(id(orig_obj), {})
+                    
+                    # Copy auto-generated field values from ALL models in the inheritance chain
+                    # (parent models AND child model) back to the original object
+                    for model_class in inheritance_chain:
+                        # For parent models, get values from parent_instances
+                        if model_class in parent_instances:
+                            source_obj = parent_instances[model_class]
+                        # For child model, get values from child_obj
+                        elif model_class == child_model:
+                            source_obj = child_obj
+                        else:
+                            continue
+                        
+                        # Copy auto-generated fields from this level of the hierarchy
+                        for field in model_class._meta.local_fields:
+                            # Skip the PK field as we already set it
+                            if field.name == pk_field_name:
+                                continue
+                            
+                            # Skip parent link fields (they're internal to Django's MTI)
+                            if hasattr(field, 'remote_field') and field.remote_field:
+                                parent_link = child_model._meta.get_ancestor_link(model_class)
+                                if parent_link and field.name == parent_link.name:
+                                    continue
+                            
+                            # Copy auto-generated field values back
+                            if hasattr(field, 'auto_now_add') and field.auto_now_add:
+                                setattr(orig_obj, field.name, getattr(source_obj, field.name))
+                            elif hasattr(field, 'auto_now') and field.auto_now:
+                                setattr(orig_obj, field.name, getattr(source_obj, field.name))
+                            # Also copy any database-generated values (like db_returning_fields)
+                            elif hasattr(field, 'db_returning') and field.db_returning:
+                                source_value = getattr(source_obj, field.name, None)
+                                if source_value is not None:
+                                    setattr(orig_obj, field.name, source_value)
+                    
+                    orig_obj._state.adding = False
+                    orig_obj._state.db = self.db
+                    new_obj_index += 1
+                else:
+                    # This should never happen, but log if it does
+                    logger.error(
+                        f"Mismatch between new objects in batch and all_child_objects: "
+                        f"new_obj_index={new_obj_index}, len(all_child_objects)={len(all_child_objects)}"
+                    )
 
         return batch
 

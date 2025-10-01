@@ -156,10 +156,22 @@ class BulkOperationsMixin:
                                     break
 
                             if match:
-                                # Copy field values from the existing object
+                                # Copy field values from the existing object, BUT SKIP fields that are being updated
+                                # This preserves the user's updates while populating other fields from the database
+                                update_fields_set = set(update_fields) if update_fields else set()
+                                
                                 for field in model_cls._meta.fields:
                                     if not hasattr(existing_obj, field.name):
                                         continue
+                                    
+                                    # Skip fields that the user wants to update - keep user's values
+                                    if field.name in update_fields_set:
+                                        continue
+                                    
+                                    # Also skip the attname (e.g., created_by_id) for FK fields being updated
+                                    if field.is_relation and not field.many_to_many:
+                                        if field.name in update_fields_set or field.attname in update_fields_set:
+                                            continue
 
                                     if field.is_relation and not field.many_to_many:
                                         # For foreign key fields, copy the ID to avoid stale object references
