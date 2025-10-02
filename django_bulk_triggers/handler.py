@@ -66,6 +66,7 @@ TriggerContext = TriggerContextState()
 
 class TriggerMeta(type):
     _registered = set()
+    _class_trigger_map: dict[type, set[tuple]] = {}  # Track which triggers belong to which class
 
     def __new__(mcs, name, bases, namespace):
         cls = super().__new__(mcs, name, bases, namespace)
@@ -74,8 +75,51 @@ class TriggerMeta(type):
 
     @classmethod
     def _register_triggers_for_class(mcs, cls):
-        """Register triggers for a given class."""
-        for method_name, method in cls.__dict__.items():
+        """
+        Register triggers for a given class following OOP inheritance semantics.
+        
+        - Child classes inherit all parent trigger methods
+        - Child overrides replace parent implementations (not add to them)
+        - Child can add new trigger methods
+        """
+        from django_bulk_triggers.registry import register_trigger, unregister_trigger
+        
+        # Step 1: Unregister any triggers from parent classes that this child will override
+        # Walk through parent classes and check if any of their triggers are overridden
+        for base in cls.__mro__[1:]:  # Skip cls itself, start from first parent
+            if not isinstance(base, TriggerMeta):
+                continue
+            
+            if base in mcs._class_trigger_map:
+                for model_cls, event, base_cls, method_name in list(mcs._class_trigger_map[base]):
+                    # Check if child class overrides this method
+                    if method_name in cls.__dict__:
+                        # Child overrides this method - unregister parent's version
+                        key = (model_cls, event, base_cls, method_name)
+                        if key in TriggerMeta._registered:
+                            unregister_trigger(model_cls, event, base_cls, method_name)
+                            TriggerMeta._registered.discard(key)
+                            logger.debug(
+                                f"Unregistered parent trigger: {base_cls.__name__}.{method_name} "
+                                f"(overridden by {cls.__name__})"
+                            )
+        
+        # Step 2: Register all trigger methods on this class (including inherited ones)
+        # Walk the MRO to find ALL methods with trigger decorators
+        all_trigger_methods = {}
+        for klass in reversed(cls.__mro__):  # Start from most base class
+            if not isinstance(klass, TriggerMeta):
+                continue
+            for method_name, method in klass.__dict__.items():
+                if hasattr(method, "triggers_triggers"):
+                    # Store with method name as key - child methods will override parent
+                    all_trigger_methods[method_name] = method
+        
+        # Step 3: Register all trigger methods with THIS class as the handler
+        if cls not in mcs._class_trigger_map:
+            mcs._class_trigger_map[cls] = set()
+        
+        for method_name, method in all_trigger_methods.items():
             if hasattr(method, "triggers_triggers"):
                 for model_cls, event, condition, priority in method.triggers_triggers:
                     key = (model_cls, event, cls, method_name)
@@ -89,12 +133,18 @@ class TriggerMeta(type):
                             priority=priority,
                         )
                         TriggerMeta._registered.add(key)
+                        mcs._class_trigger_map[cls].add(key)
+                        logger.debug(
+                            f"Registered trigger: {cls.__name__}.{method_name} "
+                            f"for {model_cls.__name__}.{event}"
+                        )
 
     @classmethod
     def re_register_all_triggers(mcs):
         """Re-register all triggers for all existing Trigger classes."""
-        # Clear the registered set so we can re-register
+        # Clear the registered set and class trigger map so we can re-register
         TriggerMeta._registered.clear()
+        mcs._class_trigger_map.clear()
 
         # Find all Trigger classes and re-register their triggers
         import gc
@@ -172,7 +222,9 @@ class Trigger(metaclass=TriggerMeta):
                         )
                         continue
 
-                handler = handler_cls()
+                # Use factory pattern for DI support
+                from django_bulk_triggers.factory import create_trigger_instance
+                handler = create_trigger_instance(handler_cls)
                 method = getattr(handler, method_name)
                 logger.debug(f"Executing {handler_cls.__name__}.{method_name}")
 

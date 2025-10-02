@@ -47,6 +47,30 @@ def clear_triggers():
     logger.debug("Cleared all registered triggers")
 
 
+def unregister_trigger(model, event, handler_cls, method_name):
+    """
+    Unregister a specific trigger.
+    Used when child classes override parent trigger methods.
+    """
+    key = (model, event)
+    if key not in _triggers:
+        return
+    
+    triggers = _triggers[key]
+    # Find and remove the specific trigger
+    triggers[:] = [
+        (h_cls, m_name, cond, pri)
+        for h_cls, m_name, cond, pri in triggers
+        if not (h_cls == handler_cls and m_name == method_name)
+    ]
+    
+    # Clean up empty trigger lists
+    if not triggers:
+        del _triggers[key]
+    
+    logger.debug(f"Unregistered {handler_cls.__name__}.{method_name} for {model.__name__}.{event}")
+
+
 def list_all_triggers():
     """Debug function to list all registered triggers"""
     return _triggers

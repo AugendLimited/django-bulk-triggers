@@ -48,7 +48,9 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
             logger.debug(
                 f"FRAMEWORK DEBUG: Trigger {handler_name}.{method_name} - condition: {condition}, priority: {priority}"
             )
-            handler_instance = handler_cls()
+            # Use factory pattern for DI support
+            from django_bulk_triggers.factory import create_trigger_instance
+            handler_instance = create_trigger_instance(handler_cls)
             func = getattr(handler_instance, method_name)
 
             preload_related = getattr(func, "_select_related_preload", None)
