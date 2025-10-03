@@ -84,25 +84,23 @@ class TriggerMeta(type):
         """
         from django_bulk_triggers.registry import register_trigger, unregister_trigger
         
-        # Step 1: Unregister any triggers from parent classes that this child will override
-        # Walk through parent classes and check if any of their triggers are overridden
+        # Step 1: Unregister ALL triggers from parent classes in the MRO
+        # This ensures only the most-derived class owns the active triggers,
+        # providing true OOP semantics (overrides replace, others are inherited once).
         for base in cls.__mro__[1:]:  # Skip cls itself, start from first parent
             if not isinstance(base, TriggerMeta):
                 continue
-            
+
             if base in mcs._class_trigger_map:
                 for model_cls, event, base_cls, method_name in list(mcs._class_trigger_map[base]):
-                    # Check if child class overrides this method
-                    if method_name in cls.__dict__:
-                        # Child overrides this method - unregister parent's version
-                        key = (model_cls, event, base_cls, method_name)
-                        if key in TriggerMeta._registered:
-                            unregister_trigger(model_cls, event, base_cls, method_name)
-                            TriggerMeta._registered.discard(key)
-                            logger.debug(
-                                f"Unregistered parent trigger: {base_cls.__name__}.{method_name} "
-                                f"(overridden by {cls.__name__})"
-                            )
+                    key = (model_cls, event, base_cls, method_name)
+                    if key in TriggerMeta._registered:
+                        unregister_trigger(model_cls, event, base_cls, method_name)
+                        TriggerMeta._registered.discard(key)
+                        logger.debug(
+                            f"Unregistered base trigger: {base_cls.__name__}.{method_name} "
+                            f"(superseded by {cls.__name__})"
+                        )
         
         # Step 2: Register all trigger methods on this class (including inherited ones)
         # Walk the MRO to find ALL methods with trigger decorators
