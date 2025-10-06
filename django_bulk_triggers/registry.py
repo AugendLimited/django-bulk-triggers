@@ -40,9 +40,10 @@ def clear_triggers():
     global _triggers
     _triggers.clear()
 
-    # Also clear the TriggerMeta._registered set to ensure clean state
+    # Also clear the TriggerMeta._registered set and _class_trigger_map to ensure clean state
     from django_bulk_triggers.handler import TriggerMeta
     TriggerMeta._registered.clear()
+    TriggerMeta._class_trigger_map.clear()
 
     logger.debug("Cleared all registered triggers")
 

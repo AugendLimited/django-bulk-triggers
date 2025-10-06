@@ -82,7 +82,8 @@ def set_trigger_factory(trigger_cls: Type, factory: Callable[[], Any]) -> None:
     """
     with _factory_lock:
         _trigger_factories[trigger_cls] = factory
-        logger.debug(f"Registered factory for {trigger_cls.__name__}")
+        name = getattr(trigger_cls, "__name__", str(trigger_cls))
+        logger.debug(f"Registered factory for {name}")
 
 
 def set_default_trigger_factory(factory: Callable[[Type], Any]) -> None:
@@ -161,28 +162,32 @@ def configure_trigger_container(
         # Try to get the provider from the container
         if hasattr(container, provider_name):
             provider = getattr(container, provider_name)
+            name = getattr(trigger_cls, "__name__", str(trigger_cls))
             logger.debug(
-                f"Resolving {trigger_cls.__name__} from container provider '{provider_name}'"
+                f"Resolving {name} from container provider '{provider_name}'"
             )
             # Call the provider to get the instance
             return provider()
         
         if fallback_to_direct:
+            name = getattr(trigger_cls, "__name__", str(trigger_cls))
             logger.debug(
-                f"Provider '{provider_name}' not found in container for {trigger_cls.__name__}, "
+                f"Provider '{provider_name}' not found in container for {name}, "
                 f"falling back to direct instantiation"
             )
             return trigger_cls()
         
+        name = getattr(trigger_cls, "__name__", str(trigger_cls))
         raise ValueError(
-            f"Trigger {trigger_cls.__name__} not found in container. "
+            f"Trigger {name} not found in container. "
             f"Expected provider name: '{provider_name}'. "
             f"Available providers: {[p for p in dir(container) if not p.startswith('_')]}"
         )
     
     with _factory_lock:
         _container_resolver = resolve_from_container
-        logger.info(f"Configured trigger system to use container: {container.__class__.__name__}")
+        container_name = getattr(container.__class__, "__name__", str(container.__class__))
+        logger.info(f"Configured trigger system to use container: {container_name}")
 
 
 def clear_trigger_factories() -> None:
@@ -221,21 +226,25 @@ def create_trigger_instance(trigger_cls: Type) -> Any:
         # 1. Check for specific factory
         if trigger_cls in _trigger_factories:
             factory = _trigger_factories[trigger_cls]
-            logger.debug(f"Using specific factory for {trigger_cls.__name__}")
+            name = getattr(trigger_cls, "__name__", str(trigger_cls))
+            logger.debug(f"Using specific factory for {name}")
             return factory()
         
         # 2. Check for container resolver
         if _container_resolver is not None:
-            logger.debug(f"Using container resolver for {trigger_cls.__name__}")
+            name = getattr(trigger_cls, "__name__", str(trigger_cls))
+            logger.debug(f"Using container resolver for {name}")
             return _container_resolver(trigger_cls)
         
         # 3. Check for default factory
         if _default_factory is not None:
-            logger.debug(f"Using default factory for {trigger_cls.__name__}")
+            name = getattr(trigger_cls, "__name__", str(trigger_cls))
+            logger.debug(f"Using default factory for {name}")
             return _default_factory(trigger_cls)
         
         # 4. Fall back to direct instantiation
-        logger.debug(f"Using direct instantiation for {trigger_cls.__name__}")
+        name = getattr(trigger_cls, "__name__", str(trigger_cls))
+        logger.debug(f"Using direct instantiation for {name}")
         return trigger_cls()
 
 
