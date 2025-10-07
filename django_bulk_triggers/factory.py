@@ -111,6 +111,7 @@ def set_default_trigger_factory(factory: Callable[[Type], Any]) -> None:
 def configure_trigger_container(
     container: Any,
     provider_name_resolver: Optional[Callable[[Type], str]] = None,
+    provider_resolver: Optional[Callable[[Any, Type, str], Any]] = None,
     fallback_to_direct: bool = True,
 ) -> None:
     """
@@ -123,10 +124,13 @@ def configure_trigger_container(
         container: The dependency-injector container instance
         provider_name_resolver: Optional function to map trigger class to provider name.
                               Default: converts "LoanAccountTrigger" -> "loan_account_trigger"
+        provider_resolver: Optional function to resolve provider from container.
+                         Signature: (container, trigger_cls, provider_name) -> instance
+                         Useful for nested container structures.
         fallback_to_direct: If True, falls back to direct instantiation when
                           provider not found. If False, raises error.
     
-    Example:
+    Example (Flat Container):
         >>> from dependency_injector import containers, providers
         >>> 
         >>> class AppContainer(containers.DeclarativeContainer):
@@ -138,6 +142,17 @@ def configure_trigger_container(
         >>> 
         >>> container = AppContainer()
         >>> configure_trigger_container(container)
+    
+    Example (Nested Container):
+        >>> def resolve_nested(container, trigger_cls, provider_name):
+        ...     # Navigate nested structure
+        ...     sub_container = container.loan_accounts_container()
+        ...     return sub_container.loan_account_trigger()
+        >>> 
+        >>> configure_trigger_container(
+        ...     container,
+        ...     provider_resolver=resolve_nested
+        ... )
     """
     global _container_resolver
     
@@ -151,18 +166,34 @@ def configure_trigger_container(
         snake_case = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
         return snake_case
     
-    resolver = provider_name_resolver or default_provider_name_resolver
+    name_resolver = provider_name_resolver or default_provider_name_resolver
     
     def resolve_from_container(trigger_cls: Type) -> Any:
         """
         Resolve trigger instance from the container.
         """
-        provider_name = resolver(trigger_cls)
+        provider_name = name_resolver(trigger_cls)
+        name = getattr(trigger_cls, "__name__", str(trigger_cls))
         
-        # Try to get the provider from the container
+        # If custom provider resolver is provided, use it
+        if provider_resolver is not None:
+            logger.debug(
+                f"Resolving {name} using custom provider resolver"
+            )
+            try:
+                return provider_resolver(container, trigger_cls, provider_name)
+            except Exception as e:
+                if fallback_to_direct:
+                    logger.debug(
+                        f"Custom provider resolver failed for {name} ({e}), "
+                        f"falling back to direct instantiation"
+                    )
+                    return trigger_cls()
+                raise
+        
+        # Default resolution: look for provider directly on container
         if hasattr(container, provider_name):
             provider = getattr(container, provider_name)
-            name = getattr(trigger_cls, "__name__", str(trigger_cls))
             logger.debug(
                 f"Resolving {name} from container provider '{provider_name}'"
             )
@@ -170,14 +201,12 @@ def configure_trigger_container(
             return provider()
         
         if fallback_to_direct:
-            name = getattr(trigger_cls, "__name__", str(trigger_cls))
             logger.debug(
                 f"Provider '{provider_name}' not found in container for {name}, "
                 f"falling back to direct instantiation"
             )
             return trigger_cls()
         
-        name = getattr(trigger_cls, "__name__", str(trigger_cls))
         raise ValueError(
             f"Trigger {name} not found in container. "
             f"Expected provider name: '{provider_name}'. "
@@ -188,6 +217,64 @@ def configure_trigger_container(
         _container_resolver = resolve_from_container
         container_name = getattr(container.__class__, "__name__", str(container.__class__))
         logger.info(f"Configured trigger system to use container: {container_name}")
+
+
+def configure_nested_container(
+    container: Any,
+    container_path: str,
+    provider_name_resolver: Optional[Callable[[Type], str]] = None,
+    fallback_to_direct: bool = True,
+) -> None:
+    """
+    Configure the trigger system for nested/hierarchical container structures.
+    
+    This is a convenience function for containers where triggers are in sub-containers.
+    
+    Args:
+        container: The root dependency-injector container
+        container_path: Dot-separated path to sub-container (e.g., "loan_accounts_container")
+        provider_name_resolver: Optional function to map trigger class to provider name
+        fallback_to_direct: If True, falls back to direct instantiation when provider not found
+    
+    Example:
+        >>> # Container structure:
+        >>> # ApplicationContainer
+        >>> #   .loan_accounts_container()
+        >>> #     .loan_account_trigger()
+        >>> 
+        >>> configure_nested_container(
+        ...     application_container,
+        ...     container_path="loan_accounts_container"
+        ... )
+    """
+    def nested_resolver(root_container, trigger_cls, provider_name):
+        """Navigate to sub-container and get provider."""
+        # Navigate to sub-container
+        current = root_container
+        for part in container_path.split('.'):
+            if not hasattr(current, part):
+                raise ValueError(f"Container path '{container_path}' not found. Missing: {part}")
+            provider = getattr(current, part)
+            # Call provider to get next level
+            current = provider()
+        
+        # Get the trigger provider from sub-container
+        if not hasattr(current, provider_name):
+            raise ValueError(
+                f"Provider '{provider_name}' not found in sub-container. "
+                f"Available: {[p for p in dir(current) if not p.startswith('_')]}"
+            )
+        
+        trigger_provider = getattr(current, provider_name)
+        logger.debug(f"Resolved {trigger_cls.__name__} from {container_path}.{provider_name}")
+        return trigger_provider()
+    
+    configure_trigger_container(
+        container,
+        provider_name_resolver=provider_name_resolver,
+        provider_resolver=nested_resolver,
+        fallback_to_direct=fallback_to_direct,
+    )
 
 
 def clear_trigger_factories() -> None:
