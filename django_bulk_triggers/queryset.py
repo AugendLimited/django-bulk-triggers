@@ -564,7 +564,15 @@ class TriggerQuerySetMixin(
             if isinstance(value, Subquery):
                 logger.debug(f"Found Subquery for field {key}")
                 # Ensure Subquery has proper output_field
-                if not hasattr(value, "output_field") or value.output_field is None:
+                # Check if output_field exists and is not None
+                has_output_field = False
+                try:
+                    has_output_field = hasattr(value, "output_field") and value.output_field is not None
+                except Exception:
+                    # output_field property may raise OutputFieldIsNoneError
+                    has_output_field = False
+                
+                if not has_output_field:
                     logger.warning(
                         f"Subquery for field {key} missing output_field, attempting to infer"
                     )
@@ -581,9 +589,16 @@ class TriggerQuerySetMixin(
                         )
                         raise
                 else:
-                    logger.debug(
-                        f"Subquery for field {key} already has output_field: {value.output_field}"
-                    )
+                    try:
+                        output_field_value = value.output_field
+                        logger.debug(
+                            f"Subquery for field {key} already has output_field: {output_field_value}"
+                        )
+                    except Exception:
+                        # If we can't access it for logging, that's okay
+                        logger.debug(
+                            f"Subquery for field {key} has output_field (could not log value)"
+                        )
                 safe_kwargs[key] = value
             elif hasattr(value, "get_source_expressions") and hasattr(
                 value, "resolve_expression"
