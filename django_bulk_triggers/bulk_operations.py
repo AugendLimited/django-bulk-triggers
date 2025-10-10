@@ -294,132 +294,139 @@ class BulkOperationsMixin:
         from django_bulk_triggers.context import set_bulk_update_active
 
         set_bulk_update_active(True)
+        
+        try:
+            # Check global bypass triggers context (like QuerySet.update() does)
+            from django_bulk_triggers.context import get_bypass_triggers
 
-        # Check global bypass triggers context (like QuerySet.update() does)
-        from django_bulk_triggers.context import get_bypass_triggers
+            current_bypass_triggers = get_bypass_triggers()
 
-        current_bypass_triggers = get_bypass_triggers()
+            # If global bypass is set or explicitly requested, bypass triggers
+            if current_bypass_triggers or bypass_triggers:
+                bypass_triggers = True
 
-        # If global bypass is set or explicitly requested, bypass triggers
-        if current_bypass_triggers or bypass_triggers:
-            bypass_triggers = True
+            # Fetch original instances for trigger comparison (like QuerySet.update() does)
+            # This is needed for HasChanged conditions to work properly
+            model_cls = self.model
+            pks = [obj.pk for obj in objs if obj.pk is not None]
+            original_map = {
+                obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
+            }
+            originals = [original_map.get(obj.pk) for obj in objs]
 
-        # Fetch original instances for trigger comparison (like QuerySet.update() does)
-        # This is needed for HasChanged conditions to work properly
-        model_cls = self.model
-        pks = [obj.pk for obj in objs if obj.pk is not None]
-        original_map = {
-            obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
-        }
-        originals = [original_map.get(obj.pk) for obj in objs]
-
-        changed_fields = self._detect_changed_fields(objs)
-        is_mti = self._is_multi_table_inheritance()
-        trigger_context, _ = self._init_trigger_context(
-            bypass_triggers, objs, "bulk_update"
-        )
-        # Note: _init_trigger_context returns dummy originals, we use our fetched ones
-
-        fields_set, auto_now_fields, custom_update_fields = self._prepare_update_fields(
-            changed_fields
-        )
-
-        self._apply_auto_now_fields(objs, auto_now_fields)
-        self._apply_custom_update_fields(objs, custom_update_fields, fields_set)
-
-        # Execute BEFORE_UPDATE triggers if not bypassed
-        if not bypass_triggers:
-            from django_bulk_triggers import engine
-            from django_bulk_triggers.constants import BEFORE_UPDATE, VALIDATE_UPDATE
-
-            logger.debug(
-                f"bulk_update: executing VALIDATE_UPDATE triggers for {model_cls.__name__}"
-            )
-            engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=trigger_context)
+            # If fields are explicitly provided, use them; otherwise detect changed fields
+            explicit_fields = kwargs.get('fields')
+            if explicit_fields is not None:
+                # Use the explicitly provided fields
+                changed_fields = explicit_fields
+            else:
+                # Auto-detect changed fields
+                changed_fields = self._detect_changed_fields(objs)
             
-            # For MTI models, also fire VALIDATE_UPDATE triggers for parent models
+            is_mti = self._is_multi_table_inheritance()
+            trigger_context, _ = self._init_trigger_context(
+                bypass_triggers, objs, "bulk_update"
+            )
+            # Note: _init_trigger_context returns dummy originals, we use our fetched ones
+
+            fields_set, auto_now_fields, custom_update_fields = self._prepare_update_fields(
+                changed_fields
+            )
+
+            self._apply_auto_now_fields(objs, auto_now_fields)
+            self._apply_custom_update_fields(objs, custom_update_fields, fields_set)
+
+            # Execute BEFORE_UPDATE triggers if not bypassed
+            if not bypass_triggers:
+                from django_bulk_triggers import engine
+                from django_bulk_triggers.constants import BEFORE_UPDATE, VALIDATE_UPDATE
+
+                logger.debug(
+                    f"bulk_update: executing VALIDATE_UPDATE triggers for {model_cls.__name__}"
+                )
+                engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=trigger_context)
+                
+                # For MTI models, also fire VALIDATE_UPDATE triggers for parent models
+                if is_mti:
+                    from django_bulk_triggers.context import TriggerContext
+                    inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
+                    for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
+                        parent_ctx = TriggerContext(parent_model)
+                        logger.debug(
+                            f"bulk_update: executing parent VALIDATE_UPDATE triggers for {parent_model.__name__}"
+                        )
+                        engine.run(parent_model, VALIDATE_UPDATE, objs, originals, ctx=parent_ctx)
+
+                logger.debug(
+                    f"bulk_update: executing BEFORE_UPDATE triggers for {model_cls.__name__}"
+                )
+                engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=trigger_context)
+                
+                # For MTI models, also fire BEFORE_UPDATE triggers for parent models
+                if is_mti:
+                    from django_bulk_triggers.context import TriggerContext
+                    inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
+                    for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
+                        parent_ctx = TriggerContext(parent_model)
+                        logger.debug(
+                            f"bulk_update: executing parent BEFORE_UPDATE triggers for {parent_model.__name__}"
+                        )
+                        engine.run(parent_model, BEFORE_UPDATE, objs, originals, ctx=parent_ctx)
+            else:
+                logger.debug(
+                    f"bulk_update: BEFORE_UPDATE triggers bypassed for {model_cls.__name__}"
+                )
+
+            # Execute bulk update with proper trigger handling
             if is_mti:
-                from django_bulk_triggers.context import TriggerContext
-                inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
-                for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
-                    parent_ctx = TriggerContext(parent_model)
-                    logger.debug(
-                        f"bulk_update: executing parent VALIDATE_UPDATE triggers for {parent_model.__name__}"
-                    )
-                    engine.run(parent_model, VALIDATE_UPDATE, objs, originals, ctx=parent_ctx)
+                # Remove 'fields' from kwargs to avoid conflict with positional argument
+                mti_kwargs = {k: v for k, v in kwargs.items() if k != "fields"}
+                result = self._mti_bulk_update(
+                    objs,
+                    list(fields_set),
+                    originals=originals,
+                    trigger_context=trigger_context,
+                    **mti_kwargs,
+                )
+            else:
+                result = self._single_table_bulk_update(
+                    objs,
+                    fields_set,
+                    auto_now_fields,
+                    originals=originals,
+                    trigger_context=trigger_context,
+                    **kwargs,
+                )
 
-            logger.debug(
-                f"bulk_update: executing BEFORE_UPDATE triggers for {model_cls.__name__}"
-            )
-            engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=trigger_context)
-            
-            # For MTI models, also fire BEFORE_UPDATE triggers for parent models
-            if is_mti:
-                from django_bulk_triggers.context import TriggerContext
-                inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
-                for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
-                    parent_ctx = TriggerContext(parent_model)
-                    logger.debug(
-                        f"bulk_update: executing parent BEFORE_UPDATE triggers for {parent_model.__name__}"
-                    )
-                    engine.run(parent_model, BEFORE_UPDATE, objs, originals, ctx=parent_ctx)
-        else:
-            logger.debug(
-                f"bulk_update: BEFORE_UPDATE triggers bypassed for {model_cls.__name__}"
-            )
+            # Execute AFTER_UPDATE triggers if not bypassed
+            if not bypass_triggers:
+                from django_bulk_triggers import engine
+                from django_bulk_triggers.constants import AFTER_UPDATE
 
-        # Execute bulk update with proper trigger handling
-        if is_mti:
-            # Remove 'fields' from kwargs to avoid conflict with positional argument
-            mti_kwargs = {k: v for k, v in kwargs.items() if k != "fields"}
-            result = self._mti_bulk_update(
-                objs,
-                list(fields_set),
-                originals=originals,
-                trigger_context=trigger_context,
-                **mti_kwargs,
-            )
-        else:
-            result = self._single_table_bulk_update(
-                objs,
-                fields_set,
-                auto_now_fields,
-                originals=originals,
-                trigger_context=trigger_context,
-                **kwargs,
-            )
+                logger.debug(
+                    f"bulk_update: executing AFTER_UPDATE triggers for {model_cls.__name__}"
+                )
+                engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=trigger_context)
+                
+                # For MTI models, also fire AFTER_UPDATE triggers for parent models
+                if is_mti:
+                    from django_bulk_triggers.context import TriggerContext
+                    inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
+                    for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
+                        parent_ctx = TriggerContext(parent_model)
+                        logger.debug(
+                            f"bulk_update: executing parent AFTER_UPDATE triggers for {parent_model.__name__}"
+                        )
+                        engine.run(parent_model, AFTER_UPDATE, objs, originals, ctx=parent_ctx)
+            else:
+                logger.debug(
+                    f"bulk_update: AFTER_UPDATE triggers bypassed for {model_cls.__name__}"
+                )
 
-        # Execute AFTER_UPDATE triggers if not bypassed
-        if not bypass_triggers:
-            from django_bulk_triggers import engine
-            from django_bulk_triggers.constants import AFTER_UPDATE
-
-            logger.debug(
-                f"bulk_update: executing AFTER_UPDATE triggers for {model_cls.__name__}"
-            )
-            engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=trigger_context)
-            
-            # For MTI models, also fire AFTER_UPDATE triggers for parent models
-            if is_mti:
-                from django_bulk_triggers.context import TriggerContext
-                inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
-                for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
-                    parent_ctx = TriggerContext(parent_model)
-                    logger.debug(
-                        f"bulk_update: executing parent AFTER_UPDATE triggers for {parent_model.__name__}"
-                    )
-                    engine.run(parent_model, AFTER_UPDATE, objs, originals, ctx=parent_ctx)
-        else:
-            logger.debug(
-                f"bulk_update: AFTER_UPDATE triggers bypassed for {model_cls.__name__}"
-            )
-
-        # Clear the bulk_update_active flag
-        from django_bulk_triggers.context import set_bulk_update_active
-
-        set_bulk_update_active(False)
-
-        return result
+            return result
+        finally:
+            # Always clear the bulk_update_active flag, even if an exception occurs
+            set_bulk_update_active(False)
 
     @transaction.atomic
     def bulk_delete(

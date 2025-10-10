@@ -887,6 +887,25 @@ class MTIOperationsMixin:
                 case_statements = {}
                 for field_name in model_fields:
                     field = model._meta.get_field(field_name)
+                    
+                    # Skip auto_now_add fields - they should only be set on creation, not update
+                    if getattr(field, 'auto_now_add', False):
+                        continue
+                    
+                    # Skip primary key fields
+                    if field.primary_key:
+                        continue
+                    
+                    # For ForeignKey fields, use the column name (_id) instead of the field name
+                    # This ensures we store the ID value, not the object
+                    if getattr(field, 'is_relation', False) and hasattr(field, 'attname'):
+                        # Use the database column name (e.g., 'category_id' instead of 'category')
+                        db_field_name = field.attname
+                        target_field = field.target_field
+                    else:
+                        db_field_name = field_name
+                        target_field = field
+                    
                     when_statements = []
 
                     for pk, obj in zip(pks, batch):
@@ -897,17 +916,19 @@ class MTIOperationsMixin:
 
                         if obj_pk is None:
                             continue
-                        value = getattr(obj, field_name)
+                        # Get the value using the db_field_name (for FK, this gets the ID)
+                        value = getattr(obj, db_field_name)
                         when_statements.append(
                             When(
                                 **{filter_field: pk},
-                                then=Value(value, output_field=field),
+                                then=Value(value, output_field=target_field),
                             )
                         )
 
-                    case_statements[field_name] = Case(
-                        *when_statements, output_field=field
-                    )
+                    if when_statements:  # Only add CASE statement if we have conditions
+                        case_statements[db_field_name] = Case(
+                            *when_statements, output_field=target_field
+                        )
 
                 # Execute a single bulk update for all objects in this model
                 try:
