@@ -3,14 +3,7 @@ import logging
 from django.db import models
 
 from django_bulk_triggers.constants import (
-    AFTER_CREATE,
-    AFTER_DELETE,
-    AFTER_UPDATE,
-    BEFORE_CREATE,
-    BEFORE_DELETE,
-    BEFORE_UPDATE,
     VALIDATE_CREATE,
-    VALIDATE_DELETE,
     VALIDATE_UPDATE,
 )
 from django_bulk_triggers.context import TriggerContext
@@ -58,68 +51,50 @@ class TriggerModelMixin(models.Model):
                 run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
 
     def save(self, *args, bypass_triggers=False, **kwargs):
-        # If bypass_triggers is True, use base manager to avoid triggering triggers
+        """
+        Save the model instance.
+        
+        Delegates to bulk_create/bulk_update which handle all trigger logic
+        including MTI parent triggers.
+        """
         if bypass_triggers:
             logger.debug(
                 f"save() called with bypass_triggers=True for {self.__class__.__name__} pk={self.pk}"
             )
-            return self.__class__._base_manager.save(self, *args, **kwargs)
+            # Use super().save() to call Django's default save without our trigger logic
+            return super().save(*args, **kwargs)
 
         is_create = self.pk is None
 
         if is_create:
-            logger.debug(f"save() creating new {self.__class__.__name__} instance")
-            # For create operations, we don't have old records
-            ctx = TriggerContext(self.__class__)
-            run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
-
-            super().save(*args, **kwargs)
-
-            # For Salesforce-like behavior, execute AFTER_CREATE triggers immediately
-            # within the same transaction to ensure rollback capability
-            logger.debug(
-                "DEBUG: Running AFTER_CREATE trigger immediately within transaction"
-            )
-            run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
+            logger.debug(f"save() delegating to bulk_create for {self.__class__.__name__}")
+            # Delegate to bulk_create which handles all trigger logic
+            result = self.__class__.objects.bulk_create([self])
+            return result[0] if result else self
         else:
-            logger.debug(
-                f"save() updating existing {self.__class__.__name__} instance pk={self.pk}"
-            )
-            # For update operations, we need to get the old record
-            try:
-                # Use _base_manager to avoid triggering triggers recursively
-                old_instance = self.__class__._base_manager.get(pk=self.pk)
-                ctx = TriggerContext(self.__class__)
-                run(self.__class__, BEFORE_UPDATE, [self], [old_instance], ctx=ctx)
-
-                super().save(*args, **kwargs)
-
-                run(self.__class__, AFTER_UPDATE, [self], [old_instance], ctx=ctx)
-            except self.__class__.DoesNotExist:
-                # If the old instance doesn't exist, treat as create
-                ctx = TriggerContext(self.__class__)
-                run(self.__class__, BEFORE_CREATE, [self], ctx=ctx)
-
-                super().save(*args, **kwargs)
-
-                run(self.__class__, AFTER_CREATE, [self], ctx=ctx)
-
-        return self
+            logger.debug(f"save() delegating to bulk_update for {self.__class__.__name__}")
+            # Delegate to bulk_update which handles all trigger logic
+            update_fields = kwargs.get('update_fields')
+            if update_fields is None:
+                # Update all non-auto fields
+                update_fields = [
+                    f.name for f in self.__class__._meta.fields
+                    if not f.auto_created and f.name != 'id'
+                ]
+            self.__class__.objects.bulk_update([self], update_fields)
+            return self
 
     def delete(self, *args, bypass_triggers=False, **kwargs):
-        # If bypass_triggers is True, use base manager to avoid triggering triggers
+        """
+        Delete the model instance.
+        
+        Delegates to bulk_delete which handles all trigger logic
+        including MTI parent triggers.
+        """
         if bypass_triggers:
-            return self.__class__._base_manager.delete(self, *args, **kwargs)
+            # Use super().delete() to call Django's default delete without our trigger logic
+            return super().delete(*args, **kwargs)
 
-        ctx = TriggerContext(self.__class__)
-
-        # Run validation triggers first
-        run(self.__class__, VALIDATE_DELETE, [self], ctx=ctx)
-
-        # Then run business logic triggers
-        run(self.__class__, BEFORE_DELETE, [self], ctx=ctx)
-
-        result = super().delete(*args, **kwargs)
-
-        run(self.__class__, AFTER_DELETE, [self], ctx=ctx)
-        return result
+        logger.debug(f"delete() delegating to bulk_delete for {self.__class__.__name__}")
+        # Delegate to bulk_delete (handles both MTI and non-MTI)
+        return self.__class__.objects.filter(pk=self.pk).delete()

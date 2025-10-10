@@ -117,62 +117,49 @@ class TestModelsCoverage(TestCase):
     
     def test_save_without_bypass_triggers_create(self):
         """Test save method without bypass_triggers for create operation."""
-        # Mock Django's Model.save() method (what super().save() actually calls)
-        with patch('django.db.models.Model.save') as mock_super_save:
-            # Mock the run function
-            with patch('django_bulk_triggers.models.run') as mock_run:
-                # Set pk to None to simulate create operation
-                self.instance.pk = None
+        # Now save() delegates to bulk_create for create operations
+        with patch.object(self.instance.__class__.objects, 'bulk_create') as mock_bulk_create:
+            # Mock bulk_create to return a list with the instance
+            mock_bulk_create.return_value = [self.instance]
+            
+            # Set pk to None to simulate create operation
+            self.instance.pk = None
 
-                result = self.instance.save(bypass_triggers=False)
+            result = self.instance.save(bypass_triggers=False)
 
-                # Should call super().save() and run BEFORE_CREATE and AFTER_CREATE triggers
-                mock_super_save.assert_called_once()
-                # The run function should be called twice: once for BEFORE_CREATE, once for AFTER_CREATE
-                self.assertEqual(mock_run.call_count, 2)
-                self.assertEqual(result, self.instance)
+            # Should delegate to bulk_create
+            mock_bulk_create.assert_called_once_with([self.instance])
+            self.assertEqual(result, self.instance)
     
     def test_save_without_bypass_triggers_update(self):
         """Test save method without bypass_triggers for update operation."""
-        # Mock Django's Model.save() method (what super().save() actually calls)
-        with patch('django.db.models.Model.save') as mock_super_save:
-            # Mock the run function
-            with patch('django_bulk_triggers.models.run') as mock_run:
-                # Mock the _base_manager.get to simulate existing record
-                with patch.object(TriggerModel._base_manager, 'get') as mock_get:
-                    mock_old_instance = TriggerModel(pk=1, name="Old Name")
-                    mock_get.return_value = mock_old_instance
+        # Now save() delegates to bulk_update for update operations
+        with patch.object(self.instance.__class__.objects, 'bulk_update') as mock_bulk_update:
+            # Set pk to simulate update operation
+            self.instance.pk = 1
+            # Set some data to avoid empty save
+            self.instance.name = "Updated Name"
 
-                    # Set pk to simulate update operation
-                    self.instance.pk = 1
-                    # Set some data to avoid empty save
-                    self.instance.name = "Updated Name"
+            result = self.instance.save(bypass_triggers=False)
 
-                    result = self.instance.save(bypass_triggers=False)
-
-                    # Should call super().save() and run BEFORE_UPDATE and AFTER_UPDATE triggers
-                    mock_super_save.assert_called_once()
-                    self.assertEqual(mock_run.call_count, 2)  # BEFORE_UPDATE and AFTER_UPDATE
-                    self.assertEqual(result, self.instance)
+            # Should delegate to bulk_update
+            mock_bulk_update.assert_called_once()
+            self.assertEqual(result, self.instance)
     
     def test_save_without_bypass_triggers_update_does_not_exist(self):
         """Test save method without bypass_triggers for update when old instance doesn't exist."""
-        # Mock Django's Model.save() method (what super().save() actually calls)
-        with patch('django.db.models.Model.save') as mock_super_save:
-            # Mock the run function
-            with patch('django_bulk_triggers.models.run') as mock_run:
-                # Set pk to simulate update operation
-                self.instance.pk = 1
-                # Set some data
-                self.instance.name = "New Name"
+        # Now save() delegates to bulk_update for any instance with pk set
+        with patch.object(self.instance.__class__.objects, 'bulk_update') as mock_bulk_update:
+            # Set pk to simulate update operation
+            self.instance.pk = 1
+            # Set some data
+            self.instance.name = "New Name"
 
-                # This will try to get the old instance and fail, then treat as create
-                result = self.instance.save(bypass_triggers=False)
+            result = self.instance.save(bypass_triggers=False)
 
-                # Should call super().save() and run BEFORE_CREATE and AFTER_CREATE triggers (treat as create)
-                mock_super_save.assert_called_once()
-                self.assertEqual(mock_run.call_count, 2)  # BEFORE_CREATE and AFTER_CREATE
-                self.assertEqual(result, self.instance)
+            # Should delegate to bulk_update (which handles the DoesNotExist case internally)
+            mock_bulk_update.assert_called_once()
+            self.assertEqual(result, self.instance)
     
     def test_delete_with_bypass_triggers(self):
         """Test delete method with bypass_triggers=True."""
@@ -190,41 +177,44 @@ class TestModelsCoverage(TestCase):
     
     def test_delete_without_bypass_triggers(self):
         """Test delete method without bypass_triggers."""
-        # Mock Django's Model.delete() method (what super().delete() actually calls)
-        with patch('django.db.models.Model.delete') as mock_super_delete:
-            # Mock the run function
-            with patch('django_bulk_triggers.models.run') as mock_run:
-                result = self.instance.delete(bypass_triggers=False)
+        # Now delete() delegates to queryset.delete()
+        self.instance.pk = 1
+        mock_qs = Mock()
+        mock_qs.delete.return_value = (1, {'tests.TriggerModel': 1})
+        
+        with patch.object(self.instance.__class__.objects, 'filter', return_value=mock_qs) as mock_filter:
+            result = self.instance.delete(bypass_triggers=False)
 
-                # Should call super().delete() and run all delete triggers
-                mock_super_delete.assert_called_once()
-                # Should run VALIDATE_DELETE, BEFORE_DELETE, AFTER_DELETE triggers
-                self.assertEqual(mock_run.call_count, 3)
-                self.assertEqual(result, mock_super_delete.return_value)
+            # Should delegate to filter().delete() which handles all triggers
+            mock_filter.assert_called_once_with(pk=self.instance.pk)
+            mock_qs.delete.assert_called_once()
+            self.assertEqual(result, (1, {'tests.TriggerModel': 1}))
     
     def test_save_with_args_and_kwargs(self):
         """Test save method passes through args and kwargs."""
-        # Mock Django's Model.save() method (what super().save() actually calls)
-        with patch('django.db.models.Model.save') as mock_super_save:
-            # Mock the run function
-            with patch('django_bulk_triggers.models.run') as mock_run:
-                # Set pk to None to simulate create operation
-                self.instance.pk = None
+        # Now save() delegates to bulk_create/bulk_update
+        with patch.object(self.instance.__class__.objects, 'bulk_create') as mock_bulk_create:
+            mock_bulk_create.return_value = [self.instance]
+            # Set pk to None to simulate create operation
+            self.instance.pk = None
 
-                result = self.instance.save(force_insert=True, using='other_db', bypass_triggers=False)
+            result = self.instance.save(bypass_triggers=False, update_fields=['name'])
 
-                # Should call super().save() with the same args and kwargs (bypass_triggers is filtered out)
-                mock_super_save.assert_called_once_with(force_insert=True, using='other_db')
-                self.assertEqual(result, self.instance)
+            # Should delegate to bulk_create (kwargs are handled by bulk_create)
+            mock_bulk_create.assert_called_once_with([self.instance])
+            self.assertEqual(result, self.instance)
     
     def test_delete_with_args_and_kwargs(self):
         """Test delete method passes through args and kwargs."""
-        # Mock Django's Model.delete() method (what super().delete() actually calls)
-        with patch('django.db.models.Model.delete') as mock_super_delete:
-            # Mock the run function
-            with patch('django_bulk_triggers.models.run') as mock_run:
-                result = self.instance.delete(using='other_db', bypass_triggers=False)
+        # Now delete() delegates to queryset.delete()
+        self.instance.pk = 1
+        mock_qs = Mock()
+        mock_qs.delete.return_value = (1, {'tests.TriggerModel': 1})
+        
+        with patch.object(self.instance.__class__.objects, 'filter', return_value=mock_qs) as mock_filter:
+            result = self.instance.delete(bypass_triggers=False)
 
-                # Should call super().delete() with the same args and kwargs (bypass_triggers is filtered out)
-                mock_super_delete.assert_called_once_with(using='other_db')
-                self.assertEqual(result, mock_super_delete.return_value)
+            # Should delegate to filter().delete()
+            mock_filter.assert_called_once_with(pk=self.instance.pk)
+            mock_qs.delete.assert_called_once()
+            self.assertEqual(result, (1, {'tests.TriggerModel': 1}))

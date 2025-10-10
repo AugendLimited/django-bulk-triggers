@@ -85,6 +85,9 @@ class TriggerOperationsMixin:
     ):
         """
         Execute triggers for delete operations with special field caching logic.
+        
+        Handles both simple models and Multi-Table Inheritance (MTI) models.
+        For MTI models, triggers are fired for both the child and all parent models.
 
         Args:
             operation_func (callable): The delete operation to execute
@@ -98,13 +101,36 @@ class TriggerOperationsMixin:
         """
         model_cls = self.model
 
+        # Check if this is an MTI model and get inheritance chain
+        is_mti = self._is_multi_table_inheritance() if hasattr(self, '_is_multi_table_inheritance') else False
+        inheritance_chain = []
+        
+        if is_mti:
+            # Build inheritance chain from base to child
+            inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
+            logger.debug(f"MTI delete detected for {model_cls.__name__}, chain: {[m.__name__ for m in inheritance_chain]}")
+
         # Run validation triggers first (if not bypassed)
         if not bypass_validation:
             engine.run(model_cls, VALIDATE_DELETE, objs, ctx=ctx)
+            
+            # For MTI, also run validation for parent models
+            if is_mti:
+                for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
+                    from django_bulk_triggers.context import TriggerContext
+                    parent_ctx = TriggerContext(parent_model)
+                    engine.run(parent_model, VALIDATE_DELETE, objs, ctx=parent_ctx)
 
         # Run before triggers (if not bypassed)
         if not bypass_triggers:
             engine.run(model_cls, BEFORE_DELETE, objs, ctx=ctx)
+            
+            # For MTI, also run before triggers for parent models
+            if is_mti:
+                for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
+                    from django_bulk_triggers.context import TriggerContext
+                    parent_ctx = TriggerContext(parent_model)
+                    engine.run(parent_model, BEFORE_DELETE, objs, ctx=parent_ctx)
 
             # Before deletion, ensure all related fields are properly cached
             # to avoid DoesNotExist errors in AFTER_DELETE triggers
@@ -131,5 +157,12 @@ class TriggerOperationsMixin:
         # Run after triggers (if not bypassed)
         if not bypass_triggers:
             engine.run(model_cls, AFTER_DELETE, objs, ctx=ctx)
+            
+            # For MTI, also run after triggers for parent models
+            if is_mti:
+                for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
+                    from django_bulk_triggers.context import TriggerContext
+                    parent_ctx = TriggerContext(parent_model)
+                    engine.run(parent_model, AFTER_DELETE, objs, ctx=parent_ctx)
 
         return result

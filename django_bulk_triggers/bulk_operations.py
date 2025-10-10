@@ -336,11 +336,33 @@ class BulkOperationsMixin:
                 f"bulk_update: executing VALIDATE_UPDATE triggers for {model_cls.__name__}"
             )
             engine.run(model_cls, VALIDATE_UPDATE, objs, originals, ctx=trigger_context)
+            
+            # For MTI models, also fire VALIDATE_UPDATE triggers for parent models
+            if is_mti:
+                from django_bulk_triggers.context import TriggerContext
+                inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
+                for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
+                    parent_ctx = TriggerContext(parent_model)
+                    logger.debug(
+                        f"bulk_update: executing parent VALIDATE_UPDATE triggers for {parent_model.__name__}"
+                    )
+                    engine.run(parent_model, VALIDATE_UPDATE, objs, originals, ctx=parent_ctx)
 
             logger.debug(
                 f"bulk_update: executing BEFORE_UPDATE triggers for {model_cls.__name__}"
             )
             engine.run(model_cls, BEFORE_UPDATE, objs, originals, ctx=trigger_context)
+            
+            # For MTI models, also fire BEFORE_UPDATE triggers for parent models
+            if is_mti:
+                from django_bulk_triggers.context import TriggerContext
+                inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
+                for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
+                    parent_ctx = TriggerContext(parent_model)
+                    logger.debug(
+                        f"bulk_update: executing parent BEFORE_UPDATE triggers for {parent_model.__name__}"
+                    )
+                    engine.run(parent_model, BEFORE_UPDATE, objs, originals, ctx=parent_ctx)
         else:
             logger.debug(
                 f"bulk_update: BEFORE_UPDATE triggers bypassed for {model_cls.__name__}"
@@ -376,6 +398,17 @@ class BulkOperationsMixin:
                 f"bulk_update: executing AFTER_UPDATE triggers for {model_cls.__name__}"
             )
             engine.run(model_cls, AFTER_UPDATE, objs, originals, ctx=trigger_context)
+            
+            # For MTI models, also fire AFTER_UPDATE triggers for parent models
+            if is_mti:
+                from django_bulk_triggers.context import TriggerContext
+                inheritance_chain = self._get_inheritance_chain() if hasattr(self, '_get_inheritance_chain') else [model_cls]
+                for parent_model in inheritance_chain[:-1]:  # Exclude the child model (last in chain)
+                    parent_ctx = TriggerContext(parent_model)
+                    logger.debug(
+                        f"bulk_update: executing parent AFTER_UPDATE triggers for {parent_model.__name__}"
+                    )
+                    engine.run(parent_model, AFTER_UPDATE, objs, originals, ctx=parent_ctx)
         else:
             logger.debug(
                 f"bulk_update: AFTER_UPDATE triggers bypassed for {model_cls.__name__}"

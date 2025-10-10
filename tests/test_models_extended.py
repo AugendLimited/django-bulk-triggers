@@ -84,30 +84,28 @@ class TestTriggerModelMixinExtended(TestCase):
         call_args = mock_run.call_args
         self.assertEqual(call_args[0][1], VALIDATE_UPDATE)
     
-    @patch('django_bulk_triggers.models.run')
-    def test_save_create_operation(self, mock_run):
+    def test_save_create_operation(self):
         """Test save method for create operations."""
-        new_instance = TriggerModel(name="New Instance", value=100)
+        new_instance = TriggerModel(name="New Instance", value=100, category=self.category)
         
-        new_instance.save()
-        
-        # Should call BEFORE_CREATE and AFTER_CREATE
-        self.assertEqual(mock_run.call_count, 2)
-        calls = mock_run.call_args_list
-        self.assertEqual(calls[0][0][1], BEFORE_CREATE)
-        self.assertEqual(calls[1][0][1], AFTER_CREATE)
+        # Now save() delegates to bulk_create, which will handle triggers
+        with patch.object(TriggerModel.objects, 'bulk_create') as mock_bulk_create:
+            mock_bulk_create.return_value = [new_instance]
+            new_instance.save()
+            
+            # Should delegate to bulk_create
+            mock_bulk_create.assert_called_once_with([new_instance])
     
-    @patch('django_bulk_triggers.models.run')
-    def test_save_update_operation(self, mock_run):
+    def test_save_update_operation(self):
         """Test save method for update operations."""
         self.instance.name = "Updated Name"
-        self.instance.save()
         
-        # Should call BEFORE_UPDATE and AFTER_UPDATE
-        self.assertEqual(mock_run.call_count, 2)
-        calls = mock_run.call_args_list
-        self.assertEqual(calls[0][0][1], BEFORE_UPDATE)
-        self.assertEqual(calls[1][0][1], AFTER_UPDATE)
+        # Now save() delegates to bulk_update
+        with patch.object(TriggerModel.objects, 'bulk_update') as mock_bulk_update:
+            self.instance.save()
+            
+            # Should delegate to bulk_update
+            mock_bulk_update.assert_called_once()
     
     @patch('django_bulk_triggers.models.run')
     def test_save_bypass_triggers(self, mock_run):
@@ -122,30 +120,30 @@ class TestTriggerModelMixinExtended(TestCase):
         except Exception:
             pass  # Expected to fail since we don't have a real base manager in tests
     
-    @patch('django_bulk_triggers.models.run')
-    def test_save_old_instance_not_found(self, mock_run):
+    def test_save_old_instance_not_found(self):
         """Test save method when old instance doesn't exist."""
         # Test that save works normally
         self.instance.name = "Updated Name"
-        self.instance.save()
         
-        # Should call BEFORE_UPDATE and AFTER_UPDATE
-        self.assertEqual(mock_run.call_count, 2)
-        calls = mock_run.call_args_list
-        self.assertEqual(calls[0][0][1], BEFORE_UPDATE)
-        self.assertEqual(calls[1][0][1], AFTER_UPDATE)
+        # Now save() delegates to bulk_update (which handles the DoesNotExist case)
+        with patch.object(TriggerModel.objects, 'bulk_update') as mock_bulk_update:
+            self.instance.save()
+            
+            # Should delegate to bulk_update
+            mock_bulk_update.assert_called_once()
     
-    @patch('django_bulk_triggers.models.run')
-    def test_delete_operation(self, mock_run):
+    def test_delete_operation(self):
         """Test delete method runs triggers correctly."""
-        result = self.instance.delete()
+        # Now delete() delegates to queryset.delete()
+        mock_qs = Mock()
+        mock_qs.delete.return_value = (1, {'tests.TriggerModel': 1})
         
-        # Should call VALIDATE_DELETE, BEFORE_DELETE, and AFTER_DELETE
-        self.assertEqual(mock_run.call_count, 3)
-        calls = mock_run.call_args_list
-        self.assertEqual(calls[0][0][1], VALIDATE_DELETE)
-        self.assertEqual(calls[1][0][1], BEFORE_DELETE)
-        self.assertEqual(calls[2][0][1], AFTER_DELETE)
+        with patch.object(TriggerModel.objects, 'filter', return_value=mock_qs) as mock_filter:
+            result = self.instance.delete()
+            
+            # Should delegate to filter().delete()
+            mock_filter.assert_called_once_with(pk=self.instance.pk)
+            mock_qs.delete.assert_called_once()
     
     @patch('django_bulk_triggers.models.run')
     def test_delete_bypass_triggers(self, mock_run):
@@ -195,19 +193,18 @@ class TestTriggerModelMixinEdgeCases(TestCase):
         call_args = mock_run.call_args
         self.assertEqual(call_args[0][1], VALIDATE_CREATE)
     
-    @patch('django_bulk_triggers.models.run')
-    def test_save_with_none_pk(self, mock_run):
+    def test_save_with_none_pk(self):
         """Test save method with None pk."""
         # Create instance without saving (no pk)
-        instance = TriggerModel(name="Test", value=42)
+        instance = TriggerModel(name="Test", value=42, category=self.category)
         
-        instance.save()
-        
-        # Should call BEFORE_CREATE and AFTER_CREATE
-        self.assertEqual(mock_run.call_count, 2)
-        calls = mock_run.call_args_list
-        self.assertEqual(calls[0][0][1], BEFORE_CREATE)
-        self.assertEqual(calls[1][0][1], AFTER_CREATE)
+        # Now save() delegates to bulk_create for instances with None pk
+        with patch.object(TriggerModel.objects, 'bulk_create') as mock_bulk_create:
+            mock_bulk_create.return_value = [instance]
+            instance.save()
+            
+            # Should delegate to bulk_create
+            mock_bulk_create.assert_called_once_with([instance])
     
     def test_clean_with_base_manager_error(self):
         """Test clean method handles base manager errors gracefully."""
