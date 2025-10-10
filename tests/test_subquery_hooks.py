@@ -3,7 +3,9 @@ Test to verify that Subquery objects in update operations work correctly with tr
 """
 
 from django.db import models
-from django.db.models import OuterRef, Subquery, Sum
+from django.db.models import OuterRef, Subquery, Sum, Max, IntegerField
+from django.db.models.functions import RowNumber
+from django.db.models.expressions import Window, F, Value, Case, When
 from django.test import TestCase
 
 from django_bulk_triggers import TriggerClass
@@ -225,3 +227,80 @@ class SubqueryTriggersTestCase(TestCase):
             from django_bulk_triggers.registry import clear_triggers
 
             clear_triggers()
+
+    def test_subquery_without_output_field_logging_does_not_crash(self):
+        """
+        Test that a Subquery without an explicit output_field doesn't crash the logging code.
+        This was a bug where accessing output_field for logging raised OutputFieldIsNoneError.
+        
+        We create a Subquery that will fail to infer its output_field, which used to crash
+        when the logging code tried to access it.
+        """
+        # Create a subquery with COALESCE that won't auto-infer output_field
+        from django.db.models.functions import Coalesce
+        
+        # This Subquery structure can't auto-infer output_field
+        subquery_without_output_field = Subquery(
+            RelatedModel.objects.filter(trigger_model=OuterRef("pk"))
+            .values("trigger_model")
+            .annotate(
+                total=Coalesce(
+                    Sum("amount"),
+                    Value(0)
+                )
+            )
+            .values("total")[:1]
+            # No output_field specified - Django can't always infer this
+        )
+        
+        # The key test: this should not crash in the logging code
+        # even though output_field can't be determined
+        try:
+            # Try to update with the subquery
+            TriggerModel.objects.filter(pk=self.trigger_model.pk).update(
+                computed_value=subquery_without_output_field
+            )
+            # If we got here, the logging handled the missing output_field gracefully
+            update_succeeded = True
+        except Exception as e:
+            # If it fails, it should NOT be OutputFieldIsNoneError from logging
+            self.assertNotIn("output_field", str(e).lower())
+            update_succeeded = False
+        
+        # The update might fail for other reasons (like the Subquery itself),
+        # but it shouldn't crash in our logging code
+        # The important thing is we didn't get OutputFieldIsNoneError from line 95
+        
+    def test_subquery_with_explicit_output_field_works(self):
+        """
+        Test that a Subquery with an explicit output_field works correctly.
+        This is the recommended approach for complex subqueries.
+        """
+        from django.db.models.functions import Coalesce
+        
+        # Same subquery but with explicit output_field
+        subquery_with_output_field = Subquery(
+            RelatedModel.objects.filter(trigger_model=OuterRef("pk"))
+            .values("trigger_model")
+            .annotate(
+                total=Coalesce(
+                    Sum("amount"),
+                    Value(0)
+                )
+            )
+            .values("total")[:1],
+            output_field=IntegerField()  # Explicit output_field
+        )
+        
+        # This should work perfectly with explicit output_field
+        result = TriggerModel.objects.filter(pk=self.trigger_model.pk).update(
+            computed_value=subquery_with_output_field
+        )
+        
+        # Verify the update succeeded
+        self.assertEqual(result, 1)
+        
+        # Verify trigger was called with the correct value
+        self.assertTrue(self.trigger.after_update_called)
+        # We have 2 related models with amounts 5 and 15, so total should be 20
+        self.assertEqual(self.trigger.computed_values[0], 20)

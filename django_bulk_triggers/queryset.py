@@ -91,9 +91,15 @@ class TriggerQuerySetMixin(
                     logger.debug(
                         f"Subquery {key} detected (contains OuterRef - cannot log query string)"
                     )
-                    logger.debug(
-                        f"Subquery {key} output_field: {getattr(value, 'output_field', 'None')}"
-                    )
+                    try:
+                        output_field = value.output_field
+                        logger.debug(
+                            f"Subquery {key} output_field: {output_field}"
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            f"Subquery {key} output_field: Could not determine ({type(e).__name__}: {e})"
+                        )
         else:
             # Check if we missed any Subquery objects
             for k, v in kwargs.items():
