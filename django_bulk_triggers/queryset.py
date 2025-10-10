@@ -580,7 +580,6 @@ class TriggerQuerySetMixin(
                     try:
                         field = model_cls._meta.get_field(key)
                         logger.debug(f"Inferred field type: {type(field).__name__}")
-                        value = value.resolve_expression(None, None)
                         value.output_field = field
                         logger.debug(f"Set output_field to {field}")
                     except Exception as e:
@@ -633,20 +632,9 @@ class TriggerQuerySetMixin(
                                 )
                                 raise
 
-                if has_nested_subquery:
-                    logger.debug(
-                        "Expression contains Subquery, ensuring proper output_field"
-                    )
-                    # Try to resolve the expression to ensure it's properly formatted
-                    try:
-                        resolved_value = value.resolve_expression(None, None)
-                        safe_kwargs[key] = resolved_value
-                        logger.debug(f"Successfully resolved expression for {key}")
-                    except Exception as e:
-                        logger.error(f"Failed to resolve expression for {key}: {e}")
-                        raise
-                else:
-                    safe_kwargs[key] = value
+                # No need to resolve expression with None parameters
+                # The nested Subquery output_field has already been set above if needed
+                safe_kwargs[key] = value
             else:
                 logger.debug(
                     f"Non-Subquery value for field {key}: {type(value).__name__}"
