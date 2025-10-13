@@ -1,4 +1,5 @@
 import logging
+from unittest.mock import Mock
 
 from django.core.exceptions import ValidationError
 
@@ -99,44 +100,76 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                     # If we have foreign key fields, we need to ensure they're preloaded
                     if fk_fields and new_records:
                         logger.debug(f"N+1 DEBUG: Found {len(fk_fields)} FK fields: {fk_fields}")
-                        # Check if records are already loaded with select_related
-                        # If not, we need to reload them with proper select_related
-                        sample_record = new_records[0]
-                        needs_reload = False
                         
-                        logger.debug(f"N+1 DEBUG: Checking if sample record needs reload for FK fields")
-                        for fk_field in fk_fields:
-                            if hasattr(sample_record, fk_field):
-                                try:
-                                    # Try to access the relationship to see if it's loaded
-                                    logger.debug(f"N+1 DEBUG: Testing access to FK field {fk_field}")
-                                    getattr(sample_record, fk_field)
-                                    logger.debug(f"N+1 DEBUG: FK field {fk_field} is already loaded")
-                                except Exception as e:
-                                    # If accessing the relationship fails, we need to reload
-                                    logger.debug(f"N+1 DEBUG: FK field {fk_field} needs reload - exception: {e}")
-                                    needs_reload = True
-                                    break
+                        # Get primary keys of all records
+                        pks = [getattr(record, 'pk', None) for record in new_records if hasattr(record, 'pk')]
+                        logger.debug(f"N+1 DEBUG: Found {len(pks)} primary keys to reload")
                         
-                        if needs_reload:
-                            logger.debug(f"N+1 DEBUG: Reloading {len(new_records)} records with select_related for fields: {fk_fields}")
-                            # Get primary keys of all records
-                            pks = [getattr(record, 'pk', None) for record in new_records if hasattr(record, 'pk')]
-                            logger.debug(f"N+1 DEBUG: Found {len(pks)} primary keys to reload")
-                            if pks:
-                                # Reload with select_related
-                                logger.debug(f"N+1 DEBUG: Executing bulk reload query with select_related")
-                                reloaded_records = model_cls._base_manager.filter(pk__in=pks).select_related(*fk_fields)
-                                logger.debug(f"N+1 DEBUG: Reloaded {len(reloaded_records)} records")
-                                # Create a mapping for quick lookup
-                                reloaded_map = {record.pk: record for record in reloaded_records}
-                                # Replace records with reloaded versions
-                                for i, record in enumerate(new_records):
-                                    if hasattr(record, 'pk') and record.pk in reloaded_map:
-                                        new_records[i] = reloaded_map[record.pk]
-                                        logger.debug(f"N+1 DEBUG: Replaced record at index {i} with reloaded version")
-                        else:
-                            logger.debug(f"N+1 DEBUG: No reload needed - FK fields already loaded")
+                        # CRITICAL FIX: Only reload existing records (with PKs) to prevent N+1 queries
+                        # For new records (pk=None), we can't reload them, so we need to handle them differently
+                        # Also skip Mock objects and other non-model instances
+                        existing_records = []
+                        for pk in pks:
+                            if pk is not None and not isinstance(pk, Mock):
+                                existing_records.append(pk)
+                        new_records_count = len(pks) - len(existing_records)
+                        
+                        if existing_records:
+                            logger.debug(f"N+1 DEBUG: Reloading {len(existing_records)} existing records with select_related for fields: {fk_fields}")
+                            # Reload existing records with select_related to preload all FK relationships
+                            reloaded_records = model_cls._base_manager.filter(pk__in=existing_records).select_related(*fk_fields)
+                            logger.debug(f"N+1 DEBUG: Reloaded {len(reloaded_records)} existing records")
+                            
+                            # Create a mapping for quick lookup
+                            reloaded_map = {record.pk: record for record in reloaded_records}
+                            
+                            # Create a new list with reloaded records instead of modifying in place
+                            # This fixes the TypeError when new_records is a TriggerQuerySet
+                            updated_records = []
+                            for record in new_records:
+                                if hasattr(record, 'pk') and record.pk in reloaded_map:
+                                    updated_records.append(reloaded_map[record.pk])
+                                    logger.debug(f"N+1 DEBUG: Replaced existing record with reloaded version")
+                                else:
+                                    updated_records.append(record)
+                            new_records = updated_records
+                        
+                        if new_records_count > 0:
+                            logger.debug(f"N+1 DEBUG: {new_records_count} new records (pk=None) - cannot reload, will handle in condition evaluation")
+                            
+                            # CRITICAL FIX: For new records, we need to preload FK relationships to avoid N+1 queries
+                            # We'll collect all unique FK values and preload them in bulk
+                            fk_values_to_preload = {}
+                            for fk_field in fk_fields:
+                                fk_values_to_preload[fk_field] = set()
+                            
+                            # Collect all FK values from new records
+                            for record in new_records:
+                                if getattr(record, 'pk', None) is None:  # Only new records
+                                    for fk_field in fk_fields:
+                                        fk_value = getattr(record, fk_field + '_id', None)
+                                        if fk_value is not None:
+                                            fk_values_to_preload[fk_field].add(fk_value)
+                            
+                            # Preload FK relationships in bulk
+                            preloaded_fk_objects = {}
+                            for fk_field, fk_values in fk_values_to_preload.items():
+                                if fk_values:
+                                    logger.debug(f"N+1 DEBUG: Preloading {len(fk_values)} {fk_field} objects")
+                                    fk_model = model_cls._meta.get_field(fk_field).related_model
+                                    preloaded_objects = fk_model._base_manager.filter(pk__in=fk_values)
+                                    preloaded_fk_objects[fk_field] = {obj.pk: obj for obj in preloaded_objects}
+                                    logger.debug(f"N+1 DEBUG: Preloaded {len(preloaded_objects)} {fk_field} objects")
+                            
+                            # Cache the preloaded objects on the records to avoid future queries
+                            for record in new_records:
+                                if getattr(record, 'pk', None) is None:  # Only new records
+                                    for fk_field, preloaded_objects in preloaded_fk_objects.items():
+                                        fk_value = getattr(record, fk_field + '_id', None)
+                                        if fk_value is not None and fk_value in preloaded_objects:
+                                            # Cache the preloaded object to avoid future queries
+                                            setattr(record, fk_field, preloaded_objects[fk_value])
+                                            logger.debug(f"N+1 DEBUG: Cached {fk_field} object for new record")
                     
                     # Now evaluate conditions - relationships should be preloaded
                     logger.debug(

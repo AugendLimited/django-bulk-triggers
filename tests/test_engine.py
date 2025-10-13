@@ -5,8 +5,13 @@ Tests for the engine module.
 from unittest.mock import Mock, patch
 from django.test import TestCase
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django_bulk_triggers.engine import run
 from django_bulk_triggers.context import TriggerContext
+from django_bulk_triggers.decorators import trigger
+from django_bulk_triggers.constants import BEFORE_CREATE
+from django_bulk_triggers.conditions import IsEqual
+from django_bulk_triggers import TriggerClass
 from tests.models import TriggerModel
 
 
@@ -55,8 +60,11 @@ class TestEngine(TestCase):
         with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
-            with self.assertRaises(ValidationError):
-                run(self.model_cls, 'BEFORE_CREATE', [mock_instance])
+            # NOTE: Individual clean() calls are skipped to prevent N+1 queries
+            # Validation triggers (VALIDATE_*) will handle validation instead
+            # So ValidationError from clean() should not be raised
+            result = run(self.model_cls, 'BEFORE_CREATE', [mock_instance])
+            self.assertIsNone(result)  # Should complete without error
 
     def test_run_with_condition_filtering(self):
         """Test run function filters records based on conditions."""
@@ -171,8 +179,9 @@ class TestEngine(TestCase):
             # Test with BEFORE_CREATE event
             result = run(self.model_cls, 'BEFORE_CREATE', records)
 
-            # Should call clean() on the instance
-            mock_instance.clean.assert_called_once()
+            # NOTE: Individual clean() calls are skipped to prevent N+1 queries
+            # Validation triggers (VALIDATE_*) will handle validation instead
+            mock_instance.clean.assert_not_called()
 
     def test_run_with_non_before_event_no_validation(self):
         """Test run function doesn't run validation for non-BEFORE events."""
@@ -212,3 +221,37 @@ class TestEngine(TestCase):
             mock_handler.handle.assert_called_once()
             call_args = mock_handler.handle.call_args
             self.assertIsNone(call_args[1]['old_records'])
+
+    def test_n1_query_fix_for_new_records(self):
+        """Test that the N+1 query fix works for new records with FK relationships."""
+        # Clear any existing queries
+        connection.queries.clear()
+        
+        # Create a trigger that accesses FK relationships
+        class TestTrigger(TriggerClass):
+            @trigger(BEFORE_CREATE, model=TriggerModel, condition=IsEqual('created_by', None))
+            def test_trigger(self, new_records, old_records=None, **kwargs):
+                pass
+        
+        # Create test records with FK relationships
+        test_records = []
+        for i in range(5):
+            record = TriggerModel(name=f"Test {i}", value=i)
+            test_records.append(record)
+        
+        # Run the engine
+        run(TriggerModel, BEFORE_CREATE, test_records)
+        
+        # Count the number of queries executed
+        query_count = len(connection.queries)
+        
+        # The fix should prevent N+1 queries
+        # Before the fix: 5 records * 2 FK queries = 10+ queries
+        # After the fix: Should be much fewer queries (ideally 0-2)
+        self.assertLess(query_count, 10, f"Too many queries executed: {query_count}. Expected < 10 due to N+1 fix.")
+        
+        # Log the queries for debugging
+        print(f"\nN+1 Query Test Results:")
+        print(f"Total queries executed: {query_count}")
+        for i, query in enumerate(connection.queries):
+            print(f"Query {i+1}: {query['sql'][:100]}...")

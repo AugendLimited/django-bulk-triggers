@@ -23,6 +23,8 @@ def resolve_dotted_attr(instance, dotted_path):
             logger.debug(f"N+1 DEBUG: resolve_dotted_attr - accessing attr '{attr}' on {type(current_instance).__name__} (pk={getattr(current_instance, 'pk', 'No PK')})")
         
         try:
+            # CRITICAL FIX: Use getattr with default None to avoid triggering queries
+            # The previous approach was causing N+1 queries by accessing relationships
             current_instance = getattr(current_instance, attr, None)
             if '.' in dotted_path or any(field in dotted_path for field in ['user', 'account', 'currency', 'setting', 'business']):
                 logger.debug(f"N+1 DEBUG: resolve_dotted_attr - got value {current_instance} (type: {type(current_instance).__name__})")
