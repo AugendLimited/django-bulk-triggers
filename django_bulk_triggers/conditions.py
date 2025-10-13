@@ -7,11 +7,33 @@ def resolve_dotted_attr(instance, dotted_path):
     """
     Recursively resolve a dotted attribute path, e.g., "type.category".
     """
-    for attr in dotted_path.split("."):
-        if instance is None:
+    # Only log for foreign key relationships to avoid too much noise
+    if '.' in dotted_path or any(field in dotted_path for field in ['user', 'account', 'currency', 'setting', 'business']):
+        logger.debug(f"N+1 DEBUG: resolve_dotted_attr called with path '{dotted_path}' on instance {getattr(instance, 'pk', 'No PK')}")
+    
+    current_instance = instance
+    for i, attr in enumerate(dotted_path.split(".")):
+        if current_instance is None:
+            if '.' in dotted_path or any(field in dotted_path for field in ['user', 'account', 'currency', 'setting', 'business']):
+                logger.debug(f"N+1 DEBUG: resolve_dotted_attr - instance is None at step {i}, returning None")
             return None
-        instance = getattr(instance, attr, None)
-    return instance
+        
+        # Only log for foreign key relationships to avoid too much noise
+        if '.' in dotted_path or any(field in dotted_path for field in ['user', 'account', 'currency', 'setting', 'business']):
+            logger.debug(f"N+1 DEBUG: resolve_dotted_attr - accessing attr '{attr}' on {type(current_instance).__name__} (pk={getattr(current_instance, 'pk', 'No PK')})")
+        
+        try:
+            current_instance = getattr(current_instance, attr, None)
+            if '.' in dotted_path or any(field in dotted_path for field in ['user', 'account', 'currency', 'setting', 'business']):
+                logger.debug(f"N+1 DEBUG: resolve_dotted_attr - got value {current_instance} (type: {type(current_instance).__name__})")
+        except Exception as e:
+            if '.' in dotted_path or any(field in dotted_path for field in ['user', 'account', 'currency', 'setting', 'business']):
+                logger.debug(f"N+1 DEBUG: resolve_dotted_attr - exception accessing '{attr}': {e}")
+            current_instance = None
+    
+    if '.' in dotted_path or any(field in dotted_path for field in ['user', 'account', 'currency', 'setting', 'business']):
+        logger.debug(f"N+1 DEBUG: resolve_dotted_attr - final result: {current_instance}")
+    return current_instance
 
 
 class TriggerCondition:
@@ -55,14 +77,30 @@ class IsEqual(TriggerCondition):
         self.only_on_change = only_on_change
 
     def check(self, instance, original_instance=None):
+        # Only log for foreign key relationships to avoid too much noise
+        if '.' in self.field or any(field in self.field for field in ['user', 'account', 'currency', 'setting', 'business']):
+            logger.debug(f"N+1 DEBUG: IsEqual.check called for field '{self.field}' with value {self.value} on instance {getattr(instance, 'pk', 'No PK')}")
+        
         current = resolve_dotted_attr(instance, self.field)
+        
+        if '.' in self.field or any(field in self.field for field in ['user', 'account', 'currency', 'setting', 'business']):
+            logger.debug(f"N+1 DEBUG: IsEqual.check - resolved current value: {current}")
+        
         if self.only_on_change:
             if original_instance is None:
+                if '.' in self.field or any(field in self.field for field in ['user', 'account', 'currency', 'setting', 'business']):
+                    logger.debug(f"N+1 DEBUG: IsEqual.check - only_on_change=True but no original_instance, returning False")
                 return False
             previous = resolve_dotted_attr(original_instance, self.field)
-            return previous != self.value and current == self.value
+            result = previous != self.value and current == self.value
+            if '.' in self.field or any(field in self.field for field in ['user', 'account', 'currency', 'setting', 'business']):
+                logger.debug(f"N+1 DEBUG: IsEqual.check - only_on_change result: {result} (previous={previous}, current={current}, target={self.value})")
+            return result
         else:
-            return current == self.value
+            result = current == self.value
+            if '.' in self.field or any(field in self.field for field in ['user', 'account', 'currency', 'setting', 'business']):
+                logger.debug(f"N+1 DEBUG: IsEqual.check - simple comparison result: {result} (current={current}, target={self.value})")
+            return result
 
 
 class HasChanged(TriggerCondition):

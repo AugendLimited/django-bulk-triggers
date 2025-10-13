@@ -125,7 +125,40 @@ class BulkOperationsMixin:
                         query |= subquery
 
                     # Find existing records
-                    existing_objs = list(model_cls.objects.filter(query))
+                    # CRITICAL FIX: Use select_related to prevent N+1 queries when accessing foreign keys
+                    # We need to preload all FK relationships AND their nested FKs to prevent N+1 queries
+                    fk_fields = [
+                        field.name for field in model_cls._meta.concrete_fields
+                        if field.is_relation and not field.many_to_many
+                    ]
+                    
+                    queryset = model_cls.objects.filter(query)
+                    if fk_fields:
+                        # Build nested select_related to also load FKs of related objects
+                        select_related_args = []
+                        for fk_field in fk_fields:
+                            # Add the FK field itself
+                            select_related_args.append(fk_field)
+                            
+                            # Also add nested FKs of the related model
+                            try:
+                                field_obj = model_cls._meta.get_field(fk_field)
+                                if hasattr(field_obj, 'related_model') and field_obj.related_model:
+                                    related_model = field_obj.related_model
+                                    nested_fk_fields = [
+                                        f.name for f in related_model._meta.concrete_fields
+                                        if f.is_relation and not f.many_to_many
+                                    ]
+                                    for nested_fk in nested_fk_fields:
+                                        select_related_args.append(f"{fk_field}__{nested_fk}")
+                            except Exception:
+                                # If we can't get nested FKs, just skip them
+                                pass
+                        
+                        queryset = queryset.select_related(*select_related_args)
+                        logger.debug(f"N+1 FIX: Applied select_related for FK fields in bulk_create upsert: {select_related_args}")
+                    
+                    existing_objs = list(queryset)
 
                     # Classify objects as existing or new based on unique fields
                     for obj in objs:
