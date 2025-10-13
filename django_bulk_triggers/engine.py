@@ -1,12 +1,14 @@
 import logging
 from unittest.mock import Mock
 
-from django.core.exceptions import ValidationError
-
 from django_bulk_triggers.registry import get_triggers
 from django_bulk_triggers.debug_utils import QueryTracker, log_query_count
 
 logger = logging.getLogger(__name__)
+
+
+
+
 
 
 def run(model_cls, event, new_records, old_records=None, ctx=None):
@@ -86,90 +88,11 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                         f"No condition for {handler_name}.{method_name}, processing all {len(new_records)} records"
                     )
                 else:
-                    # Preload relationships to avoid N+1 queries during condition evaluation
+                    # SALESFORCE-LIKE BEHAVIOR: No automatic preloading
                     logger.debug(
-                        f"Preloading relationships for condition evaluation on {len(new_records)} records"
+                        f"SALESFORCE-LIKE: Evaluating conditions for {len(new_records)} records without preloading"
                     )
-                    
-                    # Get all foreign key fields that might be accessed by conditions
-                    fk_fields = [
-                        field.name for field in model_cls._meta.concrete_fields
-                        if field.is_relation and not field.many_to_many
-                    ]
-                    
-                    # If we have foreign key fields, we need to ensure they're preloaded
-                    if fk_fields and new_records:
-                        logger.debug(f"N+1 DEBUG: Found {len(fk_fields)} FK fields: {fk_fields}")
-                        
-                        # Get primary keys of all records
-                        pks = [getattr(record, 'pk', None) for record in new_records if hasattr(record, 'pk')]
-                        logger.debug(f"N+1 DEBUG: Found {len(pks)} primary keys to reload")
-                        
-                        # CRITICAL FIX: Only reload existing records (with PKs) to prevent N+1 queries
-                        # For new records (pk=None), we can't reload them, so we need to handle them differently
-                        # Also skip Mock objects and other non-model instances
-                        existing_records = []
-                        for pk in pks:
-                            if pk is not None and not isinstance(pk, Mock):
-                                existing_records.append(pk)
-                        new_records_count = len(pks) - len(existing_records)
-                        
-                        if existing_records:
-                            logger.debug(f"N+1 DEBUG: Reloading {len(existing_records)} existing records with select_related for fields: {fk_fields}")
-                            # Reload existing records with select_related to preload all FK relationships
-                            reloaded_records = model_cls._base_manager.filter(pk__in=existing_records).select_related(*fk_fields)
-                            logger.debug(f"N+1 DEBUG: Reloaded {len(reloaded_records)} existing records")
-                            
-                            # Create a mapping for quick lookup
-                            reloaded_map = {record.pk: record for record in reloaded_records}
-                            
-                            # Create a new list with reloaded records instead of modifying in place
-                            # This fixes the TypeError when new_records is a TriggerQuerySet
-                            updated_records = []
-                            for record in new_records:
-                                if hasattr(record, 'pk') and record.pk in reloaded_map:
-                                    updated_records.append(reloaded_map[record.pk])
-                                    logger.debug(f"N+1 DEBUG: Replaced existing record with reloaded version")
-                                else:
-                                    updated_records.append(record)
-                            new_records = updated_records
-                        
-                        if new_records_count > 0:
-                            logger.debug(f"N+1 DEBUG: {new_records_count} new records (pk=None) - cannot reload, will handle in condition evaluation")
-                            
-                            # CRITICAL FIX: For new records, we need to preload FK relationships to avoid N+1 queries
-                            # We'll collect all unique FK values and preload them in bulk
-                            fk_values_to_preload = {}
-                            for fk_field in fk_fields:
-                                fk_values_to_preload[fk_field] = set()
-                            
-                            # Collect all FK values from new records
-                            for record in new_records:
-                                if getattr(record, 'pk', None) is None:  # Only new records
-                                    for fk_field in fk_fields:
-                                        fk_value = getattr(record, fk_field + '_id', None)
-                                        if fk_value is not None:
-                                            fk_values_to_preload[fk_field].add(fk_value)
-                            
-                            # Preload FK relationships in bulk
-                            preloaded_fk_objects = {}
-                            for fk_field, fk_values in fk_values_to_preload.items():
-                                if fk_values:
-                                    logger.debug(f"N+1 DEBUG: Preloading {len(fk_values)} {fk_field} objects")
-                                    fk_model = model_cls._meta.get_field(fk_field).related_model
-                                    preloaded_objects = fk_model._base_manager.filter(pk__in=fk_values)
-                                    preloaded_fk_objects[fk_field] = {obj.pk: obj for obj in preloaded_objects}
-                                    logger.debug(f"N+1 DEBUG: Preloaded {len(preloaded_objects)} {fk_field} objects")
-                            
-                            # Cache the preloaded objects on the records to avoid future queries
-                            for record in new_records:
-                                if getattr(record, 'pk', None) is None:  # Only new records
-                                    for fk_field, preloaded_objects in preloaded_fk_objects.items():
-                                        fk_value = getattr(record, fk_field + '_id', None)
-                                        if fk_value is not None and fk_value in preloaded_objects:
-                                            # Cache the preloaded object to avoid future queries
-                                            setattr(record, fk_field, preloaded_objects[fk_value])
-                                            logger.debug(f"N+1 DEBUG: Cached {fk_field} object for new record")
+                    logger.debug("SALESFORCE-LIKE: If triggers need relationships, they should use @select_related decorator")
                     
                     # Now evaluate conditions - relationships should be preloaded
                     logger.debug(
@@ -183,16 +106,8 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                     )):
                         logger.debug(f"N+1 DEBUG: About to check condition for record {i} (pk={getattr(new, 'pk', 'No PK')})")
                         logger.debug(f"N+1 DEBUG: Record {i} type: {type(new).__name__}")
-                        logger.debug(f"N+1 DEBUG: Record {i} has FK fields: {[f for f in fk_fields if hasattr(new, f)]}")
                         
-                        # Log FK field access before condition check
-                        for fk_field in fk_fields:
-                            if hasattr(new, fk_field):
-                                try:
-                                    fk_value = getattr(new, fk_field)
-                                    logger.debug(f"N+1 DEBUG: Record {i} FK field {fk_field} = {fk_value} (type: {type(fk_value).__name__})")
-                                except Exception as e:
-                                    logger.debug(f"N+1 DEBUG: Record {i} FK field {fk_field} access failed: {e}")
+                        # SALESFORCE-LIKE: No automatic preloading, let conditions access what they need
                         
                         # Add query count tracking before condition check
                         from django.db import connection
