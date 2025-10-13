@@ -6,11 +6,39 @@ logger = logging.getLogger(__name__)
 def resolve_dotted_attr(instance, dotted_path):
     """
     Recursively resolve a dotted attribute path, e.g., "type.category".
+    
+    CRITICAL FIX: For foreign key fields, use attname to access the ID directly
+    to avoid triggering Django's descriptor protocol which causes N+1 queries.
     """
     # Only log for foreign key relationships to avoid too much noise
     if '.' in dotted_path or any(field in dotted_path for field in ['user', 'account', 'currency', 'setting', 'business']):
         logger.debug(f"N+1 DEBUG: resolve_dotted_attr called with path '{dotted_path}' on instance {getattr(instance, 'pk', 'No PK')}")
     
+    # For simple field access (no dots), use optimized field access
+    if '.' not in dotted_path:
+        try:
+            # Get the field from the model's meta to check if it's a foreign key
+            field = instance._meta.get_field(dotted_path)
+            if field.is_relation and not field.many_to_many:
+                # For foreign key fields, use attname to get the ID directly
+                # This avoids triggering Django's descriptor protocol
+                result = getattr(instance, field.attname, None)
+                if '.' in dotted_path or any(field_name in dotted_path for field_name in ['user', 'account', 'currency', 'setting', 'business']):
+                    logger.debug(f"N+1 DEBUG: resolve_dotted_attr - FK field '{dotted_path}' accessed via attname '{field.attname}', result: {result}")
+                return result
+            else:
+                # For regular fields, use normal getattr
+                result = getattr(instance, dotted_path, None)
+                if '.' in dotted_path or any(field_name in dotted_path for field_name in ['user', 'account', 'currency', 'setting', 'business']):
+                    logger.debug(f"N+1 DEBUG: resolve_dotted_attr - regular field '{dotted_path}' accessed, result: {result}")
+                return result
+        except Exception as e:
+            # If field lookup fails, fall back to normal getattr
+            if '.' in dotted_path or any(field_name in dotted_path for field_name in ['user', 'account', 'currency', 'setting', 'business']):
+                logger.debug(f"N+1 DEBUG: resolve_dotted_attr - field lookup failed for '{dotted_path}', falling back to getattr: {e}")
+            return getattr(instance, dotted_path, None)
+    
+    # For dotted paths, use the existing logic but with FK optimization
     current_instance = instance
     for i, attr in enumerate(dotted_path.split(".")):
         if current_instance is None:
@@ -23,8 +51,21 @@ def resolve_dotted_attr(instance, dotted_path):
             logger.debug(f"N+1 DEBUG: resolve_dotted_attr - accessing attr '{attr}' on {type(current_instance).__name__} (pk={getattr(current_instance, 'pk', 'No PK')})")
         
         try:
-            # CRITICAL FIX: Use getattr with default None to avoid triggering queries
-            # The previous approach was causing N+1 queries by accessing relationships
+            # For dotted paths, check if this is the last attribute and if it's a FK field
+            is_last_attr = (i == len(dotted_path.split(".")) - 1)
+            if is_last_attr and hasattr(current_instance, '_meta'):
+                try:
+                    field = current_instance._meta.get_field(attr)
+                    if field.is_relation and not field.many_to_many:
+                        # Use attname for the final FK field access
+                        current_instance = getattr(current_instance, field.attname, None)
+                        if '.' in dotted_path or any(field_name in dotted_path for field_name in ['user', 'account', 'currency', 'setting', 'business']):
+                            logger.debug(f"N+1 DEBUG: resolve_dotted_attr - final FK field '{attr}' accessed via attname '{field.attname}', result: {current_instance}")
+                        continue
+                except:
+                    pass  # Fall through to normal getattr
+            
+            # Normal getattr for non-FK fields or when FK optimization fails
             current_instance = getattr(current_instance, attr, None)
             if '.' in dotted_path or any(field in dotted_path for field in ['user', 'account', 'currency', 'setting', 'business']):
                 logger.debug(f"N+1 DEBUG: resolve_dotted_attr - got value {current_instance} (type: {type(current_instance).__name__})")
