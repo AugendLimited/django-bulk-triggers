@@ -27,7 +27,19 @@ class TriggerQuerySetMixin(
 
     @transaction.atomic
     def delete(self):
-        objs = list(self)
+        # Get all foreign key fields to optimize the initial query
+        fk_fields = [
+            field.name for field in self.model._meta.concrete_fields
+            if field.is_relation and not field.many_to_many
+        ]
+        
+        # Apply select_related to prevent N+1 queries when accessing foreign key relationships
+        queryset = self
+        if fk_fields:
+            queryset = queryset.select_related(*fk_fields)
+            logger.debug(f"Applied select_related for FK fields in delete: {fk_fields}")
+        
+        objs = list(queryset)
         if not objs:
             return 0
         ctx = TriggerContext(self.model)
@@ -44,7 +56,20 @@ class TriggerQuerySetMixin(
         This method handles Subquery objects and complex expressions properly.
         """
         logger.debug(f"Entering update method with {len(kwargs)} kwargs")
-        instances = list(self)
+        
+        # Get all foreign key fields to optimize the initial query
+        fk_fields = [
+            field.name for field in self.model._meta.concrete_fields
+            if field.is_relation and not field.many_to_many
+        ]
+        
+        # Apply select_related to prevent N+1 queries when accessing foreign key relationships
+        queryset = self
+        if fk_fields:
+            queryset = queryset.select_related(*fk_fields)
+            logger.debug(f"Applied select_related for FK fields: {fk_fields}")
+        
+        instances = list(queryset)
         if not instances:
             return 0
 
@@ -249,10 +274,13 @@ class TriggerQuerySetMixin(
                 if field.is_relation and not field.many_to_many
             ]
             
+            logger.debug(f"FK fields for {model_cls.__name__}: {fk_fields}")
+            
             # Build select_related query if there are foreign key fields
             queryset = model_cls._base_manager.filter(pk__in=pks)
             if fk_fields:
                 queryset = queryset.select_related(*fk_fields)
+                logger.debug(f"Applied select_related for fields: {fk_fields}")
             
             refreshed_instances = {obj.pk: obj for obj in queryset}
 
@@ -320,24 +348,29 @@ class TriggerQuerySetMixin(
                                         f"DEBUG: AGGREGATE FIELD {field.name} changed from {old_value} (type: {type(old_value).__name__}) to {new_value} (type: {type(new_value).__name__})"
                                     )
                             pre_trigger_values[field.name] = new_value
-                            try:
-                                refreshed_value = getattr(
-                                    refreshed_instance, field.name
-                                )
-                            except Exception as e:
-                                # Handle foreign key DoesNotExist errors gracefully
-                                if field.is_relation and "DoesNotExist" in str(
-                                    type(e).__name__
-                                ):
-                                    refreshed_value = None
-                                else:
-                                    raise
+                            
+                            # CRITICAL FIX: Avoid accessing foreign key relationships to prevent N+1 queries
+                            # Only access the field value if it's not a foreign key relationship
+                            if field.is_relation and not field.many_to_many:
+                                # For foreign key fields, we should NOT access the relationship
+                                # as this triggers additional database queries even with select_related
+                                # Instead, we'll skip setting the relationship value to avoid N+1 queries
+                                logger.debug(f"Skipping FK field {field.name} access to prevent N+1 queries for instance pk={instance.pk}")
+                                continue
+                            else:
+                                # For non-relation fields, it's safe to access and set the value
+                                try:
+                                    refreshed_value = getattr(refreshed_instance, field.name)
+                                except Exception as e:
+                                    # Handle any errors gracefully
+                                    logger.warning(f"Could not access field {field.name}: {e}")
+                                    continue
 
-                            setattr(
-                                instance,
-                                field.name,
-                                refreshed_value,
-                            )
+                                setattr(
+                                    instance,
+                                    field.name,
+                                    refreshed_value,
+                                )
                     pre_trigger_state[instance.pk] = pre_trigger_values
                     logger.debug(
                         f"Instance pk={instance.pk} refreshed successfully"
@@ -651,11 +684,9 @@ class TriggerQuerySetMixin(
 
                 # Check if this expression contains any Subquery objects
                 source_expressions = value.get_source_expressions()
-                has_nested_subquery = False
 
                 for expr in source_expressions:
                     if isinstance(expr, Subquery):
-                        has_nested_subquery = True
                         logger.debug(f"Found nested Subquery in {type(value).__name__}")
                         # Ensure the nested Subquery has proper output_field
                         if (

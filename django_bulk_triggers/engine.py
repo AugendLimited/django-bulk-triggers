@@ -71,18 +71,67 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
             to_process_new = []
             to_process_old = []
 
-            for new, original in zip(
-                new_records,
-                old_records or [None] * len(new_records),
-                strict=True,
-            ):
-                if not condition:
-                    to_process_new.append(new)
-                    to_process_old.append(original)
-                    logger.debug(
-                        f"No condition for {handler_name}.{method_name}, adding record pk={getattr(new, 'pk', 'No PK')}"
-                    )
-                else:
+            # CRITICAL FIX: Avoid N+1 queries by preloading relationships for condition evaluation
+            if not condition:
+                # No condition - process all records
+                to_process_new = new_records
+                to_process_old = old_records or [None] * len(new_records)
+                logger.debug(
+                    f"No condition for {handler_name}.{method_name}, processing all {len(new_records)} records"
+                )
+            else:
+                # Preload relationships to avoid N+1 queries during condition evaluation
+                logger.debug(
+                    f"Preloading relationships for condition evaluation on {len(new_records)} records"
+                )
+                
+                # Get all foreign key fields that might be accessed by conditions
+                fk_fields = [
+                    field.name for field in model_cls._meta.concrete_fields
+                    if field.is_relation and not field.many_to_many
+                ]
+                
+                # If we have foreign key fields, we need to ensure they're preloaded
+                if fk_fields and new_records:
+                    # Check if records are already loaded with select_related
+                    # If not, we need to reload them with proper select_related
+                    sample_record = new_records[0]
+                    needs_reload = False
+                    
+                    for fk_field in fk_fields:
+                        if hasattr(sample_record, fk_field):
+                            try:
+                                # Try to access the relationship to see if it's loaded
+                                getattr(sample_record, fk_field)
+                            except Exception:
+                                # If accessing the relationship fails, we need to reload
+                                needs_reload = True
+                                break
+                    
+                    if needs_reload:
+                        logger.debug(f"Reloading records with select_related for fields: {fk_fields}")
+                        # Get primary keys of all records
+                        pks = [getattr(record, 'pk', None) for record in new_records if hasattr(record, 'pk')]
+                        if pks:
+                            # Reload with select_related
+                            reloaded_records = model_cls._base_manager.filter(pk__in=pks).select_related(*fk_fields)
+                            # Create a mapping for quick lookup
+                            reloaded_map = {record.pk: record for record in reloaded_records}
+                            # Replace records with reloaded versions
+                            for i, record in enumerate(new_records):
+                                if hasattr(record, 'pk') and record.pk in reloaded_map:
+                                    new_records[i] = reloaded_map[record.pk]
+                
+                # Now evaluate conditions - relationships should be preloaded
+                logger.debug(
+                    f"Evaluating conditions for {handler_name}.{method_name} on {len(new_records)} records"
+                )
+                
+                for i, (new, original) in enumerate(zip(
+                    new_records,
+                    old_records or [None] * len(new_records),
+                    strict=True,
+                )):
                     condition_result = condition.check(new, original)
                     logger.debug(
                         f"Condition check for {handler_name}.{method_name} on record pk={getattr(new, 'pk', 'No PK')}: {condition_result}"

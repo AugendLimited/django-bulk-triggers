@@ -74,7 +74,11 @@ class MTIOperationsMixin:
                     continue
 
                 # Get the new value to check if it's an expression object
-                new_value = getattr(new_instance, field.name)
+                # For foreign key fields, use attname to avoid N+1 queries
+                if field.is_relation and not field.many_to_many:
+                    new_value = getattr(new_instance, field.attname, None)
+                else:
+                    new_value = getattr(new_instance, field.name)
 
                 # Skip fields that contain expression objects - these are not in-memory modifications
                 # but rather database-level expressions that should not be applied to instances
