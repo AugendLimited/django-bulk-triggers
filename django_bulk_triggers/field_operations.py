@@ -74,9 +74,17 @@ class FieldOperationsMixin:
                 # Get database value
                 db_value = getattr(db_obj, field_name, None)
 
-                # Compare values (handle None cases)
-                if current_value != db_value:
-                    changed_fields.add(field_name)
+                # For foreign key fields, compare the ID values to avoid N+1 queries
+                if field.is_relation and not field.many_to_many:
+                    # Use the attname (e.g., 'created_by_id') to get the ID directly
+                    current_id = getattr(obj, field.attname, None)
+                    db_id = getattr(db_obj, field.attname, None)
+                    if current_id != db_id:
+                        changed_fields.add(field_name)
+                else:
+                    # For non-relation fields, compare values directly
+                    if current_value != db_value:
+                        changed_fields.add(field_name)
 
         return changed_fields
 

@@ -260,29 +260,41 @@ class TriggerQuerySetMixin(
                     pre_trigger_values = {}
                     for field in model_cls._meta.fields:
                         if field.name != "id":
-                            try:
-                                old_value = getattr(instance, field.name, None)
-                            except Exception as e:
-                                # Handle foreign key DoesNotExist errors gracefully
-                                if field.is_relation and "DoesNotExist" in str(
-                                    type(e).__name__
-                                ):
+                            # For foreign key fields, compare the ID values to avoid N+1 queries
+                            if field.is_relation and not field.many_to_many:
+                                try:
+                                    old_value = getattr(instance, field.attname, None)
+                                except Exception:
                                     old_value = None
-                                else:
-                                    raise
-
-                            try:
-                                new_value = getattr(
-                                    refreshed_instance, field.name, None
-                                )
-                            except Exception as e:
-                                # Handle foreign key DoesNotExist errors gracefully
-                                if field.is_relation and "DoesNotExist" in str(
-                                    type(e).__name__
-                                ):
+                                
+                                try:
+                                    new_value = getattr(refreshed_instance, field.attname, None)
+                                except Exception:
                                     new_value = None
-                                else:
-                                    raise
+                            else:
+                                try:
+                                    old_value = getattr(instance, field.name, None)
+                                except Exception as e:
+                                    # Handle foreign key DoesNotExist errors gracefully
+                                    if field.is_relation and "DoesNotExist" in str(
+                                        type(e).__name__
+                                    ):
+                                        old_value = None
+                                    else:
+                                        raise
+
+                                try:
+                                    new_value = getattr(
+                                        refreshed_instance, field.name, None
+                                    )
+                                except Exception as e:
+                                    # Handle foreign key DoesNotExist errors gracefully
+                                    if field.is_relation and "DoesNotExist" in str(
+                                        type(e).__name__
+                                    ):
+                                        new_value = None
+                                    else:
+                                        raise
                             if old_value != new_value:
                                 logger.debug(
                                     f"Field {field.name} changed from {old_value} to {new_value}"
@@ -349,17 +361,24 @@ class TriggerQuerySetMixin(
                 if instance.pk in pre_trigger_state:
                     pre_trigger_values = pre_trigger_state[instance.pk]
                     for field_name, pre_trigger_value in pre_trigger_values.items():
-                        try:
-                            current_value = getattr(instance, field_name)
-                        except Exception as e:
-                            # Handle foreign key DoesNotExist errors gracefully
-                            field = instance._meta.get_field(field_name)
-                            if field.is_relation and "DoesNotExist" in str(
-                                type(e).__name__
-                            ):
+                        field = instance._meta.get_field(field_name)
+                        # For foreign key fields, compare the ID values to avoid N+1 queries
+                        if field.is_relation and not field.many_to_many:
+                            try:
+                                current_value = getattr(instance, field.attname)
+                            except Exception:
                                 current_value = None
-                            else:
-                                raise
+                        else:
+                            try:
+                                current_value = getattr(instance, field_name)
+                            except Exception as e:
+                                # Handle foreign key DoesNotExist errors gracefully
+                                if field.is_relation and "DoesNotExist" in str(
+                                    type(e).__name__
+                                ):
+                                    current_value = None
+                                else:
+                                    raise
 
                         if current_value != pre_trigger_value:
                             trigger_modified_fields.add(field_name)
@@ -428,17 +447,24 @@ class TriggerQuerySetMixin(
                         field_name,
                         pre_after_trigger_value,
                     ) in pre_after_trigger_values.items():
-                        try:
-                            current_value = getattr(instance, field_name)
-                        except Exception as e:
-                            # Handle foreign key DoesNotExist errors gracefully
-                            field = instance._meta.get_field(field_name)
-                            if field.is_relation and "DoesNotExist" in str(
-                                type(e).__name__
-                            ):
+                        field = instance._meta.get_field(field_name)
+                        # For foreign key fields, compare the ID values to avoid N+1 queries
+                        if field.is_relation and not field.many_to_many:
+                            try:
+                                current_value = getattr(instance, field.attname)
+                            except Exception:
                                 current_value = None
-                            else:
-                                raise
+                        else:
+                            try:
+                                current_value = getattr(instance, field_name)
+                            except Exception as e:
+                                # Handle foreign key DoesNotExist errors gracefully
+                                if field.is_relation and "DoesNotExist" in str(
+                                    type(e).__name__
+                                ):
+                                    current_value = None
+                                else:
+                                    raise
 
                         if current_value != pre_after_trigger_value:
                             after_trigger_modified_fields.add(field_name)
