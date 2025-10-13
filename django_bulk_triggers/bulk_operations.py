@@ -254,7 +254,7 @@ class BulkOperationsMixin:
                     bypass_validation=bypass_validation,
                 )
         else:
-            # Single table inheritance - use Django's bulk_create
+            # Single table inheritance - use optimized bulk_create
             django_kwargs = {
                 k: v
                 for k, v in {
@@ -268,11 +268,13 @@ class BulkOperationsMixin:
             }
 
             logger.debug(
-                "Calling Django bulk_create for %d objects with kwargs: %s",
+                "Calling optimized bulk_create for %d objects with kwargs: %s",
                 len(objs),
                 django_kwargs,
             )
-            result = super().bulk_create(objs, **django_kwargs)
+            
+            # Use our optimized bulk_create that avoids N+1 queries
+            result = self._optimized_bulk_create(objs, **django_kwargs)
 
         # Fire AFTER triggers
         if not bypass_triggers:
@@ -652,3 +654,41 @@ class BulkOperationsMixin:
             from django_bulk_triggers.context import set_bulk_update_value_map
 
             set_bulk_update_value_map(None)
+
+    def _optimized_bulk_create(self, objs, **kwargs):
+        """
+        Optimized bulk_create that avoids N+1 queries by not calling _prepare_for_bulk_create.
+        """
+        if not objs:
+            return objs
+        
+        # Prepare objects manually without accessing foreign key relationships
+        self._prepare_objects_for_bulk_create(objs)
+        
+        # Call Django's bulk_create without the problematic _prepare_for_bulk_create
+        return super().bulk_create(objs, **kwargs)
+
+    def _prepare_objects_for_bulk_create(self, objs):
+        """
+        Manually prepare objects for bulk_create without accessing foreign key relationships.
+        """
+        if not objs:
+            return
+        
+        model_cls = objs[0].__class__
+        
+        for obj in objs:
+            # Only handle auto_now and auto_now_add fields
+            for field in model_cls._meta.local_fields:
+                if field.auto_created:
+                    continue
+                    
+                # Skip foreign key fields to avoid N+1 queries
+                if field.is_relation and not field.many_to_many:
+                    continue
+                    
+                # Only call pre_save for timestamp fields
+                if hasattr(field, 'auto_now') and field.auto_now:
+                    field.pre_save(obj, add=True)
+                elif hasattr(field, 'auto_now_add') and field.auto_now_add:
+                    field.pre_save(obj, add=True)
