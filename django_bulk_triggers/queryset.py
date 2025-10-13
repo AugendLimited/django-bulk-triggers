@@ -242,11 +242,19 @@ class TriggerQuerySetMixin(
                     logger.debug(
                         f"DEBUG: Subquery {key} output_field: {getattr(value, 'output_field', 'None')}"
                     )
-            # Simple refresh of model fields without fetching related objects
-            # Subquery updates only affect the model's own fields, not relationships
-            refreshed_instances = {
-                obj.pk: obj for obj in model_cls._base_manager.filter(pk__in=pks)
-            }
+            # Simple refresh of model fields with select_related optimization
+            # Get all foreign key fields to optimize the query
+            fk_fields = [
+                field.name for field in model_cls._meta.concrete_fields
+                if field.is_relation and not field.many_to_many
+            ]
+            
+            # Build select_related query if there are foreign key fields
+            queryset = model_cls._base_manager.filter(pk__in=pks)
+            if fk_fields:
+                queryset = queryset.select_related(*fk_fields)
+            
+            refreshed_instances = {obj.pk: obj for obj in queryset}
 
             # Bulk update all instances in memory and save pre-trigger state
             pre_trigger_state = {}
@@ -273,6 +281,7 @@ class TriggerQuerySetMixin(
                                     new_value = None
                             else:
                                 try:
+                                    # For non-relation fields, use field.name
                                     old_value = getattr(instance, field.name, None)
                                 except Exception as e:
                                     # Handle foreign key DoesNotExist errors gracefully
@@ -284,6 +293,7 @@ class TriggerQuerySetMixin(
                                         raise
 
                                 try:
+                                    # For non-relation fields, use field.name
                                     new_value = getattr(
                                         refreshed_instance, field.name, None
                                     )
@@ -428,9 +438,15 @@ class TriggerQuerySetMixin(
                     pre_after_trigger_values = {}
                     for field in model_cls._meta.fields:
                         if field.name != "id":
-                            pre_after_trigger_values[field.name] = getattr(
-                                instance, field.name, None
-                            )
+                            # For foreign key fields, use attname to avoid N+1 queries
+                            if field.is_relation and not field.many_to_many:
+                                pre_after_trigger_values[field.name] = getattr(
+                                    instance, field.attname, None
+                                )
+                            else:
+                                pre_after_trigger_values[field.name] = getattr(
+                                    instance, field.name, None
+                                )
                     pre_after_trigger_state[instance.pk] = pre_after_trigger_values
 
             engine.run(model_cls, AFTER_UPDATE, instances, originals, ctx=ctx)

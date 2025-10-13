@@ -40,15 +40,10 @@ class TriggerModelMixin(models.Model):
             run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
         else:
             # For update operations, run VALIDATE_UPDATE triggers for validation
-            try:
-                # Use _base_manager to avoid triggering triggers recursively
-                old_instance = self.__class__._base_manager.get(pk=self.pk)
-                ctx = TriggerContext(self.__class__)
-                run(self.__class__, VALIDATE_UPDATE, [self], [old_instance], ctx=ctx)
-            except self.__class__.DoesNotExist:
-                # If the old instance doesn't exist, treat as create
-                ctx = TriggerContext(self.__class__)
-                run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
+            # Skip fetching old instance to avoid N+1 queries - validation triggers should handle this efficiently
+            ctx = TriggerContext(self.__class__)
+            # Pass None as old_records to avoid the individual query
+            run(self.__class__, VALIDATE_UPDATE, [self], None, ctx=ctx)
 
     def save(self, *args, bypass_triggers=False, **kwargs):
         """

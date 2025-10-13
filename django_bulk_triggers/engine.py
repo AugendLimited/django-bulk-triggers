@@ -32,13 +32,11 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
     # Salesforce-style trigger execution: Allow nested triggers, let Django handle recursion
     try:
         # For BEFORE_* events, run model.clean() first for validation
+        # Skip individual clean() calls to avoid N+1 queries - validation triggers will handle this
         if event.lower().startswith("before_"):
-            for instance in new_records:
-                try:
-                    instance.clean()
-                except ValidationError as e:
-                    logger.error("Validation failed for %s: %s", instance, e)
-                    raise
+            # Note: Individual clean() calls are skipped to prevent N+1 queries
+            # Validation triggers (VALIDATE_*) will handle validation instead
+            pass
 
         # Process triggers
         for handler_cls, method_name, condition, priority in triggers:

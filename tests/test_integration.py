@@ -702,7 +702,7 @@ class TestFullSystemIntegration(TestCase):
         # Test bulk_create performance
         with self.assertNumQueries(
             4
-        ):  # SAVEPOINT + INSERT (batch 1) + INSERT (batch 2) + RELEASE - with transaction.atomic
+        ):  # SAVEPOINT + bulk INSERT (batch 1) + bulk INSERT (batch 2) + RELEASE - optimized bulk operations
             created_instances = TriggerModel.objects.bulk_create(test_instances)
 
         # Verify triggers were called
