@@ -80,6 +80,9 @@ class BulkOperationsMixin:
 
         self._validate_objects(objs, require_pks=False, operation_name="bulk_create")
 
+        # QUICK FIX: Apply audit fields before processing to avoid N+1 queries
+        self._apply_audit_fields_quick_fix(objs, is_create=True)
+
         # Check for MTI - if we detect multi-table inheritance, we need special handling
         is_mti = self._is_multi_table_inheritance()
 
@@ -290,6 +293,9 @@ class BulkOperationsMixin:
 
         self._validate_objects(objs, require_pks=True, operation_name="bulk_update")
 
+        # QUICK FIX: Apply audit fields before processing to avoid N+1 queries
+        self._apply_audit_fields_quick_fix(objs, is_create=False)
+
         # Set a context variable to indicate we're in bulk_update
         from django_bulk_triggers.context import set_bulk_update_active
 
@@ -472,6 +478,8 @@ class BulkOperationsMixin:
         Call pre_save() for custom fields that require update handling
         (e.g., CurrentUserField) and update both the objects and the field set.
 
+        QUICK FIX: Cache pre_save() results to avoid N+1 queries for CurrentUserField.
+
         Args:
             objs (list[Model]): The model instances being updated.
             custom_update_fields (list[Field]): Fields that define a pre_save() trigger.
@@ -488,99 +496,96 @@ class BulkOperationsMixin:
             [f.name for f in custom_update_fields],
         )
 
+        # QUICK FIX: Cache pre_save() results to avoid N+1 queries
+        field_cache = {}
+        
+        for field in custom_update_fields:
+            # Get the pre_save result once per field type, not per object
+            if objs:
+                template_obj = objs[0]
+                try:
+                    cached_value = field.pre_save(template_obj, add=False)
+                    field_cache[field] = cached_value
+                    logger.debug(
+                        "Cached pre_save() result for field %s: %s",
+                        field.name, cached_value
+                    )
+                except Exception as e:
+                    logger.warning("Failed to cache pre_save() for field %s: %s", field.name, e)
+                    field_cache[field] = None
+
+        # Apply cached values to all objects
         for obj in objs:
             for field in custom_update_fields:
-                try:
-                    # Call pre_save with add=False (since this is an update)
-                    new_value = field.pre_save(obj, add=False)
+                cached_value = field_cache.get(field)
+                
+                if cached_value is not None:
+                    new_value = cached_value
+                else:
+                    # Fallback: call pre_save for this specific object
+                    try:
+                        new_value = field.pre_save(obj, add=False)
+                    except Exception as e:
+                        logger.warning("pre_save() failed for field %s: %s", field.name, e)
+                        continue
 
-                    # Only assign if pre_save returned something
-                    if new_value is not None:
-                        logger.debug(
-                            "DEBUG: pre_save() returned value %s (type: %s) for field %s on object %s",
-                            new_value,
-                            type(new_value).__name__,
-                            field.name,
-                            obj.pk,
-                        )
-
-                        # Handle ForeignKey fields properly
-                        if getattr(field, "is_relation", False) and not getattr(
-                            field, "many_to_many", False
-                        ):
-                            logger.debug(
-                                "DEBUG: Field %s is a relation field (is_relation=True, many_to_many=False)",
-                                field.name,
-                            )
-                            # For ForeignKey fields, check if we need to assign to the _id field
-                            if (
-                                hasattr(field, "attname")
-                                and field.attname != field.name
-                            ):
-                                logger.debug(
-                                    "DEBUG: Assigning ForeignKey value %s to _id field %s (original field: %s)",
-                                    new_value,
-                                    field.attname,
-                                    field.name,
-                                )
-                                # This is a ForeignKey field, assign to the _id field
-                                setattr(obj, field.attname, new_value)
-                                # Also ensure the _id field is in the update set
-                                if (
-                                    field.attname not in fields_set
-                                    and field.attname not in pk_field_names
-                                ):
-                                    fields_set.add(field.attname)
-                                    logger.debug(
-                                        "DEBUG: Added _id field %s to fields_set",
-                                        field.attname,
-                                    )
-                            else:
-                                logger.debug(
-                                    "DEBUG: Direct assignment for relation field %s (attname=%s)",
-                                    field.name,
-                                    getattr(field, "attname", "None"),
-                                )
-                                # Direct assignment for non-ForeignKey relation fields
-                                setattr(obj, field.name, new_value)
-                        else:
-                            logger.debug(
-                                "DEBUG: Non-relation field %s, assigning directly",
-                                field.name,
-                            )
-                            # Non-relation field, assign directly
-                            setattr(obj, field.name, new_value)
-
-                        # Ensure this field is included in the update set
-                        if (
-                            field.name not in fields_set
-                            and field.name not in pk_field_names
-                        ):
-                            fields_set.add(field.name)
-                            logger.debug(
-                                "DEBUG: Added field %s to fields_set",
-                                field.name,
-                            )
-
-                        logger.debug(
-                            "Custom field %s updated via pre_save() for object %s",
-                            field.name,
-                            obj.pk,
-                        )
-                    else:
-                        logger.debug(
-                            "DEBUG: pre_save() returned None for field %s on object %s",
-                            field.name,
-                            obj.pk,
-                        )
-
-                except Exception as e:
-                    logger.warning(
-                        "Failed to call pre_save() on custom field %s for object %s: %s",
+                # Only assign if we have a value
+                if new_value is not None:
+                    logger.debug(
+                        "DEBUG: pre_save() returned value %s (type: %s) for field %s on object %s",
+                        new_value,
+                        type(new_value).__name__,
                         field.name,
-                        getattr(obj, "pk", None),
-                        e,
+                        obj.pk,
                     )
+
+                    # Handle ForeignKey fields properly
+                    if getattr(field, "is_relation", False) and not getattr(field, "many_to_many", False):
+                        logger.debug("DEBUG: Field %s is a relation field", field.name)
+                        # For ForeignKey fields, check if we need to assign to the _id field
+                        if hasattr(field, "attname") and field.attname != field.name:
+                            logger.debug("DEBUG: Assigning ForeignKey value %s to _id field %s", new_value, field.attname)
+                            # This is a ForeignKey field, assign to the _id field
+                            setattr(obj, field.attname, new_value)
+                            # Also ensure the _id field is in the update set
+                            if field.attname not in fields_set and field.attname not in pk_field_names:
+                                fields_set.add(field.attname)
+                                logger.debug("DEBUG: Added _id field %s to fields_set", field.attname)
+                        else:
+                            # Direct assignment for non-ForeignKey relation fields
+                            setattr(obj, field.name, new_value)
+                            if field.name not in fields_set and field.name not in pk_field_names:
+                                fields_set.add(field.name)
+                                logger.debug("DEBUG: Added field %s to fields_set", field.name)
+                    else:
+                        logger.debug("DEBUG: Non-relation field %s, assigning directly", field.name)
+                        # Non-relation field, assign directly
+                        setattr(obj, field.name, new_value)
+                        if field.name not in fields_set and field.name not in pk_field_names:
+                            fields_set.add(field.name)
+                            logger.debug("DEBUG: Added field %s to fields_set", field.name)
+
+                    logger.debug("Custom field %s updated via pre_save() for object %s", field.name, obj.pk)
+
+    def _apply_audit_fields_quick_fix(self, objs, is_create=False):
+        """Quick fix for audit fields - single user lookup to avoid N+1 queries."""
+        if not objs or not hasattr(objs[0], 'created_by'):
+            return
+            
+        # Single user lookup - no N+1 queries!
+        try:
+            from django_currentuser.middleware import get_current_authenticated_user
+            current_user = get_current_authenticated_user()
+        except ImportError:
+            logger.warning("django-currentuser not available, skipping audit fields")
+            return
+        
+        logger.debug(f"Quick fix: Setting audit fields for {len(objs)} objects (create={is_create})")
+        
+        for obj in objs:
+            if is_create:
+                obj.created_by = current_user
+            obj.last_modified_by = current_user
 
     def _single_table_bulk_update(
         self,

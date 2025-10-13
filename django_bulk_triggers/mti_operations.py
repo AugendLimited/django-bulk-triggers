@@ -751,36 +751,45 @@ class MTIOperationsMixin:
                         field.pre_save(obj, add=False)
                     # Check for custom fields that might need pre_save() on update (like CurrentUserField)
                     elif hasattr(field, "pre_save") and field.name not in fields:
-                        try:
-                            new_value = field.pre_save(obj, add=False)
-                            if new_value is not None:
-                                # Handle ForeignKey fields properly
-                                if getattr(field, "is_relation", False) and not getattr(
-                                    field, "many_to_many", False
-                                ):
-                                    # For ForeignKey fields, check if we need to assign to the _id field
-                                    if (
-                                        hasattr(field, "attname")
-                                        and field.attname != field.name
-                                    ):
-                                        # This is a ForeignKey field, assign to the _id field
-                                        setattr(obj, field.attname, new_value)
-                                        custom_update_fields.append(field.attname)
-                                    else:
-                                        # Direct assignment for non-ForeignKey relation fields
-                                        setattr(obj, field.name, new_value)
-                                        custom_update_fields.append(field.name)
+                        # QUICK FIX: Cache pre_save() result to avoid N+1 queries
+                        if not hasattr(self, '_mti_field_cache'):
+                            self._mti_field_cache = {}
+                        
+                        if field not in self._mti_field_cache:
+                            try:
+                                cached_value = field.pre_save(obj, add=False)
+                                self._mti_field_cache[field] = cached_value
+                            except Exception as e:
+                                logger.warning("Failed to cache pre_save() for MTI field %s: %s", field.name, e)
+                                self._mti_field_cache[field] = None
+                        
+                        cached_value = self._mti_field_cache.get(field)
+                        if cached_value is not None:
+                            new_value = cached_value
+                        else:
+                            try:
+                                new_value = field.pre_save(obj, add=False)
+                            except Exception as e:
+                                logger.warning("pre_save() failed for MTI field %s: %s", field.name, e)
+                                continue
+                        
+                        if new_value is not None:
+                            # Handle ForeignKey fields properly
+                            if getattr(field, "is_relation", False) and not getattr(field, "many_to_many", False):
+                                # For ForeignKey fields, check if we need to assign to the _id field
+                                if hasattr(field, "attname") and field.attname != field.name:
+                                    # This is a ForeignKey field, assign to the _id field
+                                    setattr(obj, field.attname, new_value)
+                                    custom_update_fields.append(field.attname)
                                 else:
-                                    # Non-relation field, assign directly
+                                    # Direct assignment for non-ForeignKey relation fields
                                     setattr(obj, field.name, new_value)
                                     custom_update_fields.append(field.name)
-                                logger.debug(
-                                    f"Custom field {field.name} updated via pre_save() for MTI object {obj.pk}"
-                                )
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to call pre_save() on custom field {field.name} in MTI: {e}"
-                            )
+                            else:
+                                # Non-relation field, assign directly
+                                setattr(obj, field.name, new_value)
+                                custom_update_fields.append(field.name)
+                            logger.debug(f"Custom field {field.name} updated via pre_save() for MTI object {obj.pk}")
 
         # Add auto_now fields to the fields list so they get updated in the database
         auto_now_fields = set()
