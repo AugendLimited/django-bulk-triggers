@@ -6,8 +6,9 @@ for better maintainability and testing.
 """
 
 import logging
-
-from django.db import transaction
+import traceback
+from django.db import transaction, connection
+from django.db.backends.utils import CursorWrapper
 
 from django_bulk_triggers import engine
 from django_bulk_triggers.constants import (
@@ -20,6 +21,75 @@ from django_bulk_triggers.constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Global query counter for debugging
+_query_count = 0
+_query_log = []
+
+def _log_query(sql, params=None):
+    """Log database queries with stack trace for debugging N+1 issues."""
+    global _query_count, _query_log
+    _query_count += 1
+    
+    # Get the current stack trace
+    stack = traceback.format_stack()
+    
+    # Find the relevant part of the stack (skip our logging function)
+    relevant_stack = []
+    for frame in stack[:-2]:  # Skip the last 2 frames (this function and the caller)
+        if 'django_bulk_triggers' in frame or 'bulk_create' in frame or 'bulk_update' in frame:
+            relevant_stack.append(frame.strip())
+    
+    query_info = {
+        'count': _query_count,
+        'sql': sql,
+        'params': params,
+        'stack': relevant_stack[-3:] if relevant_stack else stack[-5:-2]  # Last 3 relevant frames
+    }
+    _query_log.append(query_info)
+    
+    logger.debug(f"QUERY #{_query_count}: {sql[:100]}...")
+    if relevant_stack:
+        logger.debug(f"  Stack trace: {relevant_stack[-1]}")
+
+def _reset_query_debug():
+    """Reset query debugging counters."""
+    global _query_count, _query_log
+    _query_count = 0
+    _query_log.clear()
+
+def _get_query_debug_info():
+    """Get current query debugging information."""
+    global _query_count, _query_log
+    return {
+        'total_queries': _query_count,
+        'queries': _query_log.copy()
+    }
+
+class QueryDebugCursorWrapper(CursorWrapper):
+    """Cursor wrapper that logs all database queries for debugging."""
+    
+    def execute(self, sql, params=None):
+        _log_query(sql, params)
+        return super().execute(sql, params)
+    
+    def executemany(self, sql, param_list):
+        for params in param_list:
+            _log_query(sql, params)
+        return super().executemany(sql, param_list)
+
+def _enable_query_debugging():
+    """Enable query debugging by using Django's built-in query logging."""
+    # Use Django's built-in query logging instead of cursor wrapping
+    from django.db import connection
+    connection.queries_log.clear()
+    connection.use_debug_cursor = True
+
+def _disable_query_debugging():
+    """Disable query debugging."""
+    from django.db import connection
+    connection.use_debug_cursor = False
+    _reset_query_debug()
 
 
 class BulkOperationsMixin:
@@ -49,6 +119,15 @@ class BulkOperationsMixin:
         but supports multi-table inheritance (MTI) models and triggers. All arguments are supported and
         passed through to the correct logic. For MTI, only a subset of options may be supported.
         """
+        # Reset query debugging for this operation
+        _reset_query_debug()
+        _enable_query_debugging()
+        
+        logger.debug(f"=== BULK_CREATE DEBUG START ===")
+        logger.debug(f"Creating {len(objs)} objects of type {self.model.__name__}")
+        logger.debug(f"Parameters: batch_size={batch_size}, ignore_conflicts={ignore_conflicts}, update_conflicts={update_conflicts}")
+        logger.debug(f"unique_fields={unique_fields}, update_fields={update_fields}")
+        logger.debug(f"bypass_triggers={bypass_triggers}, bypass_validation={bypass_validation}")
         model_cls, ctx, originals = self._setup_bulk_operation(
             objs,
             "bulk_create",
@@ -278,13 +357,39 @@ class BulkOperationsMixin:
 
         # Fire AFTER triggers
         if not bypass_triggers:
+            logger.debug(f"=== FIRING AFTER TRIGGERS ===")
             if update_conflicts and unique_fields and existing_records and new_records:
                 # For upsert operations, fire AFTER triggers for both created and updated records
+                logger.debug(f"Firing AFTER_UPDATE triggers for {len(existing_records)} existing records")
                 engine.run(model_cls, AFTER_UPDATE, existing_records, ctx=ctx)
+                logger.debug(f"Firing AFTER_CREATE triggers for {len(new_records)} new records")
                 engine.run(model_cls, AFTER_CREATE, new_records, ctx=ctx)
             else:
                 # Regular bulk create AFTER triggers
+                logger.debug(f"Firing AFTER_CREATE triggers for {len(result)} created records")
                 engine.run(model_cls, AFTER_CREATE, result, ctx=ctx)
+
+        # Log final query statistics using Django's built-in query logging
+        from django.db import connection
+        queries = connection.queries
+        logger.debug(f"=== BULK_CREATE DEBUG END ===")
+        logger.debug(f"Total queries executed: {len(queries)}")
+        
+        if queries:
+            logger.debug("Query breakdown:")
+            for i, query in enumerate(queries):
+                logger.debug(f"  Query #{i+1}: {query['sql'][:80]}...")
+                logger.debug(f"    Time: {query['time']}s")
+        
+        if len(queries) > len(objs) + 5:  # More than 1 query per object + some overhead
+            logger.warning(f"POTENTIAL N+1 QUERY DETECTED: {len(queries)} queries for {len(objs)} objects")
+            logger.warning("This suggests queries are being executed in a loop!")
+            
+            # Show the problematic queries
+            logger.warning("Problematic queries:")
+            for i, query in enumerate(queries):
+                if 'SELECT' in query['sql'].upper():
+                    logger.warning(f"  SELECT Query #{i+1}: {query['sql'][:100]}...")
 
         return result
 
@@ -662,11 +767,19 @@ class BulkOperationsMixin:
         if not objs:
             return objs
         
+        logger.debug(f"=== _OPTIMIZED_BULK_CREATE START ===")
+        logger.debug(f"Preparing {len(objs)} objects for bulk_create")
+        
         # Prepare objects manually without accessing foreign key relationships
         self._prepare_objects_for_bulk_create(objs)
         
+        logger.debug(f"Calling Django's super().bulk_create with kwargs: {kwargs}")
+        
         # Call Django's bulk_create without the problematic _prepare_for_bulk_create
-        return super().bulk_create(objs, **kwargs)
+        result = super().bulk_create(objs, **kwargs)
+        
+        logger.debug(f"=== _OPTIMIZED_BULK_CREATE END ===")
+        return result
 
     def _prepare_objects_for_bulk_create(self, objs):
         """
@@ -676,8 +789,11 @@ class BulkOperationsMixin:
             return
         
         model_cls = objs[0].__class__
+        logger.debug(f"Preparing {len(objs)} objects of type {model_cls.__name__}")
         
-        for obj in objs:
+        for i, obj in enumerate(objs):
+            logger.debug(f"Preparing object {i+1}/{len(objs)} (pk={getattr(obj, 'pk', 'None')})")
+            
             # Only handle auto_now and auto_now_add fields
             for field in model_cls._meta.local_fields:
                 if field.auto_created:
@@ -685,10 +801,13 @@ class BulkOperationsMixin:
                     
                 # Skip foreign key fields to avoid N+1 queries
                 if field.is_relation and not field.many_to_many:
+                    logger.debug(f"  Skipping foreign key field: {field.name}")
                     continue
                     
                 # Only call pre_save for timestamp fields
                 if hasattr(field, 'auto_now') and field.auto_now:
+                    logger.debug(f"  Calling pre_save for auto_now field: {field.name}")
                     field.pre_save(obj, add=True)
                 elif hasattr(field, 'auto_now_add') and field.auto_now_add:
+                    logger.debug(f"  Calling pre_save for auto_now_add field: {field.name}")
                     field.pre_save(obj, add=True)

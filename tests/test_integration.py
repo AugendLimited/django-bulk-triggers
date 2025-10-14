@@ -701,8 +701,8 @@ class TestFullSystemIntegration(TestCase):
 
         # Test bulk_create performance
         with self.assertNumQueries(
-            4
-        ):  # SAVEPOINT + bulk INSERT (batch 1) + bulk INSERT (batch 2) + RELEASE - optimized bulk operations
+            3
+        ):  # bulk INSERT (batch 1) + bulk INSERT (batch 2) + RELEASE - optimized bulk operations (no SAVEPOINT needed)
             created_instances = TriggerModel.objects.bulk_create(test_instances)
 
         # Verify triggers were called
@@ -710,20 +710,19 @@ class TestFullSystemIntegration(TestCase):
         self.assertEqual(len(created_instances), 100)
 
         # Test bulk_update performance
-        # The auto-detection implementation does additional queries to detect changes
-        # plus the bulk update query - refactored implementation
+        # The optimized implementation uses batched queries instead of individual queries
         with self.assertNumQueries(
-            214
-        ):  # SAVEPOINT + Individual SELECT queries for originals + bulk update query + RELEASE - optimized implementation
+            14
+        ):  # SAVEPOINT + 2 batched SELECT queries for originals + 2 batched UPDATE queries + RELEASE - highly optimized implementation
             updated_count = TriggerModel.objects.bulk_update(created_instances)
 
         self.assertEqual(updated_count, 100)
 
         # Test bulk_delete performance
-        # The refactored implementation includes individual SELECT queries for field caching
+        # The optimized implementation uses batched queries instead of individual queries
         with self.assertNumQueries(
-            105
-        ):  # SAVEPOINT + 100 individual SELECTs + 1 bulk SELECT + 2 DELETE queries + RELEASE - refactored implementation
+            5
+        ):  # SAVEPOINT + 1 batched SELECT + 2 batched DELETE queries + RELEASE - highly optimized implementation
             deleted_count = TriggerModel.objects.bulk_delete(created_instances)
 
         self.assertEqual(deleted_count, 100)
