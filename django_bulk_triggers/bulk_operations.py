@@ -204,11 +204,15 @@ class BulkOperationsMixin:
                         query |= subquery
 
                     # Find existing records
-                    # SALESFORCE-LIKE BEHAVIOR: Don't preload anything unless absolutely necessary
-                    # The trigger engine will handle any preloading needed for conditions
-                    queryset = model_cls.objects.filter(query)
-                    logger.debug("SALESFORCE-LIKE: No automatic preloading in bulk operations - triggers handle their own preloading")
-                    
+                    # Preload all foreign key relationships to avoid N+1 queries during field copying
+                    fk_fields = [f.name for f in model_cls._meta.fields if f.is_relation and not f.many_to_many]
+                    if fk_fields:
+                        queryset = model_cls.objects.select_related(*fk_fields).filter(query)
+                        logger.debug(f"N+1 FIX: Preloading foreign key relationships: {fk_fields}")
+                    else:
+                        queryset = model_cls.objects.filter(query)
+                        logger.debug("N+1 FIX: No foreign key relationships to preload")
+
                     existing_objs = list(queryset)
 
                     # Classify objects as existing or new based on unique fields
