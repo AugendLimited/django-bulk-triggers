@@ -7,3 +7,7 @@ AFTER_DELETE = "after_delete"
 VALIDATE_CREATE = "validate_create"
 VALIDATE_UPDATE = "validate_update"
 VALIDATE_DELETE = "validate_delete"
+
+# Default batch size for bulk_update operations to prevent massive SQL statements
+# This prevents PostgreSQL from crashing when updating large datasets with triggers
+DEFAULT_BULK_UPDATE_BATCH_SIZE = 1000

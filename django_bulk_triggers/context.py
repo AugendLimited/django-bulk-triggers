@@ -48,6 +48,16 @@ def get_bulk_update_active():
     return getattr(_trigger_context, "bulk_update_active", False)
 
 
+def set_bulk_update_batch_size(batch_size):
+    """Store the batch_size for the current bulk_update operation."""
+    _trigger_context.bulk_update_batch_size = batch_size
+
+
+def get_bulk_update_batch_size():
+    """Get the batch_size for the current bulk_update operation."""
+    return getattr(_trigger_context, "bulk_update_batch_size", None)
+
+
 class TriggerContext:
     def __init__(self, model, bypass_triggers=False):
         self.model = model

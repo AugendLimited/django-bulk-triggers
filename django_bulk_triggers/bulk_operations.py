@@ -407,9 +407,23 @@ class BulkOperationsMixin:
         self._validate_objects(objs, require_pks=True, operation_name="bulk_update")
 
         # Set a context variable to indicate we're in bulk_update
-        from django_bulk_triggers.context import set_bulk_update_active
+        from django_bulk_triggers.context import set_bulk_update_active, set_bulk_update_batch_size
 
         set_bulk_update_active(True)
+        
+        # Store batch_size in thread-local context for recursive calls
+        # Default to 1000 if not provided to prevent massive SQL statements
+        from django_bulk_triggers.constants import DEFAULT_BULK_UPDATE_BATCH_SIZE
+        
+        batch_size = kwargs.get('batch_size')
+        if batch_size is None:
+            batch_size = DEFAULT_BULK_UPDATE_BATCH_SIZE
+            kwargs['batch_size'] = batch_size
+            logger.debug(
+                f"bulk_update: No batch_size provided, defaulting to {DEFAULT_BULK_UPDATE_BATCH_SIZE}"
+            )
+        
+        set_bulk_update_batch_size(batch_size)
         
         try:
             # Check global bypass triggers context (like QuerySet.update() does)
@@ -541,8 +555,11 @@ class BulkOperationsMixin:
 
             return result
         finally:
-            # Always clear the bulk_update_active flag, even if an exception occurs
+            # Always clear the bulk_update_active flag and batch_size, even if an exception occurs
+            from django_bulk_triggers.context import set_bulk_update_batch_size
+            
             set_bulk_update_active(False)
+            set_bulk_update_batch_size(None)
 
     @transaction.atomic
     def bulk_delete(

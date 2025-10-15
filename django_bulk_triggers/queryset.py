@@ -445,8 +445,19 @@ class TriggerQuerySetMixin(
                         f"instance {i} pk={getattr(instance, 'pk', 'No PK')}"
                     )
 
+                # Retrieve batch_size from parent context
+                from django_bulk_triggers.context import get_bulk_update_batch_size
+                
+                parent_batch_size = get_bulk_update_batch_size()
+                
+                # Build kwargs for recursive call
+                update_kwargs = {'bypass_triggers': False}
+                if parent_batch_size is not None:
+                    update_kwargs['batch_size'] = parent_batch_size
+                    logger.debug(f"Passing batch_size={parent_batch_size} to recursive bulk_update")
+
                 result = model_cls.objects.bulk_update(
-                    instances, trigger_modified_fields, bypass_triggers=False
+                    instances, trigger_modified_fields, **update_kwargs
                 )
                 logger.debug(f"Bulk_update result = {result}")
 
@@ -539,7 +550,21 @@ class TriggerQuerySetMixin(
 
                 # Salesforce-style: Allow nested triggers to run for field modifications
                 # The depth-based recursion detection in engine.py will prevent infinite loops
-                result = model_cls.objects.bulk_update(instances, bypass_triggers=False)
+                
+                # Retrieve batch_size from parent context
+                from django_bulk_triggers.context import get_bulk_update_batch_size
+                
+                parent_batch_size = get_bulk_update_batch_size()
+                
+                # Build kwargs for recursive call
+                update_kwargs = {'bypass_triggers': False}
+                if parent_batch_size is not None:
+                    update_kwargs['batch_size'] = parent_batch_size
+                    logger.debug(f"Passing batch_size={parent_batch_size} to recursive AFTER_UPDATE bulk_update")
+                
+                result = model_cls.objects.bulk_update(
+                    instances, after_trigger_modified_fields, **update_kwargs
+                )
                 logger.debug(
                     f"AFTER_UPDATE bulk_update result = {result}"
                 )
