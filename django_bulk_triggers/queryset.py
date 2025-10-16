@@ -349,14 +349,18 @@ class TriggerQuerySetMixin(
                                     )
                             pre_trigger_values[field.name] = new_value
                             
-                            # CRITICAL FIX: Avoid accessing foreign key relationships to prevent N+1 queries
-                            # Only access the field value if it's not a foreign key relationship
+                            # CRITICAL: For FK fields, copy the ID value to avoid N+1 queries
+                            # For non-FK fields, copy the value directly
                             if field.is_relation and not field.many_to_many:
-                                # For foreign key fields, we should NOT access the relationship
-                                # as this triggers additional database queries even with select_related
-                                # Instead, we'll skip setting the relationship value to avoid N+1 queries
-                                logger.debug(f"Skipping FK field {field.name} access to prevent N+1 queries for instance pk={instance.pk}")
-                                continue
+                                # For foreign key fields, copy the ID value (e.g., currency_id)
+                                # This avoids triggering relationship access which would cause N+1 queries
+                                try:
+                                    refreshed_fk_id = getattr(refreshed_instance, field.attname, None)
+                                    setattr(instance, field.attname, refreshed_fk_id)
+                                    logger.debug(f"Copied FK ID for {field.name}: {field.attname}={refreshed_fk_id} for instance pk={instance.pk}")
+                                except Exception as e:
+                                    logger.warning(f"Could not copy FK ID for field {field.name}: {e}")
+                                    continue
                             else:
                                 # For non-relation fields, it's safe to access and set the value
                                 try:
