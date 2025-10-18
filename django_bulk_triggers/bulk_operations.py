@@ -215,76 +215,85 @@ class BulkOperationsMixin:
 
                     existing_objs = list(queryset)
 
+                    # OPTIMIZED: Build a dict lookup for O(1) matching instead of O(n*m)
+                    # Create composite keys from unique fields for fast lookup
+                    existing_lookup = {}
+                    for existing_obj in existing_objs:
+                        key_parts = []
+                        for field_name in unique_fields:
+                            # Try _id variant first (for ForeignKeys), then the field itself
+                            if hasattr(existing_obj, field_name + "_id"):
+                                value = getattr(existing_obj, field_name + "_id")
+                            elif hasattr(existing_obj, field_name):
+                                value = getattr(existing_obj, field_name)
+                            else:
+                                value = None
+                            key_parts.append(value)
+                        
+                        # Use tuple as dict key (hashable)
+                        composite_key = tuple(key_parts)
+                        existing_lookup[composite_key] = existing_obj
+                    
+                    logger.debug(f"UPSERT OPTIMIZATION: Built lookup table for {len(existing_objs)} existing records")
+
                     # Classify objects as existing or new based on unique fields
                     for obj in objs:
-                        is_existing = False
-                        for existing_obj in existing_objs:
-                            match = True
-                            for field_name in unique_fields:
-                                # Check both the field name and _id variant
-                                obj_value = None
-                                existing_value = None
-
-                                # Try to get the value from the object
-                                if hasattr(obj, field_name + "_id"):
-                                    obj_value = getattr(obj, field_name + "_id")
-                                elif hasattr(obj, field_name):
-                                    obj_value = getattr(obj, field_name)
-
-                                # Try to get the value from existing object
-                                if hasattr(existing_obj, field_name + "_id"):
-                                    existing_value = getattr(
-                                        existing_obj, field_name + "_id"
-                                    )
-                                elif hasattr(existing_obj, field_name):
-                                    existing_value = getattr(existing_obj, field_name)
-
-                                if obj_value != existing_value:
-                                    match = False
-                                    break
-
-                            if match:
-                                # Copy field values from the existing object, BUT SKIP fields that are being updated
-                                # This preserves the user's updates while populating other fields from the database
-                                update_fields_set = set(update_fields) if update_fields else set()
+                        # Build the same composite key for this object
+                        key_parts = []
+                        for field_name in unique_fields:
+                            # Try _id variant first (for ForeignKeys), then the field itself
+                            if hasattr(obj, field_name + "_id"):
+                                value = getattr(obj, field_name + "_id")
+                            elif hasattr(obj, field_name):
+                                value = getattr(obj, field_name)
+                            else:
+                                value = None
+                            key_parts.append(value)
+                        
+                        composite_key = tuple(key_parts)
+                        
+                        # O(1) lookup instead of O(m) loop!
+                        if composite_key in existing_lookup:
+                            existing_obj = existing_lookup[composite_key]
+                            # Copy field values from the existing object, BUT SKIP fields that are being updated
+                            # This preserves the user's updates while populating other fields from the database
+                            update_fields_set = set(update_fields) if update_fields else set()
+                            
+                            for field in model_cls._meta.fields:
+                                if not hasattr(existing_obj, field.name):
+                                    continue
                                 
-                                for field in model_cls._meta.fields:
-                                    if not hasattr(existing_obj, field.name):
+                                # Skip fields that the user wants to update - keep user's values
+                                if field.name in update_fields_set:
+                                    continue
+                                
+                                # Also skip the attname (e.g., created_by_id) for FK fields being updated
+                                if field.is_relation and not field.many_to_many:
+                                    if field.name in update_fields_set or field.attname in update_fields_set:
                                         continue
-                                    
-                                    # Skip fields that the user wants to update - keep user's values
-                                    if field.name in update_fields_set:
-                                        continue
-                                    
-                                    # Also skip the attname (e.g., created_by_id) for FK fields being updated
-                                    if field.is_relation and not field.many_to_many:
-                                        if field.name in update_fields_set or field.attname in update_fields_set:
-                                            continue
 
-                                    if field.is_relation and not field.many_to_many:
-                                        # For foreign key fields, copy the ID to avoid stale object references
-                                        setattr(
-                                            obj,
-                                            field.attname,
-                                            getattr(existing_obj, field.attname),
-                                        )
-                                    else:
-                                        # For non-relation fields, copy the value directly
-                                        setattr(
-                                            obj,
-                                            field.name,
-                                            getattr(existing_obj, field.name),
-                                        )
+                                if field.is_relation and not field.many_to_many:
+                                    # For foreign key fields, copy the ID to avoid stale object references
+                                    setattr(
+                                        obj,
+                                        field.attname,
+                                        getattr(existing_obj, field.attname),
+                                    )
+                                else:
+                                    # For non-relation fields, copy the value directly
+                                    setattr(
+                                        obj,
+                                        field.name,
+                                        getattr(existing_obj, field.name),
+                                    )
 
-                                # Copy the object state
-                                obj._state.adding = False
-                                obj._state.db = existing_obj._state.db
+                            # Copy the object state
+                            obj._state.adding = False
+                            obj._state.db = existing_obj._state.db
 
-                                existing_records.append(obj)
-                                is_existing = True
-                                break
-
-                        if not is_existing:
+                            existing_records.append(obj)
+                        else:
+                            # Not found in lookup - this is a new record
                             new_records.append(obj)
                 else:
                     # If no unique fields specified, all records are new

@@ -159,6 +159,13 @@ class MTIOperationsMixin:
                     setattr(parent_obj, field.name, current_parent)
                     break
 
+        # CRITICAL: Copy object state from source to determine if this is an update or insert
+        # If source_obj has _state.adding = False (existing record in upsert), parent must too
+        if hasattr(source_obj, '_state') and hasattr(parent_obj, '_state'):
+            parent_obj._state.adding = source_obj._state.adding
+            if hasattr(source_obj._state, 'db'):
+                parent_obj._state.db = source_obj._state.db
+
         # Handle auto_now_add and auto_now fields like Django does
         for field in parent_model._meta.local_fields:
             if hasattr(field, "auto_now_add") and field.auto_now_add:
@@ -212,6 +219,13 @@ class MTIOperationsMixin:
                 setattr(
                     child_obj, parent_link.name, parent_instance
                 )  # Set the object reference
+
+        # CRITICAL: Copy object state from source to determine if this is an update or insert
+        # If source_obj has _state.adding = False (existing record in upsert), child must too
+        if hasattr(source_obj, '_state') and hasattr(child_obj, '_state'):
+            child_obj._state.adding = source_obj._state.adding
+            if hasattr(source_obj._state, 'db'):
+                child_obj._state.db = source_obj._state.db
 
         # Handle auto_now_add and auto_now fields like Django does
         for field in child_model._meta.local_fields:
@@ -753,8 +767,9 @@ class MTIOperationsMixin:
                 for field in model._meta.local_fields:
                     if hasattr(field, "auto_now") and field.auto_now:
                         field.pre_save(obj, add=False)
-                    # Check for custom fields that might need pre_save() on update (like CurrentUserField)
-                    elif hasattr(field, "pre_save") and field.name not in fields:
+                    # CRITICAL FIX: Only call pre_save() for fields that are explicitly being updated
+                    # Don't call pre_save() on fields not in the update set (prevents UNIQUE constraint violations in upsert)
+                    elif hasattr(field, "pre_save") and field.name in fields:
                         try:
                             new_value = field.pre_save(obj, add=False)
                             if new_value is not None:

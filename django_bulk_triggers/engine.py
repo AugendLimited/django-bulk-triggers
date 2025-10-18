@@ -60,14 +60,24 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                 func = getattr(handler_instance, method_name)
 
                 preload_related = getattr(func, "_select_related_preload", None)
-                if preload_related and new_records:
+                if preload_related:
                     try:
-                        from django_bulk_triggers.constants import BEFORE_CREATE
-
                         model_cls_override = getattr(handler_instance, "model_cls", None)
 
-                        if event == BEFORE_CREATE:
+                        # Preload relationships for new_records to avoid N+1 queries
+                        if new_records:
+                            logger.debug(
+                                f"Preloading relationships for {len(new_records)} new_records for {handler_name}.{method_name}"
+                            )
                             preload_related(new_records, model_cls=model_cls_override)
+                        
+                        # CRITICAL: Also preload old_records for conditions that check previous values
+                        # (e.g., HasChanged, WasEqual, ChangesTo)
+                        if old_records:
+                            logger.debug(
+                                f"Preloading relationships for {len(old_records)} old_records for {handler_name}.{method_name}"
+                            )
+                            preload_related(old_records, model_cls=model_cls_override)
                     except Exception:
                         logger.debug(
                             "select_related preload failed for %s.%s",
@@ -88,15 +98,12 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
                         f"No condition for {handler_name}.{method_name}, processing all {len(new_records)} records"
                     )
                 else:
-                    # SALESFORCE-LIKE BEHAVIOR: No automatic preloading
-                    logger.debug(
-                        f"SALESFORCE-LIKE: Evaluating conditions for {len(new_records)} records without preloading"
-                    )
-                    logger.debug("SALESFORCE-LIKE: If triggers need relationships, they should use @select_related decorator")
-                    
-                    # Now evaluate conditions - relationships should be preloaded
+                    # Evaluate conditions - relationships are preloaded via @select_related decorator
                     logger.debug(
                         f"Evaluating conditions for {handler_name}.{method_name} on {len(new_records)} records"
+                    )
+                    logger.debug(
+                        f"Note: Use @select_related decorator on trigger to preload FK relationships and avoid N+1 queries"
                     )
                     
                     for i, (new, original) in enumerate(zip(
