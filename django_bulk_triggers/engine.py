@@ -1,174 +1,66 @@
-import logging
-from unittest.mock import Mock
+"""
+DEPRECATED: This module is deprecated in favor of dispatcher.py.
 
-from django_bulk_triggers.registry import get_triggers
-from django_bulk_triggers.debug_utils import QueryTracker, log_query_count
+The dispatcher is now the single source of truth for trigger execution.
+This module is kept for backward compatibility only.
+"""
+import warnings
+import logging
 
 logger = logging.getLogger(__name__)
 
 
-
-
-
-
 def run(model_cls, event, new_records, old_records=None, ctx=None):
     """
-    Run triggers for a given model, event, and records.
+    DEPRECATED: Use dispatcher.get_dispatcher().dispatch() instead.
+    
+    This function forwards to the dispatcher for backward compatibility.
+    
+    Args:
+        model_cls: The Django model class
+        event: The event name (e.g., 'after_update')
+        new_records: List of new/current record states
+        old_records: List of old/previous record states (optional)
+        ctx: Context object (optional, for bypass_triggers flag)
     """
+    warnings.warn(
+        "engine.run() is deprecated. Use dispatcher.get_dispatcher().dispatch() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
     if not new_records:
         return
-
-    # Get triggers for this model and event
-    triggers = get_triggers(model_cls, event)
-
-    if not triggers:
-        return
-
-    # Safely get model name, fallback to str representation if __name__ not available
-    model_name = getattr(model_cls, "__name__", str(model_cls))
-    logger.debug(f"engine.run {model_name}.{event} {len(new_records)} records")
     
-    # Track queries for this trigger execution
-    with QueryTracker(f"engine.run {model_name}.{event}"):
-        log_query_count(f"start of engine.run {model_name}.{event}")
-
-        # Check if we're in a bypass context
-        if ctx and hasattr(ctx, "bypass_triggers") and ctx.bypass_triggers:
-            logger.debug("engine.run bypassed")
-            return
-
-        # Salesforce-style trigger execution: Allow nested triggers, let Django handle recursion
-        try:
-            # For BEFORE_* events, run model.clean() first for validation
-            # Skip individual clean() calls to avoid N+1 queries - validation triggers will handle this
-            if event.lower().startswith("before_"):
-                # Note: Individual clean() calls are skipped to prevent N+1 queries
-                # Validation triggers (VALIDATE_*) will handle validation instead
-                pass
-
-            # Process triggers
-            for handler_cls, method_name, condition, priority in triggers:
-                # Safely get handler class name
-                handler_name = getattr(handler_cls, "__name__", str(handler_cls))
-                logger.debug(f"Processing {handler_name}.{method_name}")
-                logger.debug(
-                    f"FRAMEWORK DEBUG: Trigger {handler_name}.{method_name} - condition: {condition}, priority: {priority}"
-                )
-                # Use factory pattern for DI support
-                from django_bulk_triggers.factory import create_trigger_instance
-                handler_instance = create_trigger_instance(handler_cls)
-                func = getattr(handler_instance, method_name)
-
-                preload_related = getattr(func, "_select_related_preload", None)
-                if preload_related:
-                    try:
-                        model_cls_override = getattr(handler_instance, "model_cls", None)
-
-                        # Preload relationships for new_records to avoid N+1 queries
-                        if new_records:
-                            logger.debug(
-                                f"Preloading relationships for {len(new_records)} new_records for {handler_name}.{method_name}"
-                            )
-                            preload_related(new_records, model_cls=model_cls_override)
-                        
-                        # CRITICAL: Also preload old_records for conditions that check previous values
-                        # (e.g., HasChanged, WasEqual, ChangesTo)
-                        if old_records:
-                            logger.debug(
-                                f"Preloading relationships for {len(old_records)} old_records for {handler_name}.{method_name}"
-                            )
-                            preload_related(old_records, model_cls=model_cls_override)
-                    except Exception:
-                        logger.debug(
-                            "select_related preload failed for %s.%s",
-                            handler_name,
-                            method_name,
-                            exc_info=True,
-                        )
-
-                to_process_new = []
-                to_process_old = []
-
-                # CRITICAL FIX: Avoid N+1 queries by preloading relationships for condition evaluation
-                if not condition:
-                    # No condition - process all records
-                    to_process_new = new_records
-                    to_process_old = old_records or [None] * len(new_records)
-                    logger.debug(
-                        f"No condition for {handler_name}.{method_name}, processing all {len(new_records)} records"
-                    )
-                else:
-                    # Evaluate conditions - relationships are preloaded via @select_related decorator
-                    logger.debug(
-                        f"Evaluating conditions for {handler_name}.{method_name} on {len(new_records)} records"
-                    )
-                    logger.debug(
-                        f"Note: Use @select_related decorator on trigger to preload FK relationships and avoid N+1 queries"
-                    )
-                    
-                    for i, (new, original) in enumerate(zip(
-                        new_records,
-                        old_records or [None] * len(new_records),
-                        strict=True,
-                    )):
-                        logger.debug(f"N+1 DEBUG: About to check condition for record {i} (pk={getattr(new, 'pk', 'No PK')})")
-                        logger.debug(f"N+1 DEBUG: Record {i} type: {type(new).__name__}")
-                        
-                        # SALESFORCE-LIKE: No automatic preloading, let conditions access what they need
-                        
-                        # Add query count tracking before condition check
-                        from django.db import connection
-                        initial_query_count = len(connection.queries)
-                        logger.debug(f"N+1 DEBUG: Query count before condition check: {initial_query_count}")
-                        
-                        condition_result = condition.check(new, original)
-                        
-                        # Check if any queries were executed during condition check
-                        final_query_count = len(connection.queries)
-                        queries_executed = final_query_count - initial_query_count
-                        if queries_executed > 0:
-                            logger.debug(f"N+1 DEBUG: {queries_executed} queries executed during condition check for record {i}")
-                            for j, query in enumerate(connection.queries[initial_query_count:], 1):
-                                logger.debug(f"N+1 DEBUG:   Query {j}: {query['sql'][:100]}...")
-                        
-                        logger.debug(
-                            f"Condition check for {handler_name}.{method_name} on record pk={getattr(new, 'pk', 'No PK')}: {condition_result}"
-                        )
-                        if condition_result:
-                            to_process_new.append(new)
-                            to_process_old.append(original)
-                            logger.debug(
-                                f"Condition passed, adding record pk={getattr(new, 'pk', 'No PK')}"
-                            )
-                        else:
-                            logger.debug(
-                                f"Condition failed, skipping record pk={getattr(new, 'pk', 'No PK')}"
-                            )
-
-                if to_process_new:
-                    logger.debug(
-                        f"Executing {handler_name}.{method_name} for {len(to_process_new)} records"
-                    )
-                    logger.debug(
-                        f"FRAMEWORK DEBUG: About to execute {handler_name}.{method_name}"
-                    )
-                    logger.debug(
-                        f"FRAMEWORK DEBUG: Records to process: {[getattr(r, 'pk', 'No PK') for r in to_process_new]}"
-                    )
-                    try:
-                        func(
-                            new_records=to_process_new,
-                            old_records=to_process_old if any(to_process_old) else None,
-                        )
-                        logger.debug(
-                            f"FRAMEWORK DEBUG: Successfully executed {handler_name}.{method_name}"
-                        )
-                    except Exception as e:
-                        logger.debug(f"Trigger execution failed: {e}")
-                        logger.debug(
-                            f"FRAMEWORK DEBUG: Exception in {handler_name}.{method_name}: {e}"
-                        )
-                        raise
-        finally:
-            # No cleanup needed - let Django handle recursion naturally
-            pass
+    from django_bulk_triggers.dispatcher import get_dispatcher
+    from django_bulk_triggers.changeset import ChangeSet, RecordChange
+    
+    # Build ChangeSet from old API
+    if old_records is None:
+        old_records = [None] * len(new_records)
+    
+    changes = [
+        RecordChange(new, old) 
+        for new, old in zip(new_records, old_records)
+    ]
+    
+    # Infer operation type from event
+    if 'create' in event:
+        op_type = 'create'
+    elif 'update' in event:
+        op_type = 'update'
+    elif 'delete' in event:
+        op_type = 'delete'
+    else:
+        op_type = 'unknown'
+    
+    changeset = ChangeSet(model_cls, changes, op_type, {})
+    
+    # Get bypass flag from context
+    bypass = False
+    if ctx and hasattr(ctx, 'bypass_triggers'):
+        bypass = ctx.bypass_triggers
+    
+    # Delegate to dispatcher
+    dispatcher = get_dispatcher()
+    dispatcher.dispatch(changeset, event, bypass_triggers=bypass)

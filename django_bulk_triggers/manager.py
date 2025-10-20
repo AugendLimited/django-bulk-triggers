@@ -1,20 +1,29 @@
 from django.db import models
 
-from django_bulk_triggers.queryset import TriggerQuerySet, TriggerQuerySetMixin
+from django_bulk_triggers.queryset import TriggerQuerySet
 
 
 class BulkTriggerManager(models.Manager):
+    """
+    Manager that provides trigger-aware bulk operations.
+    
+    This is a simple facade that returns TriggerQuerySet,
+    delegating all bulk operations to it.
+    """
+    
     def get_queryset(self):
-        # Use super().get_queryset() to let Django and MRO build the queryset
-        # This ensures cooperation with other managers
+        """
+        Return a TriggerQuerySet for this manager.
+        
+        This ensures all bulk operations go through the coordinator.
+        """
         base_queryset = super().get_queryset()
 
-        # If the base queryset already has trigger functionality, return it as-is
-        if isinstance(base_queryset, TriggerQuerySetMixin):
+        # If the base queryset is already a TriggerQuerySet, return it as-is
+        if isinstance(base_queryset, TriggerQuerySet):
             return base_queryset
 
         # Otherwise, create a new TriggerQuerySet with the same parameters
-        # This is much simpler and avoids dynamic class creation issues
         return TriggerQuerySet(
             model=base_queryset.model,
             query=base_queryset.query,
