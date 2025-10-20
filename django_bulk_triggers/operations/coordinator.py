@@ -7,6 +7,13 @@ a clean, simple API for the QuerySet to use.
 
 import logging
 from django.db import transaction
+from django.db.models import QuerySet as BaseQuerySet
+
+from django_bulk_triggers.helpers import (
+    build_changeset_for_create,
+    build_changeset_for_update,
+    build_changeset_for_delete,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +23,8 @@ class BulkOperationCoordinator:
     Single entry point for coordinating bulk operations.
     
     This coordinator manages all services and provides a clean facade
-    for the QuerySet. It hides the complexity of service wiring and
-    coordination.
+    for the QuerySet. It wires up services and coordinates the trigger
+    lifecycle for each operation type.
     
     Services are created lazily and cached.
     """
@@ -74,15 +81,14 @@ class BulkOperationCoordinator:
             self._dispatcher = get_dispatcher()
         return self._dispatcher
     
+    # ==================== PUBLIC API ====================
+    
     @transaction.atomic
     def create(self, objs, batch_size=None, ignore_conflicts=False,
               update_conflicts=False, update_fields=None, unique_fields=None,
               bypass_triggers=False, bypass_validation=False):
         """
         Execute bulk create with triggers.
-        
-        This is the single entry point for all bulk create operations.
-        It handles the entire lifecycle: validation, triggers, and execution.
         
         Args:
             objs: List of model instances to create
@@ -100,20 +106,37 @@ class BulkOperationCoordinator:
         if not objs:
             return objs
         
-        from django_bulk_triggers.operations.strategies import BulkCreateStrategy
+        # Validate
+        self.analyzer.validate_for_create(objs)
         
-        strategy = BulkCreateStrategy(self.model_cls)
-        
-        return self._execute_with_lifecycle(
-            strategy=strategy,
-            objs=objs,
-            bypass_triggers=bypass_triggers,
-            bypass_validation=bypass_validation,
+        # Build initial changeset
+        changeset = build_changeset_for_create(
+            self.model_cls, 
+            objs,
             batch_size=batch_size,
             ignore_conflicts=ignore_conflicts,
             update_conflicts=update_conflicts,
             update_fields=update_fields,
             unique_fields=unique_fields,
+        )
+        
+        # Execute with trigger lifecycle
+        def operation():
+            return self.executor.bulk_create(
+                objs,
+                batch_size=batch_size,
+                ignore_conflicts=ignore_conflicts,
+                update_conflicts=update_conflicts,
+                update_fields=update_fields,
+                unique_fields=unique_fields,
+            )
+        
+        return self.dispatcher.execute_operation_with_triggers(
+            changeset=changeset,
+            operation=operation,
+            event_prefix='create',
+            bypass_triggers=bypass_triggers,
+            bypass_validation=bypass_validation,
         )
     
     @transaction.atomic
@@ -133,16 +156,34 @@ class BulkOperationCoordinator:
         if not objs:
             return 0
         
-        from django_bulk_triggers.operations.strategies import BulkUpdateStrategy
+        # Validate
+        self.analyzer.validate_for_update(objs)
         
-        strategy = BulkUpdateStrategy(self.model_cls)
+        # Fetch old records
+        old_records_map = self.executor.fetch_old_records(objs)
         
-        return self._execute_with_lifecycle(
-            strategy=strategy,
-            objs=objs,
-            fields=fields,
-            batch_size=batch_size,
+        # Build changeset
+        from django_bulk_triggers.changeset import ChangeSet, RecordChange
+        changes = [
+            RecordChange(
+                new_record=obj,
+                old_record=old_records_map.get(obj.pk),
+                changed_fields=fields
+            )
+            for obj in objs
+        ]
+        changeset = ChangeSet(self.model_cls, changes, 'update', {'fields': fields})
+        
+        # Execute with trigger lifecycle
+        def operation():
+            return self.executor.bulk_update(objs, fields, batch_size=batch_size)
+        
+        return self.dispatcher.execute_operation_with_triggers(
+            changeset=changeset,
+            operation=operation,
+            event_prefix='update',
             bypass_triggers=bypass_triggers,
+            bypass_validation=False,
         )
     
     @transaction.atomic
@@ -157,21 +198,29 @@ class BulkOperationCoordinator:
         Returns:
             Number of objects updated
         """
-        from django_bulk_triggers.operations.strategies import QuerySetUpdateStrategy
-        
-        strategy = QuerySetUpdateStrategy(self.model_cls)
-        
         # Get instances
         instances = list(self.queryset)
         if not instances:
             return 0
         
-        return self._execute_with_lifecycle(
-            strategy=strategy,
-            instances=instances,
-            update_kwargs=update_kwargs,
-            queryset=self.queryset,  # Pass queryset for actual update
+        # Build changeset
+        changeset = build_changeset_for_update(
+            self.model_cls,
+            instances,
+            update_kwargs,
+        )
+        
+        # Execute with trigger lifecycle
+        def operation():
+            # Call base Django QuerySet.update() to avoid recursion
+            return BaseQuerySet.update(self.queryset, **update_kwargs)
+        
+        return self.dispatcher.execute_operation_with_triggers(
+            changeset=changeset,
+            operation=operation,
+            event_prefix='update',
             bypass_triggers=bypass_triggers,
+            bypass_validation=False,
         )
     
     @transaction.atomic
@@ -185,54 +234,26 @@ class BulkOperationCoordinator:
         Returns:
             Tuple of (count, details dict)
         """
-        from django_bulk_triggers.operations.strategies import DeleteStrategy
-        
-        strategy = DeleteStrategy(self.model_cls)
-        
         # Get objects
         objs = list(self.queryset)
         if not objs:
             return 0, {}
         
-        return self._execute_with_lifecycle(
-            strategy=strategy,
-            objs=objs,
-            bypass_triggers=bypass_triggers,
-        )
-    
-    def _execute_with_lifecycle(self, strategy, bypass_triggers=False, 
-                                bypass_validation=False, **kwargs):
-        """
-        Execute operation with full trigger lifecycle.
+        # Validate
+        self.analyzer.validate_for_delete(objs)
         
-        This is the core coordination logic that all operations use.
-        
-        Args:
-            strategy: Operation strategy
-            bypass_triggers: Skip all triggers
-            bypass_validation: Skip validation triggers
-            **kwargs: Operation-specific arguments
-            
-        Returns:
-            Operation result
-        """
         # Build changeset
-        changeset = strategy.build_changeset(
-            executor=self.executor,
-            analyzer=self.analyzer,
-            **kwargs
-        )
+        changeset = build_changeset_for_delete(self.model_cls, objs)
         
-        # Execute with lifecycle
+        # Execute with trigger lifecycle
+        def operation():
+            # Call base Django QuerySet.delete() to avoid recursion
+            return BaseQuerySet.delete(self.queryset)
+        
         return self.dispatcher.execute_operation_with_triggers(
             changeset=changeset,
-            operation=lambda: strategy.execute_operation(
-                executor=self.executor,
-                analyzer=self.analyzer,
-                **kwargs
-            ),
-            event_prefix=strategy.event_prefix(),
+            operation=operation,
+            event_prefix='delete',
             bypass_triggers=bypass_triggers,
-            bypass_validation=bypass_validation,
+            bypass_validation=False,
         )
-
