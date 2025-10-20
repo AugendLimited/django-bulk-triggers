@@ -9,13 +9,13 @@ Refactor the architecture to promote **Dispatcher** as the single execution path
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    Hook Layer (User API)                     │
+│                    Trigger Layer (User API)                     │
 │  @trigger decorator │ Trigger classes │ Conditions          │
 └────────────▲─────────────────────────────────────────────────┘
              │ registers / resolves (priority, on_commit, DI)
 ┌────────────┴─────────────────────────────────────────────────┐
 │                 Dispatcher (Single Path)                     │
-│  HookRegistry │ HookDispatcher │ ReentrancyGuard │ on_commit │
+│  TriggerRegistry │ TriggerDispatcher │ ReentrancyGuard │ on_commit │
 └────────────▲─────────────────────────────────────────────────┘
              │ invokes
 ┌────────────┴─────────────────────────────────────────────────┐
@@ -160,7 +160,7 @@ class ChangeSet:
 
 **New file: `django_bulk_triggers/dispatcher.py`**
 
-The single source of truth for hook execution with production-grade fixes:
+The single source of truth for trigger execution with production-grade fixes:
 
 ```python
 import threading
@@ -246,8 +246,8 @@ class ReentrancyGuard:
             return []
         return list(cls._thread_local.stack)
 
-class HookDispatcher:
-    """Single source of truth for hook execution."""
+class TriggerDispatcher:
+    """Single source of truth for trigger execution."""
     
     def __init__(self, registry):
         self.registry = registry
@@ -255,10 +255,10 @@ class HookDispatcher:
     
     def dispatch(self, changeset, event, bypass_triggers=False, on_commit=False):
         """
-        Dispatch hooks for a changeset with deterministic ordering.
+        Dispatch triggers for a changeset with deterministic ordering.
         
         - Single execution path
-        - Priority-ordered hook execution (with stable secondary sort)
+        - Priority-ordered trigger execution (with stable secondary sort)
         - Fail-fast error propagation
         - Cycle detection across events/models
         - Optional on_commit deferral with safe closure capture
@@ -266,10 +266,10 @@ class HookDispatcher:
         if bypass_triggers:
             return
         
-        # Get hooks sorted by priority (with stable secondary ordering)
-        hooks = self.registry.get_hooks(changeset.model_cls, event)
+        # Get triggers sorted by priority (with stable secondary ordering)
+        triggers = self.registry.get_triggers(changeset.model_cls, event)
         
-        if not hooks:
+        if not triggers:
             return
         
         # Track reentrancy depth and expose to handlers
@@ -281,44 +281,44 @@ class HookDispatcher:
         changeset.operation_meta['call_stack'] = call_stack
         
         try:
-            # Execute hooks
+            # Execute triggers
             executor = self._execute_on_commit if on_commit else self._execute_immediately
-            executor(hooks, changeset, event)
+            executor(triggers, changeset, event)
         finally:
             self.guard.exit(changeset.model_cls, event)
     
-    def _execute_immediately(self, hooks, changeset, event):
-        """Execute hooks immediately in current transaction."""
-        for handler_cls, method_name, condition, priority, on_commit_flag in hooks:
-            # Respect per-hook on_commit flag
+    def _execute_immediately(self, triggers, changeset, event):
+        """Execute triggers immediately in current transaction."""
+        for handler_cls, method_name, condition, priority, on_commit_flag in triggers:
+            # Respect per-trigger on_commit flag
             if on_commit_flag:
-                self._defer_hook(handler_cls, method_name, condition, changeset)
+                self._defer_trigger(handler_cls, method_name, condition, changeset)
             else:
-                self._execute_hook(handler_cls, method_name, condition, changeset)
+                self._execute_trigger(handler_cls, method_name, condition, changeset)
     
-    def _execute_on_commit(self, hooks, changeset, event):
-        """Defer ALL hook execution until transaction commit."""
+    def _execute_on_commit(self, triggers, changeset, event):
+        """Defer ALL trigger execution until transaction commit."""
         # FIX: Defensive copy - snapshot the changeset to prevent mutation
         changeset_snapshot = self._snapshot_changeset(changeset)
         
-        for handler_cls, method_name, condition, priority, _ in hooks:
+        for handler_cls, method_name, condition, priority, _ in triggers:
             # FIX: Bind loop variables as defaults to avoid closure capture bug
-            self._defer_hook(
+            self._defer_trigger(
                 handler_cls, method_name, condition, changeset_snapshot
             )
     
-    def _defer_hook(self, handler_cls, method_name, condition, changeset):
-        """Defer a single hook to on_commit with proper closure binding."""
+    def _defer_trigger(self, handler_cls, method_name, condition, changeset):
+        """Defer a single trigger to on_commit with proper closure binding."""
         from django.db import transaction
         
         # FIX: Bind all loop variables as defaults to avoid late-binding closure bug
         transaction.on_commit(
             lambda h=handler_cls, m=method_name, c=condition, cs=changeset: 
-                self._execute_hook(h, m, c, cs)
+                self._execute_trigger(h, m, c, cs)
         )
     
-    def _execute_hook(self, handler_cls, method_name, condition, changeset):
-        """Execute a single hook with condition checking."""
+    def _execute_trigger(self, handler_cls, method_name, condition, changeset):
+        """Execute a single trigger with condition checking."""
         # Filter records based on condition
         if condition:
             filtered_changes = [
@@ -344,7 +344,7 @@ class HookDispatcher:
         handler = create_trigger_instance(handler_cls)
         method = getattr(handler, method_name)
         
-        # Execute hook with ChangeSet
+        # Execute trigger with ChangeSet
         try:
             method(
                 changeset=filtered_changeset,
@@ -354,7 +354,7 @@ class HookDispatcher:
         except Exception as e:
             # Fail-fast: re-raise to rollback transaction
             logger.error(
-                f"Hook {handler_cls.__name__}.{method_name} failed: {e}",
+                f"Trigger {handler_cls.__name__}.{method_name} failed: {e}",
                 exc_info=True
             )
             raise
@@ -364,7 +364,7 @@ class HookDispatcher:
         Create an immutable snapshot of a ChangeSet for deferred execution.
         
         This prevents mutations to the original changeset from affecting
-        deferred hooks.
+        deferred triggers.
         """
         from django_bulk_triggers.changeset import ChangeSet, RecordChange
         
@@ -395,65 +395,65 @@ def get_dispatcher():
     """Get the global dispatcher instance."""
     global _dispatcher
     if _dispatcher is None:
-        from django_bulk_triggers.registry import HookRegistry
-        _dispatcher = HookDispatcher(HookRegistry())
+        from django_bulk_triggers.registry import TriggerRegistry
+        _dispatcher = TriggerDispatcher(TriggerRegistry())
     return _dispatcher
 ```
 
-### 3. Refactor Registry to HookRegistry
+### 3. Refactor Registry to TriggerRegistry
 
 **Update `django_bulk_triggers/registry.py`:**
 
 Rename and enhance to be dispatcher-focused:
 
 ```python
-class HookRegistry:
-    """Registry for lifecycle hooks."""
+class TriggerRegistry:
+    """Registry for lifecycle triggers."""
     
     def __init__(self):
-        self._hooks = {}  # (model, event) -> [(handler_cls, method_name, condition, priority)]
+        self._triggers = {}  # (model, event) -> [(handler_cls, method_name, condition, priority)]
     
-    def register_hook(self, model, event, handler_cls, method_name, condition, priority):
-        """Register a hook with priority ordering."""
+    def register_trigger(self, model, event, handler_cls, method_name, condition, priority):
+        """Register a trigger with priority ordering."""
         key = (model, event)
-        hooks = self._hooks.setdefault(key, [])
+        triggers = self._triggers.setdefault(key, [])
         
-        hook_info = (handler_cls, method_name, condition, priority)
-        if hook_info not in hooks:
-            hooks.append(hook_info)
+        trigger_info = (handler_cls, method_name, condition, priority)
+        if trigger_info not in triggers:
+            triggers.append(trigger_info)
             # Sort by priority (lower values first)
-            hooks.sort(key=lambda x: x[3])
+            triggers.sort(key=lambda x: x[3])
     
-    def get_hooks(self, model, event):
-        """Get hooks for a model and event, sorted by priority."""
-        return self._hooks.get((model, event), [])
+    def get_triggers(self, model, event):
+        """Get triggers for a model and event, sorted by priority."""
+        return self._triggers.get((model, event), [])
     
-    def unregister_hook(self, model, event, handler_cls, method_name):
-        """Unregister a specific hook."""
+    def unregister_trigger(self, model, event, handler_cls, method_name):
+        """Unregister a specific trigger."""
         key = (model, event)
-        if key not in self._hooks:
+        if key not in self._triggers:
             return
         
-        self._hooks[key] = [
-            h for h in self._hooks[key]
+        self._triggers[key] = [
+            h for h in self._triggers[key]
             if not (h[0] == handler_cls and h[1] == method_name)
         ]
     
     def clear(self):
-        """Clear all hooks."""
-        self._hooks.clear()
+        """Clear all triggers."""
+        self._triggers.clear()
 
 # Maintain backward compatibility
-_registry = HookRegistry()
+_registry = TriggerRegistry()
 
 def register_trigger(model, event, handler_cls, method_name, condition, priority):
-    _registry.register_hook(model, event, handler_cls, method_name, condition, priority)
+    _registry.register_trigger(model, event, handler_cls, method_name, condition, priority)
 
 def get_triggers(model, event):
-    return _registry.get_hooks(model, event)
+    return _registry.get_triggers(model, event)
 
 def unregister_trigger(model, event, handler_cls, method_name):
-    _registry.unregister_hook(model, event, handler_cls, method_name)
+    _registry.unregister_trigger(model, event, handler_cls, method_name)
 
 def clear_triggers():
     _registry.clear()
@@ -665,7 +665,7 @@ Add deprecation notice and redirect to dispatcher:
 """
 DEPRECATED: This module is deprecated in favor of dispatcher.py.
 
-The dispatcher is now the single source of truth for hook execution.
+The dispatcher is now the single source of truth for trigger execution.
 This module is kept for backward compatibility only.
 """
 
@@ -699,7 +699,7 @@ def run(model_cls, event, new_records, old_records=None, ctx=None):
 
 ### 9. Add on_commit Support
 
-**Update dispatcher to support on_commit as a hook decorator option:**
+**Update dispatcher to support on_commit as a trigger decorator option:**
 
 ```python
 # In decorators.py
@@ -734,13 +734,13 @@ Document the new architecture with:
 ## Key Benefits
 
 1. **Single execution path**: Dispatcher is the ONLY runner; signals just forward
-2. **ChangeSet built once**: Passed to every hook/condition (O(1) field checks)
+2. **ChangeSet built once**: Passed to every trigger/condition (O(1) field checks)
 3. **Deterministic ordering**: Priority ordering enforced in one place
 4. **Fail-fast**: Clear error propagation with transaction rollback
 5. **Reentrancy detection**: ReentrancyGuard prevents infinite loops
 6. **on_commit support**: Optional deferral of side-effects
 7. **Testability**: Clear boundaries make mocking and testing easier
-8. **Performance**: Zero re-diff in hooks, chunked dispatch for memory safety
+8. **Performance**: Zero re-diff in triggers, chunked dispatch for memory safety
 
 ## Testing Strategy
 
@@ -762,8 +762,8 @@ Document the new architecture with:
 ### To-dos
 
 - [ ] Create changeset.py with ChangeSet and RecordChange classes for first-class change tracking
-- [ ] Create dispatcher.py with HookDispatcher, ReentrancyGuard, and single execution path
-- [ ] Refactor registry.py to HookRegistry focused on dispatcher
+- [ ] Create dispatcher.py with TriggerDispatcher, ReentrancyGuard, and single execution path
+- [ ] Refactor registry.py to TriggerRegistry focused on dispatcher
 - [ ] Update queryset.py to build ChangeSet once and use dispatcher
 - [ ] Create signals_compat.py as thin compatibility layer forwarding to dispatcher
 - [ ] Update conditions.py to use RecordChange for O(1) field checks
