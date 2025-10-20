@@ -594,8 +594,15 @@ class BulkOperationsMixin:
         def delete_operation():
             pks = [obj.pk for obj in objs if obj.pk is not None]
             if pks:
-                # Use the base manager to avoid recursion
-                return self.model._base_manager.filter(pk__in=pks).delete()[0]
+                if bypass_triggers:
+                    # When bypassing triggers, use Django's native QuerySet directly
+                    # to avoid ANY trigger logic or FK caching
+                    from django.db.models import QuerySet
+                    native_qs = QuerySet(model=self.model, using=self.db)
+                    return native_qs.filter(pk__in=pks).delete()[0]
+                else:
+                    # Use the base manager to enable trigger support
+                    return self.model._base_manager.filter(pk__in=pks).delete()[0]
             else:
                 return 0
 
