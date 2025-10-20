@@ -445,16 +445,26 @@ class MTIOperationsMixin:
                             break
 
                 if has_matching_constraint:
-                    bulk_kwargs["update_conflicts"] = True
-                    bulk_kwargs["unique_fields"] = normalized_unique
-
                     # Filter update_fields to only those present on this parent model
+                    filtered_updates = []
                     if update_fields:
                         filtered_updates = [
                             uf for uf in update_fields if uf in model_fields_by_name
                         ]
-                        if filtered_updates:
-                            bulk_kwargs["update_fields"] = filtered_updates
+                    
+                    # CRITICAL: Only enable update_conflicts if we have fields to update
+                    # Django requires update_fields to be non-empty when update_conflicts=True
+                    if filtered_updates:
+                        bulk_kwargs["update_conflicts"] = True
+                        bulk_kwargs["unique_fields"] = normalized_unique
+                        bulk_kwargs["update_fields"] = filtered_updates
+                    else:
+                        # No fields to update on this parent level - skip upsert
+                        # This happens when all update_fields belong to child models only
+                        logger.debug(
+                            f"Skipping upsert for {model_class.__name__} - "
+                            f"no update_fields present on this parent model"
+                        )
 
             created_parents = model_class._base_manager.using(self.db).bulk_create(
                 parent_objs_for_level,
