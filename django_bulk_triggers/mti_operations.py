@@ -358,7 +358,10 @@ class MTIOperationsMixin:
         new_objects,
         inheritance_chain,
         bypass_triggers=False,
-        bypass_validation=False
+        bypass_validation=False,
+        update_conflicts=False,
+        unique_fields=None,
+        update_fields=None,
     ):
         """
         OPTIMIZED: Bulk insert parent objects using Django's bulk_create with RETURNING.
@@ -392,10 +395,70 @@ class MTIOperationsMixin:
                     engine.run(model_class, VALIDATE_CREATE, parent_objs_for_level, ctx=ctx)
                 engine.run(model_class, BEFORE_CREATE, parent_objs_for_level, ctx=ctx)
             
-            # Step 3: BULK INSERT with RETURNING - this is the key optimization!
+            # Step 3: BULK INSERT/UPSERT with RETURNING - this is the key optimization!
+            # Build kwargs for bulk_create, optionally enabling upsert when the conflict
+            # target matches a unique constraint on the current parent model.
+            bulk_kwargs = {
+                "batch_size": len(parent_objs_for_level),
+            }
+
+            if update_conflicts and unique_fields:
+                # Normalize unique_fields to this model's field names (map *_id -> field name)
+                model_fields_by_name = {f.name: f for f in model_class._meta.local_fields}
+                normalized_unique = []
+                for uf in unique_fields or []:
+                    if uf in model_fields_by_name:
+                        normalized_unique.append(uf)
+                    elif uf.endswith("_id") and uf[:-3] in model_fields_by_name:
+                        # Only map when the base field exists on this model
+                        normalized_unique.append(uf[:-3])
+                # Ensure uniqueness fields are unique and ordered deterministically
+                normalized_unique = list(dict.fromkeys(normalized_unique))
+
+                # Validate that normalized_unique exactly matches a unique constraint on this model
+                has_matching_constraint = False
+                if normalized_unique:
+                    # Check UniqueConstraint entries
+                    try:
+                        from django.db.models import UniqueConstraint
+                        constraint_field_sets = [
+                            tuple(c.fields) for c in model_class._meta.constraints if isinstance(c, UniqueConstraint)
+                        ]
+                    except Exception:
+                        constraint_field_sets = []
+
+                    # Also consider unique_together if defined
+                    ut = getattr(model_class._meta, "unique_together", ()) or ()
+                    # Normalize unique_together into list of tuples
+                    if isinstance(ut, tuple) and ut and not isinstance(ut[0], (list, tuple)):
+                        ut = (ut,)  # single grouping
+                    ut_field_sets = [tuple(group) for group in ut]
+
+                    # Compare as sets (order-insensitive) but require exact field set match
+                    provided_set = set(normalized_unique)
+                    for group in constraint_field_sets + ut_field_sets:
+                        if provided_set == set(group):
+                            has_matching_constraint = True
+                            # Keep the order as declared in the constraint if possible
+                            # to maximize likelihood of matching a composite index
+                            normalized_unique = list(group)
+                            break
+
+                if has_matching_constraint:
+                    bulk_kwargs["update_conflicts"] = True
+                    bulk_kwargs["unique_fields"] = normalized_unique
+
+                    # Filter update_fields to only those present on this parent model
+                    if update_fields:
+                        filtered_updates = [
+                            uf for uf in update_fields if uf in model_fields_by_name
+                        ]
+                        if filtered_updates:
+                            bulk_kwargs["update_fields"] = filtered_updates
+
             created_parents = model_class._base_manager.using(self.db).bulk_create(
                 parent_objs_for_level,
-                batch_size=len(parent_objs_for_level)
+                **bulk_kwargs,
             )
             
             # Step 4: Copy all fields back from created objects (Django sets PKs automatically)
@@ -515,7 +578,10 @@ class MTIOperationsMixin:
                     new_objects_in_batch,
                     inheritance_chain,
                     bypass_triggers,
-                    bypass_validation
+                    bypass_validation,
+                    update_conflicts=kwargs.get("update_conflicts", False),
+                    unique_fields=kwargs.get("unique_fields"),
+                    update_fields=kwargs.get("update_fields"),
                 )
                 logger.info(
                     f"✓ BULK optimization: Inserted {len(new_objects_in_batch)} parent objects "
