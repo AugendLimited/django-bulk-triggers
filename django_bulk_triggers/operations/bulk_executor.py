@@ -40,8 +40,11 @@ class BulkExecutor:
         """
         Execute bulk create operation.
         
+        NOTE: Coordinator is responsible for validation before calling this method.
+        This executor trusts that inputs have already been validated.
+        
         Args:
-            objs: List of model instances to create
+            objs: List of model instances to create (pre-validated)
             batch_size: Number of objects to create per batch
             ignore_conflicts: Whether to ignore conflicts
             update_conflicts: Whether to update on conflict
@@ -55,15 +58,7 @@ class BulkExecutor:
         if not objs:
             return objs
         
-        # Validate input
-        self.analyzer.validate_for_create(objs)
-        
-        # Check for MTI - if MTI, we need special handling
-        if self.mti_handler.is_mti_model():
-            # MTI bulk create - handled by MTIHandler service
-            logger.debug("MTI bulk_create delegating to MTIHandler")
-        
-        # Standard bulk create
+        # Execute bulk create - validation already done by coordinator
         return self._execute_bulk_create(objs, batch_size, ignore_conflicts, 
                                         update_conflicts, update_fields, 
                                         unique_fields, **kwargs)
@@ -95,8 +90,11 @@ class BulkExecutor:
         """
         Execute bulk update operation.
         
+        NOTE: Coordinator is responsible for validation before calling this method.
+        This executor trusts that inputs have already been validated.
+        
         Args:
-            objs: List of model instances to update
+            objs: List of model instances to update (pre-validated)
             fields: List of field names to update
             batch_size: Number of objects to update per batch
             
@@ -106,10 +104,8 @@ class BulkExecutor:
         if not objs:
             return 0
         
-        # Validate input
-        self.analyzer.validate_for_update(objs)
-        
         # Execute bulk update - use base Django QuerySet to avoid recursion
+        # Validation already done by coordinator
         from django.db.models import QuerySet
         base_qs = QuerySet(model=self.model_cls, using=self.queryset.db)
         return base_qs.bulk_update(objs, fields, batch_size=batch_size)
@@ -118,20 +114,17 @@ class BulkExecutor:
         """
         Execute delete on the queryset.
         
+        NOTE: Coordinator is responsible for validation before calling this method.
+        This executor trusts that inputs have already been validated.
+        
         Returns:
             Tuple of (count, details dict)
         """
-        # Get objects before delete (for triggers)
-        objs = list(self.queryset)
-        
-        if not objs:
+        if not self.queryset:
             return 0, {}
         
-        # Validate
-        self.analyzer.validate_for_delete(objs)
-        
         # Execute delete via QuerySet
-        # Use __class__.__bases__[0] to call Django's original delete
+        # Validation already done by coordinator
         from django.db.models import QuerySet
         return QuerySet.delete(self.queryset)
 

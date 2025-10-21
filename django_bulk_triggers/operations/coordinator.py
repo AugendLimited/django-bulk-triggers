@@ -141,7 +141,7 @@ class BulkOperationCoordinator:
         )
     
     @transaction.atomic
-    def update(self, objs, fields, batch_size=None, bypass_triggers=False):
+    def update(self, objs, fields, batch_size=None, bypass_triggers=False, bypass_validation=False):
         """
         Execute bulk update with triggers.
         
@@ -150,6 +150,7 @@ class BulkOperationCoordinator:
             fields: List of field names to update
             batch_size: Number of objects per batch
             bypass_triggers: Skip all triggers if True
+            bypass_validation: Skip validation triggers if True
             
         Returns:
             Number of objects updated
@@ -184,17 +185,18 @@ class BulkOperationCoordinator:
             operation=operation,
             event_prefix='update',
             bypass_triggers=bypass_triggers,
-            bypass_validation=False,
+            bypass_validation=bypass_validation,
         )
     
     @transaction.atomic
-    def update_queryset(self, update_kwargs, bypass_triggers=False):
+    def update_queryset(self, update_kwargs, bypass_triggers=False, bypass_validation=False):
         """
         Execute queryset update with triggers.
         
         Args:
             update_kwargs: Dict of fields to update
             bypass_triggers: Skip all triggers if True
+            bypass_validation: Skip validation triggers if True
             
         Returns:
             Number of objects updated
@@ -221,16 +223,17 @@ class BulkOperationCoordinator:
             operation=operation,
             event_prefix='update',
             bypass_triggers=bypass_triggers,
-            bypass_validation=False,
+            bypass_validation=bypass_validation,
         )
     
     @transaction.atomic
-    def delete(self, bypass_triggers=False):
+    def delete(self, bypass_triggers=False, bypass_validation=False):
         """
         Execute delete with triggers.
         
         Args:
             bypass_triggers: Skip all triggers if True
+            bypass_validation: Skip validation triggers if True
             
         Returns:
             Tuple of (count, details dict)
@@ -256,5 +259,5 @@ class BulkOperationCoordinator:
             operation=operation,
             event_prefix='delete',
             bypass_triggers=bypass_triggers,
-            bypass_validation=False,
+            bypass_validation=bypass_validation,
         )
