@@ -219,7 +219,7 @@ class TestSelectRelatedDecorator:
     def test_select_related_nested_field_support(self):
         """Test select_related with nested fields works correctly."""
 
-        @select_related("created_by.username")
+        @select_related("created_by__username")
         def test_function(new_records, old_records=None, **kwargs):
             # Verify that nested field access works
             for record in new_records:
@@ -228,6 +228,20 @@ class TestSelectRelatedDecorator:
 
         # Should not raise an error and should work correctly
         test_function(new_records=self.test_instances)
+
+    def test_select_related_rejects_dot_notation(self):
+        """Test that select_related rejects dot notation and requires __ notation."""
+
+        @select_related("created_by.username")  # Invalid: dot notation
+        def test_function(new_records, old_records=None, **kwargs):
+            return "should not reach here"
+
+        # Should raise ValueError with clear message
+        with pytest.raises(ValueError) as excinfo:
+            test_function(new_records=self.test_instances)
+
+        assert "Invalid field notation" in str(excinfo.value)
+        assert "Use Django ORM __ notation" in str(excinfo.value)
 
     def test_select_related_non_relation_field(self):
         """Test select_related with non-relation field."""

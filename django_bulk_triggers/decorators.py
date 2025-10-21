@@ -29,6 +29,7 @@ def select_related(*related_fields):
     - Works with instance methods (resolves `self`)
     - Avoids replacing model instances
     - Populates Django's relation cache to avoid extra queries
+    - Uses Django ORM __ notation for related field paths (e.g., 'parent__parent__value')
     """
 
     def decorator(func):
@@ -37,7 +38,7 @@ def select_related(*related_fields):
         def preload_related(records, *, model_cls=None):
             if not isinstance(records, list):
                 raise TypeError(
-                    f"@preload_related expects a list of model instances, got {type(records)}"
+                    f"@select_related expects a list of model instances, got {type(records)}"
                 )
 
             if not records:
@@ -45,6 +46,13 @@ def select_related(*related_fields):
 
             if model_cls is None:
                 model_cls = records[0].__class__
+
+            # Validate field notation upfront
+            for field in related_fields:
+                if "." in field:
+                    raise ValueError(
+                        f"Invalid field notation '{field}'. Use Django ORM __ notation (e.g., 'parent__field')"
+                    )
 
             direct_relation_fields = {}
             validated_fields = []
@@ -154,8 +162,6 @@ def select_related(*related_fields):
 
                     for field in related_fields:
                         if fields_cache is not None and field in fields_cache:
-                            continue
-                        if "." in field:
                             continue
 
                         relation_field = direct_relation_fields.get(field)
