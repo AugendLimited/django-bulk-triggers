@@ -187,7 +187,16 @@ class TriggerDispatcher:
                 )
 
         # Execute trigger with ChangeSet
-        # Pass both changeset and backward-compatible new_records/old_records
+        # 
+        # ARCHITECTURE NOTE: Trigger Contract
+        # ====================================
+        # All triggers must accept **kwargs for forward compatibility.
+        # We pass: changeset, new_records, old_records
+        # 
+        # Old triggers that don't use changeset: def trigger(self, new_records, old_records, **kwargs)
+        # New triggers that do use changeset:    def trigger(self, changeset, new_records, old_records, **kwargs)
+        # 
+        # This is standard Python framework design (see Django signals, Flask hooks, etc.)
         try:
             method(
                 changeset=filtered_changeset,

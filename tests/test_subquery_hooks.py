@@ -34,7 +34,7 @@ class SubqueryTriggerTest(TriggerClass):
         cls.foreign_key_values.clear()
 
     @trigger(AFTER_UPDATE, model=TriggerModel)
-    def test_subquery_access(self, new_records, old_records):
+    def test_subquery_access(self, new_records, old_records, **kwargs):
         SubqueryTriggerTest.after_update_called = True  # Use class variable
         for record in new_records:
             # This should now contain the computed value, not the Subquery object
@@ -183,7 +183,7 @@ class SubqueryTriggersTestCase(TestCase):
         self.assertEqual(self.trigger.foreign_key_values[0].username, "testuser")
 
     @trigger(AFTER_UPDATE, model=TriggerModel)
-    def modify_status_after_update(self, new_records, old_records):
+    def modify_status_after_update(self, new_records, old_records, **kwargs):
         """Trigger method to modify status field in AFTER_UPDATE."""
         for record in new_records:
             # Modify the status field in the AFTER_UPDATE trigger

@@ -213,6 +213,33 @@ class BulkOperationCoordinator:
     ):
         """
         Execute queryset update with triggers.
+        
+        ARCHITECTURE: Database-Layer vs Application-Layer Updates
+        ==========================================================
+        
+        Unlike bulk_update(objs), queryset.update() is a pure SQL UPDATE operation.
+        The database evaluates ALL expressions (F(), Subquery, Case, functions, etc.)
+        without Python ever seeing the new values.
+        
+        To maintain Salesforce's trigger contract (AFTER triggers see accurate new_records),
+        we ALWAYS refetch instances after the update for AFTER triggers.
+        
+        This is NOT a hack - it respects the fundamental architectural difference:
+        
+        1. queryset.update():  Database evaluates → Must refetch for AFTER triggers
+        2. bulk_update(objs):  Python has values → No refetch needed
+        
+        The refetch handles ALL database-level changes:
+        - F() expressions: F('count') + 1
+        - Subquery: Subquery(related.aggregate(...))
+        - Case/When: Case(When(status='A', then=Value('Active')))
+        - Database functions: Upper('name'), Concat(...)
+        - Database triggers/defaults
+        - Any other DB-evaluated expression
+        
+        Trade-off:
+        - Cost: 1 extra SELECT query per queryset.update() call
+        - Benefit: 100% correctness for ALL database expressions
 
         Args:
             update_kwargs: Dict of fields to update
@@ -222,34 +249,55 @@ class BulkOperationCoordinator:
         Returns:
             Number of objects updated
         """
-        # Get instances
+        # Fetch instances BEFORE update
         instances = list(self.queryset)
         if not instances:
             return 0
 
-        # Fetch old records using analyzer (single source of truth)
+        # Fetch old records for comparison (single bulk query)
         old_records_map = self.analyzer.fetch_old_records_map(instances)
 
-        # Build changeset
-        changeset = build_changeset_for_update(
+        # Build changeset for VALIDATE and BEFORE triggers
+        # These see pre-update state, which is correct
+        changeset_before = build_changeset_for_update(
             self.model_cls,
             instances,
             update_kwargs,
             old_records_map=old_records_map,
         )
 
-        # Execute with trigger lifecycle
-        def operation():
-            # Call base Django QuerySet.update() to avoid recursion
+        if bypass_triggers:
+            # No triggers - just execute the update
             return BaseQuerySet.update(self.queryset, **update_kwargs)
 
-        return self.dispatcher.execute_operation_with_triggers(
-            changeset=changeset,
-            operation=operation,
-            event_prefix="update",
-            bypass_triggers=bypass_triggers,
-            bypass_validation=bypass_validation,
+        # Execute VALIDATE and BEFORE triggers
+        if not bypass_validation:
+            self.dispatcher.dispatch(changeset_before, "validate_update", bypass_triggers=False)
+        self.dispatcher.dispatch(changeset_before, "before_update", bypass_triggers=False)
+
+        # Execute the actual database UPDATE
+        # Database evaluates all expressions here (Subquery, F(), etc.)
+        result = BaseQuerySet.update(self.queryset, **update_kwargs)
+
+        # Refetch instances to get actual post-update values from database
+        # This ensures AFTER triggers see the real final state
+        pks = [obj.pk for obj in instances]
+        refetched_instances = list(
+            self.model_cls.objects.filter(pk__in=pks)
         )
+
+        # Build changeset for AFTER triggers with accurate new values
+        changeset_after = build_changeset_for_update(
+            self.model_cls,
+            refetched_instances,  # Fresh from database
+            update_kwargs,
+            old_records_map=old_records_map,  # Still have old values for comparison
+        )
+
+        # Execute AFTER triggers with accurate new_records
+        self.dispatcher.dispatch(changeset_after, "after_update", bypass_triggers=False)
+
+        return result
 
     @transaction.atomic
     def delete(self, bypass_triggers=False, bypass_validation=False):
