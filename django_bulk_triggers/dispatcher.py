@@ -1,14 +1,12 @@
 """
 TriggerDispatcher: Single execution path for all triggers.
 
-Provides deterministic, priority-ordered trigger execution with reentrancy
-detection, similar to Salesforce's trigger framework.
+Provides deterministic, priority-ordered trigger execution,
+similar to Salesforce's trigger framework.
 """
 
 import logging
 from typing import Optional
-
-from django_bulk_triggers.recursion import RecursionGuard
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +17,6 @@ class TriggerDispatcher:
 
     Responsibilities:
     - Execute triggers in priority order
-    - Detect and prevent infinite recursion
     - Filter records based on conditions
     - Provide ChangeSet context to triggers
     - Fail-fast error propagation
@@ -34,7 +31,6 @@ class TriggerDispatcher:
             registry: The trigger registry (provides get_triggers method)
         """
         self.registry = registry
-        self.guard = RecursionGuard()
 
     def execute_operation_with_triggers(
         self,
@@ -99,8 +95,8 @@ class TriggerDispatcher:
             bypass_triggers: If True, skip all trigger execution
 
         Raises:
-            RuntimeError: If recursion cycle detected or max depth exceeded
             Exception: Any exception raised by a trigger (fails fast)
+            RecursionError: If triggers create an infinite loop (Python's built-in limit)
         """
         if bypass_triggers:
             return
@@ -111,20 +107,9 @@ class TriggerDispatcher:
         if not triggers:
             return
 
-        # Track recursion depth and expose to triggers
-        depth = self.guard.enter(changeset.model_cls, event)
-        call_stack = self.guard.get_call_stack()
-
-        # Augment changeset metadata with recursion information
-        changeset.operation_meta["recursion_depth"] = depth
-        changeset.operation_meta["call_stack"] = call_stack
-
-        try:
-            # Execute triggers in priority order
-            for handler_cls, method_name, condition, priority in triggers:
-                self._execute_trigger(handler_cls, method_name, condition, changeset)
-        finally:
-            self.guard.exit(changeset.model_cls, event)
+        # Execute triggers in priority order
+        for handler_cls, method_name, condition, priority in triggers:
+            self._execute_trigger(handler_cls, method_name, condition, changeset)
 
     def _execute_trigger(self, handler_cls, method_name, condition, changeset):
         """
