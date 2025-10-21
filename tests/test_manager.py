@@ -33,11 +33,11 @@ class TestBulkTriggerManager(TestCase):
 
     def test_get_queryset_with_existing_trigger_queryset(self):
         """Test get_queryset when base queryset already has trigger functionality."""
-        from django_bulk_triggers.queryset import TriggerQuerySetMixin
+        from django_bulk_triggers.queryset import TriggerQuerySet
 
         # Create a mock queryset that already has trigger functionality
         mock_queryset = MagicMock()
-        mock_queryset.__class__ = type("MockQuerySet", (TriggerQuerySetMixin,), {})
+        mock_queryset.__class__ = type("MockQuerySet", (TriggerQuerySet,), {})
 
         with patch.object(self.manager, "get_queryset", return_value=mock_queryset):
             result = self.manager.get_queryset()

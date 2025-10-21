@@ -37,32 +37,292 @@ Usage Pattern 2 - Explicit Factory Registration:
     set_trigger_factory(LoanAccountTrigger, create_loan_trigger)
     ```
 
-Usage Pattern 3 - Global Resolver:
+Usage Pattern 3 - Custom Resolver:
     ```python
-    from django_bulk_triggers import set_default_trigger_factory
+    from django_bulk_triggers import configure_trigger_container
     
-    def resolve_from_container(trigger_cls):
-        # Custom resolution logic
-        provider_name = trigger_cls.__name__.lower().replace('trigger', '_trigger')
-        return getattr(container, provider_name)()
+    def custom_resolver(container, trigger_cls, provider_name):
+        # Custom resolution logic for nested containers
+        return container.sub_container.get_provider(provider_name)()
     
-    set_default_trigger_factory(resolve_from_container)
+    configure_trigger_container(container, provider_resolver=custom_resolver)
     ```
 """
 
 import logging
+import re
 import threading
 from typing import Any, Callable, Optional, Type
 
 logger = logging.getLogger(__name__)
 
-# Thread-safe storage for trigger factories
-_trigger_factories: dict[Type, Callable[[], Any]] = {}
-_default_factory: Optional[Callable[[Type], Any]] = None
-_container_resolver: Optional[Callable[[Type], Any]] = None
-_factory_lock = threading.RLock()
+
+class TriggerFactory:
+    """
+    Creates trigger handler instances with dependency injection.
+    
+    Resolution order:
+    1. Specific factory for trigger class
+    2. Container resolver (if configured)
+    3. Direct instantiation
+    """
+    
+    def __init__(self):
+        """Initialize an empty factory."""
+        self._specific_factories: dict[Type, Callable[[], Any]] = {}
+        self._container_resolver: Optional[Callable[[Type], Any]] = None
+        self._lock = threading.RLock()
+    
+    def register_factory(self, trigger_cls: Type, factory: Callable[[], Any]) -> None:
+        """
+        Register a factory function for a specific trigger class.
+        
+        The factory function should accept no arguments and return an instance
+        of the trigger class with all dependencies injected.
+        
+        Args:
+            trigger_cls: The trigger class to register a factory for
+            factory: A callable that returns an instance of trigger_cls
+            
+        Example:
+            >>> def create_loan_trigger():
+            ...     return container.loan_account_trigger()
+            >>> 
+            >>> factory.register_factory(LoanAccountTrigger, create_loan_trigger)
+        """
+        with self._lock:
+            self._specific_factories[trigger_cls] = factory
+            name = getattr(trigger_cls, "__name__", str(trigger_cls))
+            logger.debug(f"Registered factory for {name}")
+    
+    def configure_container(
+        self,
+        container: Any,
+        provider_name_resolver: Optional[Callable[[Type], str]] = None,
+        provider_resolver: Optional[Callable[[Any, Type, str], Any]] = None,
+        fallback_to_direct: bool = True,
+    ) -> None:
+        """
+        Configure the factory to use a dependency-injector container.
+        
+        This is the recommended way to integrate with dependency-injector.
+        It automatically resolves triggers from container providers.
+        
+        Args:
+            container: The dependency-injector container instance
+            provider_name_resolver: Optional function to map trigger class to provider name.
+                                  Default: converts "LoanAccountTrigger" -> "loan_account_trigger"
+            provider_resolver: Optional function to resolve provider from container.
+                             Signature: (container, trigger_cls, provider_name) -> instance
+                             Useful for nested container structures or custom resolution logic.
+            fallback_to_direct: If True, falls back to direct instantiation when
+                              provider not found. If False, raises error.
+        
+        Example (Standard Container):
+            >>> class AppContainer(containers.DeclarativeContainer):
+            ...     loan_service = providers.Singleton(LoanService)
+            ...     loan_account_trigger = providers.Singleton(
+            ...         LoanAccountTrigger,
+            ...         loan_service=loan_service,
+            ...     )
+            >>> 
+            >>> container = AppContainer()
+            >>> factory.configure_container(container)
+        
+        Example (Custom Resolver for Nested Containers):
+            >>> def resolve_nested(container, trigger_cls, provider_name):
+            ...     # Navigate nested structure
+            ...     sub_container = container.loan_accounts_container()
+            ...     return getattr(sub_container, provider_name)()
+            >>> 
+            >>> factory.configure_container(
+            ...     container,
+            ...     provider_resolver=resolve_nested
+            ... )
+        """
+        name_resolver = provider_name_resolver or self._default_name_resolver
+        
+        def resolver(trigger_cls: Type) -> Any:
+            """Resolve trigger instance from the container."""
+            provider_name = name_resolver(trigger_cls)
+            name = getattr(trigger_cls, "__name__", str(trigger_cls))
+            
+            # If custom provider resolver is provided, use it
+            if provider_resolver is not None:
+                logger.debug(f"Resolving {name} using custom provider resolver")
+                try:
+                    return provider_resolver(container, trigger_cls, provider_name)
+                except Exception as e:
+                    if fallback_to_direct:
+                        logger.debug(
+                            f"Custom provider resolver failed for {name} ({e}), "
+                            f"falling back to direct instantiation"
+                        )
+                        return trigger_cls()
+                    raise
+            
+            # Default resolution: look for provider directly on container
+            if hasattr(container, provider_name):
+                provider = getattr(container, provider_name)
+                logger.debug(f"Resolving {name} from container provider '{provider_name}'")
+                # Call the provider to get the instance
+                return provider()
+            
+            if fallback_to_direct:
+                logger.debug(
+                    f"Provider '{provider_name}' not found in container for {name}, "
+                    f"falling back to direct instantiation"
+                )
+                return trigger_cls()
+            
+            raise ValueError(
+                f"Trigger {name} not found in container. "
+                f"Expected provider name: '{provider_name}'. "
+                f"Available providers: {[p for p in dir(container) if not p.startswith('_')]}"
+            )
+        
+        with self._lock:
+            self._container_resolver = resolver
+            container_name = getattr(container.__class__, "__name__", str(container.__class__))
+            logger.info(f"Configured trigger factory to use container: {container_name}")
+    
+    def create(self, trigger_cls: Type) -> Any:
+        """
+        Create a trigger instance using the configured resolution strategy.
+        
+        Resolution order:
+        1. Specific factory registered via register_factory()
+        2. Container resolver configured via configure_container()
+        3. Direct instantiation trigger_cls()
+        
+        Args:
+            trigger_cls: The trigger class to instantiate
+            
+        Returns:
+            An instance of the trigger class
+            
+        Raises:
+            Any exception raised by the factory, container, or constructor
+        """
+        with self._lock:
+            # 1. Check for specific factory
+            if trigger_cls in self._specific_factories:
+                factory = self._specific_factories[trigger_cls]
+                name = getattr(trigger_cls, "__name__", str(trigger_cls))
+                logger.debug(f"Using specific factory for {name}")
+                return factory()
+            
+            # 2. Check for container resolver
+            if self._container_resolver is not None:
+                name = getattr(trigger_cls, "__name__", str(trigger_cls))
+                logger.debug(f"Using container resolver for {name}")
+                return self._container_resolver(trigger_cls)
+            
+            # 3. Fall back to direct instantiation
+            name = getattr(trigger_cls, "__name__", str(trigger_cls))
+            logger.debug(f"Using direct instantiation for {name}")
+            return trigger_cls()
+    
+    def clear(self) -> None:
+        """
+        Clear all registered factories and container configuration.
+        Useful for testing.
+        """
+        with self._lock:
+            self._specific_factories.clear()
+            self._container_resolver = None
+            logger.debug("Cleared all trigger factories and container configuration")
+    
+    def is_container_configured(self) -> bool:
+        """
+        Check if a container resolver is configured.
+        
+        Returns:
+            True if configure_container() has been called
+        """
+        with self._lock:
+            return self._container_resolver is not None
+    
+    def has_factory(self, trigger_cls: Type) -> bool:
+        """
+        Check if a trigger class has a registered factory.
+        
+        Args:
+            trigger_cls: The trigger class to check
+            
+        Returns:
+            True if a specific factory is registered, False otherwise
+        """
+        with self._lock:
+            return trigger_cls in self._specific_factories
+    
+    def get_factory(self, trigger_cls: Type) -> Optional[Callable[[], Any]]:
+        """
+        Get the registered factory for a specific trigger class.
+        
+        Args:
+            trigger_cls: The trigger class to look up
+            
+        Returns:
+            The registered factory function, or None if not registered
+        """
+        with self._lock:
+            return self._specific_factories.get(trigger_cls)
+    
+    def list_factories(self) -> dict[Type, Callable]:
+        """
+        Get a copy of all registered trigger factories.
+        
+        Returns:
+            A dictionary mapping trigger classes to their factory functions
+        """
+        with self._lock:
+            return self._specific_factories.copy()
+    
+    @staticmethod
+    def _default_name_resolver(trigger_cls: Type) -> str:
+        """
+        Default naming convention: LoanAccountTrigger -> loan_account_trigger
+        
+        Args:
+            trigger_cls: Trigger class to convert
+            
+        Returns:
+            Snake-case provider name
+        """
+        name = trigger_cls.__name__
+        # Convert CamelCase to snake_case
+        snake_case = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+        return snake_case
 
 
+# Global singleton factory
+_factory: Optional[TriggerFactory] = None
+_factory_lock = threading.Lock()
+
+
+def get_factory() -> TriggerFactory:
+    """
+    Get the global trigger factory instance.
+    
+    Creates the factory on first access (singleton pattern).
+    Thread-safe initialization.
+    
+    Returns:
+        TriggerFactory singleton instance
+    """
+    global _factory
+    
+    if _factory is None:
+        with _factory_lock:
+            # Double-checked locking
+            if _factory is None:
+                _factory = TriggerFactory()
+    
+    return _factory
+
+
+# Backward-compatible module-level functions
 def set_trigger_factory(trigger_cls: Type, factory: Callable[[], Any]) -> None:
     """
     Register a factory function for a specific trigger class.
@@ -80,32 +340,34 @@ def set_trigger_factory(trigger_cls: Type, factory: Callable[[], Any]) -> None:
         >>> 
         >>> set_trigger_factory(LoanAccountTrigger, create_loan_trigger)
     """
-    with _factory_lock:
-        _trigger_factories[trigger_cls] = factory
-        name = getattr(trigger_cls, "__name__", str(trigger_cls))
-        logger.debug(f"Registered factory for {name}")
+    trigger_factory = get_factory()
+    trigger_factory.register_factory(trigger_cls, factory)
 
 
 def set_default_trigger_factory(factory: Callable[[Type], Any]) -> None:
     """
-    Set a default factory function for all triggers without a specific factory.
+    DEPRECATED: Use configure_trigger_container with provider_resolver instead.
     
-    The factory function should accept a trigger class and return an instance.
-    This is useful for DI containers that can resolve any class dynamically.
+    This function is kept for backward compatibility but is no longer recommended.
+    Use configure_trigger_container with a custom provider_resolver for similar functionality.
     
     Args:
         factory: A callable that takes a class and returns an instance
-        
-    Example:
-        >>> def resolve_trigger(trigger_cls):
-        ...     return container.resolve(trigger_cls)
-        >>> 
-        >>> set_default_trigger_factory(resolve_trigger)
     """
-    global _default_factory
-    with _factory_lock:
-        _default_factory = factory
-        logger.debug("Registered default trigger factory")
+    import warnings
+    warnings.warn(
+        "set_default_trigger_factory is deprecated. "
+        "Use configure_trigger_container with provider_resolver instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
+    # Convert to container-style resolver
+    def container_resolver(trigger_cls):
+        return factory(trigger_cls)
+    
+    trigger_factory = get_factory()
+    trigger_factory._container_resolver = container_resolver
 
 
 def configure_trigger_container(
@@ -130,93 +392,17 @@ def configure_trigger_container(
         fallback_to_direct: If True, falls back to direct instantiation when
                           provider not found. If False, raises error.
     
-    Example (Flat Container):
-        >>> from dependency_injector import containers, providers
-        >>> 
-        >>> class AppContainer(containers.DeclarativeContainer):
-        ...     loan_service = providers.Singleton(LoanService)
-        ...     loan_account_trigger = providers.Singleton(
-        ...         LoanAccountTrigger,
-        ...         loan_service=loan_service,
-        ...     )
-        >>> 
+    Example:
         >>> container = AppContainer()
         >>> configure_trigger_container(container)
-    
-    Example (Nested Container):
-        >>> def resolve_nested(container, trigger_cls, provider_name):
-        ...     # Navigate nested structure
-        ...     sub_container = container.loan_accounts_container()
-        ...     return sub_container.loan_account_trigger()
-        >>> 
-        >>> configure_trigger_container(
-        ...     container,
-        ...     provider_resolver=resolve_nested
-        ... )
     """
-    global _container_resolver
-    
-    def default_provider_name_resolver(trigger_cls: Type) -> str:
-        """
-        Default naming convention: LoanAccountTrigger -> loan_account_trigger
-        """
-        name = trigger_cls.__name__
-        # Convert CamelCase to snake_case
-        import re
-        snake_case = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
-        return snake_case
-    
-    name_resolver = provider_name_resolver or default_provider_name_resolver
-    
-    def resolve_from_container(trigger_cls: Type) -> Any:
-        """
-        Resolve trigger instance from the container.
-        """
-        provider_name = name_resolver(trigger_cls)
-        name = getattr(trigger_cls, "__name__", str(trigger_cls))
-        
-        # If custom provider resolver is provided, use it
-        if provider_resolver is not None:
-            logger.debug(
-                f"Resolving {name} using custom provider resolver"
-            )
-            try:
-                return provider_resolver(container, trigger_cls, provider_name)
-            except Exception as e:
-                if fallback_to_direct:
-                    logger.debug(
-                        f"Custom provider resolver failed for {name} ({e}), "
-                        f"falling back to direct instantiation"
-                    )
-                    return trigger_cls()
-                raise
-        
-        # Default resolution: look for provider directly on container
-        if hasattr(container, provider_name):
-            provider = getattr(container, provider_name)
-            logger.debug(
-                f"Resolving {name} from container provider '{provider_name}'"
-            )
-            # Call the provider to get the instance
-            return provider()
-        
-        if fallback_to_direct:
-            logger.debug(
-                f"Provider '{provider_name}' not found in container for {name}, "
-                f"falling back to direct instantiation"
-            )
-            return trigger_cls()
-        
-        raise ValueError(
-            f"Trigger {name} not found in container. "
-            f"Expected provider name: '{provider_name}'. "
-            f"Available providers: {[p for p in dir(container) if not p.startswith('_')]}"
-        )
-    
-    with _factory_lock:
-        _container_resolver = resolve_from_container
-        container_name = getattr(container.__class__, "__name__", str(container.__class__))
-        logger.info(f"Configured trigger system to use container: {container_name}")
+    trigger_factory = get_factory()
+    trigger_factory.configure_container(
+        container,
+        provider_name_resolver=provider_name_resolver,
+        provider_resolver=provider_resolver,
+        fallback_to_direct=fallback_to_direct,
+    )
 
 
 def configure_nested_container(
@@ -226,9 +412,11 @@ def configure_nested_container(
     fallback_to_direct: bool = True,
 ) -> None:
     """
-    Configure the trigger system for nested/hierarchical container structures.
+    DEPRECATED: Use configure_trigger_container with provider_resolver instead.
     
-    This is a convenience function for containers where triggers are in sub-containers.
+    Configure the trigger system for nested/hierarchical container structures.
+    This is now handled better by passing a custom provider_resolver to
+    configure_trigger_container.
     
     Args:
         container: The root dependency-injector container
@@ -237,20 +425,27 @@ def configure_nested_container(
         fallback_to_direct: If True, falls back to direct instantiation when provider not found
     
     Example:
-        >>> # Container structure:
-        >>> # ApplicationContainer
-        >>> #   .loan_accounts_container()
-        >>> #     .loan_account_trigger()
+        >>> # Instead of this:
+        >>> configure_nested_container(app_container, "loan_accounts_container")
         >>> 
-        >>> configure_nested_container(
-        ...     application_container,
-        ...     container_path="loan_accounts_container"
-        ... )
+        >>> # Use this:
+        >>> def resolve_nested(container, trigger_cls, provider_name):
+        ...     sub = container.loan_accounts_container()
+        ...     return getattr(sub, provider_name)()
+        >>> configure_trigger_container(app_container, provider_resolver=resolve_nested)
     """
-    def nested_resolver(root_container, trigger_cls, provider_name):
+    import warnings
+    warnings.warn(
+        "configure_nested_container is deprecated. "
+        "Use configure_trigger_container with provider_resolver instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
+    def nested_resolver(container_obj, trigger_cls, provider_name):
         """Navigate to sub-container and get provider."""
         # Navigate to sub-container
-        current = root_container
+        current = container_obj
         for part in container_path.split('.'):
             if not hasattr(current, part):
                 raise ValueError(f"Container path '{container_path}' not found. Missing: {part}")
@@ -282,12 +477,8 @@ def clear_trigger_factories() -> None:
     Clear all registered trigger factories and container configuration.
     Useful for testing.
     """
-    global _default_factory, _container_resolver
-    with _factory_lock:
-        _trigger_factories.clear()
-        _default_factory = None
-        _container_resolver = None
-        logger.debug("Cleared all trigger factories and container configuration")
+    trigger_factory = get_factory()
+    trigger_factory.clear()
 
 
 def create_trigger_instance(trigger_cls: Type) -> Any:
@@ -297,8 +488,7 @@ def create_trigger_instance(trigger_cls: Type) -> Any:
     Resolution order:
     1. Specific factory registered via set_trigger_factory()
     2. Container resolver configured via configure_trigger_container()
-    3. Default factory registered via set_default_trigger_factory()
-    4. Direct instantiation trigger_cls()
+    3. Direct instantiation trigger_cls()
     
     Args:
         trigger_cls: The trigger class to instantiate
@@ -309,30 +499,8 @@ def create_trigger_instance(trigger_cls: Type) -> Any:
     Raises:
         Any exception raised by the factory, container, or constructor
     """
-    with _factory_lock:
-        # 1. Check for specific factory
-        if trigger_cls in _trigger_factories:
-            factory = _trigger_factories[trigger_cls]
-            name = getattr(trigger_cls, "__name__", str(trigger_cls))
-            logger.debug(f"Using specific factory for {name}")
-            return factory()
-        
-        # 2. Check for container resolver
-        if _container_resolver is not None:
-            name = getattr(trigger_cls, "__name__", str(trigger_cls))
-            logger.debug(f"Using container resolver for {name}")
-            return _container_resolver(trigger_cls)
-        
-        # 3. Check for default factory
-        if _default_factory is not None:
-            name = getattr(trigger_cls, "__name__", str(trigger_cls))
-            logger.debug(f"Using default factory for {name}")
-            return _default_factory(trigger_cls)
-        
-        # 4. Fall back to direct instantiation
-        name = getattr(trigger_cls, "__name__", str(trigger_cls))
-        logger.debug(f"Using direct instantiation for {name}")
-        return trigger_cls()
+    trigger_factory = get_factory()
+    return trigger_factory.create(trigger_cls)
 
 
 def get_trigger_factory(trigger_cls: Type) -> Optional[Callable[[], Any]]:
@@ -345,8 +513,8 @@ def get_trigger_factory(trigger_cls: Type) -> Optional[Callable[[], Any]]:
     Returns:
         The registered factory function, or None if not registered
     """
-    with _factory_lock:
-        return _trigger_factories.get(trigger_cls)
+    trigger_factory = get_factory()
+    return trigger_factory.get_factory(trigger_cls)
 
 
 def has_trigger_factory(trigger_cls: Type) -> bool:
@@ -359,8 +527,8 @@ def has_trigger_factory(trigger_cls: Type) -> bool:
     Returns:
         True if a specific factory is registered, False otherwise
     """
-    with _factory_lock:
-        return trigger_cls in _trigger_factories
+    trigger_factory = get_factory()
+    return trigger_factory.has_factory(trigger_cls)
 
 
 def is_container_configured() -> bool:
@@ -370,8 +538,8 @@ def is_container_configured() -> bool:
     Returns:
         True if configure_trigger_container() has been called
     """
-    with _factory_lock:
-        return _container_resolver is not None
+    trigger_factory = get_factory()
+    return trigger_factory.is_container_configured()
 
 
 def list_registered_factories() -> dict[Type, Callable]:
@@ -381,6 +549,5 @@ def list_registered_factories() -> dict[Type, Callable]:
     Returns:
         A dictionary mapping trigger classes to their factory functions
     """
-    with _factory_lock:
-        return _trigger_factories.copy()
-
+    trigger_factory = get_factory()
+    return trigger_factory.list_factories()

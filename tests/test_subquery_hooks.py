@@ -13,7 +13,7 @@ from django_bulk_triggers.constants import AFTER_UPDATE
 from django_bulk_triggers.context import TriggerContext
 from django_bulk_triggers.decorators import trigger
 from django_bulk_triggers.manager import BulkTriggerManager
-from django_bulk_triggers.queryset import TriggerQuerySetMixin
+from django_bulk_triggers.queryset import TriggerQuerySet
 from tests.models import RelatedModel, TriggerModel, UserModel
 
 

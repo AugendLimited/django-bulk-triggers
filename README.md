@@ -237,6 +237,13 @@ class MyManager(BulkTriggerManager, QueryablePropertiesManager):
 
 This approach uses the industry-standard injection pattern, similar to how `QueryablePropertiesManager` works, ensuring both functionalities work seamlessly together without any framework-specific knowledge.
 
+Framework needs to:
+Register these methods
+Know when to execute them (BEFORE_UPDATE, AFTER_UPDATE)
+Execute them in priority order
+Pass ChangeSet to them
+Handle errors (rollback on failure)
+
 ## 📝 License
 
 MIT © 2024 Augend / Konrad Beck

@@ -1296,12 +1296,11 @@ class UtilityMethodsIntegrationTest(IntegrationTestBase):
 
         new_instances = [obj1, obj2]
 
-        # Call _detect_modified_fields
-        from django_bulk_triggers.queryset import TriggerQuerySetMixin
-        mixin = TriggerQuerySetMixin()
-        mixin.model = TriggerModel
+        # Call detect_modified_fields - now handled by ModelAnalyzer service
+        from django_bulk_triggers.operations import ModelAnalyzer
+        analyzer = ModelAnalyzer(TriggerModel)
 
-        modified_fields = mixin._detect_modified_fields(new_instances, original_instances)
+        modified_fields = analyzer.detect_modified_fields(new_instances, original_instances)
 
         # Verify that some fields were detected as modified
         # The exact fields detected may vary based on Django's internal handling
@@ -1309,14 +1308,13 @@ class UtilityMethodsIntegrationTest(IntegrationTestBase):
         # Note: Expression objects should be properly handled
 
     def test_get_inheritance_chain_utility(self):
-        """Test _get_inheritance_chain utility method (lines 1062-1076)."""
-        from django_bulk_triggers.queryset import TriggerQuerySetMixin
+        """Test get_inheritance_chain utility method - now handled by MTIHandler service."""
+        from django_bulk_triggers.operations import MTIHandler
 
-        mixin = TriggerQuerySetMixin()
-        mixin.model = TriggerModel
+        handler = MTIHandler(TriggerModel)
 
-        # Call _get_inheritance_chain
-        chain = mixin._get_inheritance_chain()
+        # Call get_inheritance_chain
+        chain = handler.get_inheritance_chain()
 
         # Verify the chain contains the model
         self.assertIn(TriggerModel, chain)

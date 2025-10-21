@@ -2,12 +2,6 @@ import logging
 
 from django.db import models
 
-from django_bulk_triggers.constants import (
-    VALIDATE_CREATE,
-    VALIDATE_UPDATE,
-)
-from django_bulk_triggers.context import TriggerContext
-from django_bulk_triggers.engine import run
 from django_bulk_triggers.manager import BulkTriggerManager
 
 logger = logging.getLogger(__name__)
@@ -31,19 +25,25 @@ class TriggerModelMixin(models.Model):
         if bypass_triggers:
             return
 
-        # Determine if this is a create or update operation
+        # Use dispatcher for validation triggers (consistent with bulk operations)
+        from django_bulk_triggers.dispatcher import get_dispatcher
+        from django_bulk_triggers.helpers import (
+            build_changeset_for_create,
+            build_changeset_for_update,
+        )
+        
+        dispatcher = get_dispatcher()
         is_create = self.pk is None
 
         if is_create:
-            # For create operations, run VALIDATE_CREATE triggers for validation
-            ctx = TriggerContext(self.__class__)
-            run(self.__class__, VALIDATE_CREATE, [self], ctx=ctx)
+            # For create operations, dispatch VALIDATE_CREATE
+            changeset = build_changeset_for_create(self.__class__, [self])
+            dispatcher.dispatch(changeset, 'validate_create', bypass_triggers=False)
         else:
-            # For update operations, run VALIDATE_UPDATE triggers for validation
-            # Skip fetching old instance to avoid N+1 queries - validation triggers should handle this efficiently
-            ctx = TriggerContext(self.__class__)
-            # Pass None as old_records to avoid the individual query
-            run(self.__class__, VALIDATE_UPDATE, [self], None, ctx=ctx)
+            # For update operations, dispatch VALIDATE_UPDATE
+            # No old records needed for validation - triggers handle their own queries
+            changeset = build_changeset_for_update(self.__class__, [self], {})
+            dispatcher.dispatch(changeset, 'validate_update', bypass_triggers=False)
 
     def save(self, *args, bypass_triggers=False, **kwargs):
         """

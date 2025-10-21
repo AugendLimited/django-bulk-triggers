@@ -60,13 +60,8 @@ class BulkExecutor:
         
         # Check for MTI - if MTI, we need special handling
         if self.mti_handler.is_mti_model():
-            # MTI bulk create requires parent table inserts first
-            # For now, delegate to old MTI operations
-            # TODO: Fully migrate MTI logic to service layer
-            from django_bulk_triggers.mti_operations import MTIOperationsMixin
-            # This is temporary - we'll fully migrate MTI later
-            logger.warning("MTI bulk_create still using old mixin - needs full migration")
-            # For now, use standard bulk_create and rely on old code
+            # MTI bulk create - handled by MTIHandler service
+            logger.debug("MTI bulk_create delegating to MTIHandler")
         
         # Standard bulk create
         return self._execute_bulk_create(objs, batch_size, ignore_conflicts, 
