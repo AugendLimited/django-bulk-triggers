@@ -76,11 +76,10 @@ class TriggerQuerySet(models.QuerySet):
         Returns:
             Number of objects updated
         """
-        # If fields is None, auto-detect changed fields by comparing with database
+        # If fields is None, auto-detect changed fields using analyzer
         if fields is None:
-            fields = self._detect_changed_fields(objs)
+            fields = self.coordinator.analyzer.detect_changed_fields(objs)
             if not fields:
-                # No fields changed, nothing to update
                 logger.debug(f"bulk_update: No fields changed for {len(objs)} {self.model.__name__} objects")
                 return 0
         
@@ -166,68 +165,3 @@ class TriggerQuerySet(models.QuerySet):
             bypass_triggers=bypass_triggers,
             bypass_validation=bypass_validation,
         )
-    
-    def _detect_changed_fields(self, objs):
-        """
-        Detect which fields have changed across a set of objects.
-        
-        This method fetches old records from the database in a SINGLE bulk query
-        and compares them with the new objects to determine changed fields.
-        
-        PERFORMANCE: Uses bulk query (O(1) queries) not N queries.
-        
-        Args:
-            objs: List of model instances to check
-            
-        Returns:
-            List of field names that changed across any object
-        """
-        if not objs:
-            return []
-        
-        # Get PKs for bulk fetch
-        pks = [obj.pk for obj in objs if obj.pk is not None]
-        if not pks:
-            return []
-        
-        # Fetch old records in SINGLE query (bulk operation)
-        old_records_map = {
-            old_obj.pk: old_obj 
-            for old_obj in self.model._base_manager.filter(pk__in=pks)
-        }
-        
-        # Track which fields changed across ALL objects
-        changed_fields_set = set()
-        
-        # Compare each object with its database state
-        for obj in objs:
-            if obj.pk is None:
-                continue
-            
-            old_obj = old_records_map.get(obj.pk)
-            if old_obj is None:
-                # Object doesn't exist in DB, skip
-                continue
-            
-            # Check each field for changes
-            for field in self.model._meta.fields:
-                # Skip primary key and auto fields
-                if field.primary_key or field.auto_created:
-                    continue
-                
-                old_val = getattr(old_obj, field.name, None)
-                new_val = getattr(obj, field.name, None)
-                
-                # Use field's get_prep_value for proper comparison
-                try:
-                    old_prep = field.get_prep_value(old_val)
-                    new_prep = field.get_prep_value(new_val)
-                    if old_prep != new_prep:
-                        changed_fields_set.add(field.name)
-                except (TypeError, ValueError):
-                    # Fallback to direct comparison
-                    if old_val != new_val:
-                        changed_fields_set.add(field.name)
-        
-        # Return as sorted list for deterministic behavior
-        return sorted(changed_fields_set)

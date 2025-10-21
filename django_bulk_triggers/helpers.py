@@ -3,32 +3,14 @@ Helper functions for building ChangeSets from operation contexts.
 
 These functions eliminate duplication across queryset.py, bulk_operations.py,
 and models.py by providing reusable ChangeSet builders.
+
+NOTE: These helpers are pure changeset builders - they don't fetch data.
+Data fetching is the responsibility of ModelAnalyzer.
 """
 from django_bulk_triggers.changeset import ChangeSet, RecordChange
 
 
-def fetch_old_records_map(model_cls, instances):
-    """
-    Fetch old records for instances in a single query.
-    
-    Args:
-        model_cls: Django model class
-        instances: List of model instances
-        
-    Returns:
-        Dict[pk, instance] for O(1) lookups
-    """
-    pks = [obj.pk for obj in instances if obj.pk is not None]
-    if not pks:
-        return {}
-    
-    return {
-        obj.pk: obj 
-        for obj in model_cls._base_manager.filter(pk__in=pks)
-    }
-
-
-def build_changeset_for_update(model_cls, instances, update_kwargs, **meta):
+def build_changeset_for_update(model_cls, instances, update_kwargs, old_records_map=None, **meta):
     """
     Build ChangeSet for update operations.
     
@@ -36,12 +18,14 @@ def build_changeset_for_update(model_cls, instances, update_kwargs, **meta):
         model_cls: Django model class
         instances: List of instances being updated
         update_kwargs: Dict of fields being updated
+        old_records_map: Optional dict of {pk: old_instance}. If None, no old records.
         **meta: Additional metadata (e.g., has_subquery=True, lock_records=False)
         
     Returns:
         ChangeSet instance ready for dispatcher
     """
-    old_records_map = fetch_old_records_map(model_cls, instances)
+    if old_records_map is None:
+        old_records_map = {}
     
     changes = [
         RecordChange(
