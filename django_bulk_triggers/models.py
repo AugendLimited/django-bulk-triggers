@@ -39,25 +39,16 @@ class TriggerModelMixin(models.Model):
         including MTI parent triggers.
         """
         if bypass_triggers:
-            logger.debug(
-                f"save() called with bypass_triggers=True for {self.__class__.__name__} pk={self.pk}"
-            )
             # Use super().save() to call Django's default save without our trigger logic
             return super().save(*args, **kwargs)
 
         is_create = self.pk is None
 
         if is_create:
-            logger.debug(
-                f"save() delegating to bulk_create for {self.__class__.__name__}"
-            )
             # Delegate to bulk_create which handles all trigger logic
             result = self.__class__.objects.bulk_create([self])
             return result[0] if result else self
         else:
-            logger.debug(
-                f"save() delegating to bulk_update for {self.__class__.__name__}"
-            )
             # Delegate to bulk_update which handles all trigger logic
             update_fields = kwargs.get("update_fields")
             if update_fields is None:
@@ -81,8 +72,5 @@ class TriggerModelMixin(models.Model):
             # Use super().delete() to call Django's default delete without our trigger logic
             return super().delete(*args, **kwargs)
 
-        logger.debug(
-            f"delete() delegating to bulk_delete for {self.__class__.__name__}"
-        )
         # Delegate to bulk_delete (handles both MTI and non-MTI)
         return self.__class__.objects.filter(pk=self.pk).delete()
