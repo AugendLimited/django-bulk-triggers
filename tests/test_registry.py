@@ -16,7 +16,7 @@ from django_bulk_triggers.constants import (
     BEFORE_DELETE,
     BEFORE_UPDATE,
 )
-from django_bulk_triggers.priority import Priority
+from django_bulk_triggers.enums import Priority
 from django_bulk_triggers.registry import get_triggers, list_all_triggers, register_trigger
 from tests.models import SimpleModel, TriggerModel, UserModel
 
@@ -553,7 +553,7 @@ class TestRegistryIntegration(TestCase):
         """Test registry with different priorities."""
         from django_bulk_triggers import TriggerClass
         from django_bulk_triggers.decorators import trigger
-        from django_bulk_triggers.priority import Priority
+        from django_bulk_triggers.enums import Priority
 
         class HighPriorityTrigger(TriggerClass):
             @trigger(BEFORE_CREATE, model=TriggerModel, priority=Priority.HIGH)

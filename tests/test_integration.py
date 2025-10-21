@@ -22,7 +22,7 @@ from django_bulk_triggers.constants import (
     VALIDATE_UPDATE,
 )
 from django_bulk_triggers.decorators import trigger
-from django_bulk_triggers.priority import Priority
+from django_bulk_triggers.enums import Priority
 from tests.models import (
     Category,
     ComplexModel,

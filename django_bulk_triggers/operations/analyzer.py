@@ -99,83 +99,9 @@ class ModelAnalyzer:
                 f"{len(missing_pks)} object(s) have no primary key."
             )
     
-    # ========== Field Tracking Methods ==========
-    
-    def detect_modified_fields(self, new_instances, original_instances):
-        """
-        Detect which fields were modified between old and new states.
-        
-        Args:
-            new_instances: List of new/modified instances
-            original_instances: List of original instances (must match order)
-            
-        Returns:
-            set: Field names that have been modified
-        """
-        if not original_instances:
-            return set()
-        
-        modified_fields = set()
-        
-        for new_instance, original in zip(new_instances, original_instances):
-            if new_instance.pk is None or original is None:
-                continue
-            
-            for field in new_instance._meta.fields:
-                if field.name == "id" or field.primary_key:
-                    continue
-                
-                if self.field_changed(field, new_instance, original):
-                    modified_fields.add(field.name)
-        
-        return modified_fields
-    
-    def field_changed(self, field, new_instance, original_instance):
-        """
-        Check if a single field changed between instances.
-        
-        Args:
-            field: Django field object
-            new_instance: New instance
-            original_instance: Original instance
-            
-        Returns:
-            bool: True if field value changed
-        """
-        # Get values - use attname for FK fields to avoid N+1 queries
-        if field.is_relation and not field.many_to_many:
-            new_value = getattr(new_instance, field.attname, None)
-            old_value = getattr(original_instance, field.attname, None)
-        else:
-            new_value = getattr(new_instance, field.name)
-            old_value = getattr(original_instance, field.name)
-        
-        # Skip Django expression objects (Subquery, Case, etc.)
-        if self.is_expression_object(new_value):
-            return False
-        
-        # Compare using Django's get_prep_value for proper comparison
-        try:
-            new_prep = field.get_prep_value(new_value)
-            old_prep = field.get_prep_value(old_value)
-            return new_prep != old_prep
-        except Exception:
-            # Fallback to direct comparison
-            return new_value != old_value
-    
-    def is_expression_object(self, value):
-        """
-        Check if value is a Django expression object.
-        
-        Args:
-            value: Value to check
-            
-        Returns:
-            bool: True if value is an expression (Subquery, Case, etc.)
-        """
-        from django.db.models import Subquery
-        
-        return isinstance(value, Subquery) or hasattr(value, "resolve_expression")
+    # ========== Field Introspection Methods ==========
+    # Note: Field change detection is handled by RecordChange in changeset.py
+    # to maintain a single source of truth for change tracking.
     
     def get_auto_now_fields(self):
         """

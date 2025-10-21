@@ -134,26 +134,4 @@ class BulkExecutor:
         # Use __class__.__bases__[0] to call Django's original delete
         from django.db.models import QuerySet
         return QuerySet.delete(self.queryset)
-    
-    def fetch_old_records(self, instances):
-        """
-        Fetch old records for comparison.
-        
-        Args:
-            instances: List of instances with PKs
-            
-        Returns:
-            List of old instances (from database)
-        """
-        pks = [obj.pk for obj in instances if obj.pk is not None]
-        if not pks:
-            return []
-        
-        # Fetch using base manager to avoid recursion
-        old_records = list(
-            self.model_cls._base_manager.filter(pk__in=pks)
-        )
-        
-        # Return as dict for O(1) lookup
-        return {obj.pk: obj for obj in old_records}
 

@@ -19,7 +19,7 @@ from django_bulk_triggers.constants import (
     BEFORE_UPDATE,
 )
 from django_bulk_triggers.decorators import trigger, select_related
-from django_bulk_triggers.priority import Priority
+from django_bulk_triggers.enums import Priority
 from tests.models import Category, TriggerModel, UserModel
 from tests.utils import TriggerTracker
 

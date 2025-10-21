@@ -13,6 +13,7 @@ from django_bulk_triggers.helpers import (
     build_changeset_for_create,
     build_changeset_for_update,
     build_changeset_for_delete,
+    fetch_old_records_map,
 )
 
 logger = logging.getLogger(__name__)
@@ -159,8 +160,8 @@ class BulkOperationCoordinator:
         # Validate
         self.analyzer.validate_for_update(objs)
         
-        # Fetch old records
-        old_records_map = self.executor.fetch_old_records(objs)
+        # Fetch old records using helper
+        old_records_map = fetch_old_records_map(self.model_cls, objs)
         
         # Build changeset
         from django_bulk_triggers.changeset import ChangeSet, RecordChange

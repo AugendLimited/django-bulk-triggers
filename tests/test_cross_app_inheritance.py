@@ -12,9 +12,34 @@ from django.test import TestCase
 
 from django_bulk_triggers.constants import AFTER_CREATE, BEFORE_CREATE, AFTER_UPDATE
 from django_bulk_triggers.decorators import trigger
-from django_bulk_triggers.engine import run as run_triggers
+from django_bulk_triggers.dispatcher import get_dispatcher
+from django_bulk_triggers.changeset import ChangeSet, RecordChange
 from django_bulk_triggers.handler import Trigger as TriggerClass
 from django_bulk_triggers.registry import clear_triggers, get_triggers
+
+
+def run_triggers(model_cls, event, new_records, old_records=None):
+    """Helper to maintain backward compatibility with engine.run() for tests."""
+    if not new_records:
+        return None
+    
+    if old_records is None:
+        old_records = [None] * len(new_records)
+    
+    changes = [RecordChange(new, old) for new, old in zip(new_records, old_records)]
+    
+    if 'create' in event.lower():
+        op_type = 'create'
+    elif 'update' in event.lower():
+        op_type = 'update'
+    elif 'delete' in event.lower():
+        op_type = 'delete'
+    else:
+        op_type = 'unknown'
+    
+    changeset = ChangeSet(model_cls, changes, op_type, {})
+    dispatcher = get_dispatcher()
+    dispatcher.dispatch(changeset, event.lower(), bypass_triggers=False)
 
 
 class TestCrossAppInheritance(TestCase):

@@ -1,13 +1,13 @@
 """
-Tests for the engine module.
+Tests for the dispatcher module (formerly engine).
 """
 
 from unittest.mock import Mock, patch
 from django.test import TestCase
 from django.core.exceptions import ValidationError
 from django.db import connection
-from django_bulk_triggers.engine import run
-from django_bulk_triggers.context import TriggerContext
+from django_bulk_triggers.dispatcher import get_dispatcher
+from django_bulk_triggers.helpers import build_changeset_for_create
 from django_bulk_triggers.decorators import trigger
 from django_bulk_triggers.constants import BEFORE_CREATE
 from django_bulk_triggers.conditions import IsEqual
@@ -15,13 +15,49 @@ from django_bulk_triggers import TriggerClass
 from tests.models import TriggerModel
 
 
+def run(model_cls, event, new_records, old_records=None, bypass_triggers=False):
+    """
+    Helper function to provide engine.run() interface using the dispatcher.
+    Maintains backward compatibility for tests.
+    """
+    if not new_records:
+        return None
+    
+    from django_bulk_triggers.changeset import ChangeSet, RecordChange
+    
+    # Build ChangeSet
+    if old_records is None:
+        old_records = [None] * len(new_records)
+    
+    changes = [
+        RecordChange(new, old) 
+        for new, old in zip(new_records, old_records)
+    ]
+    
+    # Infer operation type from event
+    if 'create' in event.lower():
+        op_type = 'create'
+    elif 'update' in event.lower():
+        op_type = 'update'
+    elif 'delete' in event.lower():
+        op_type = 'delete'
+    else:
+        op_type = 'unknown'
+    
+    changeset = ChangeSet(model_cls, changes, op_type, {})
+    
+    # Delegate to dispatcher
+    dispatcher = get_dispatcher()
+    dispatcher.dispatch(changeset, event.lower(), bypass_triggers=bypass_triggers)
+
+
 class TestEngine(TestCase):
-    """Test engine module functionality."""
+    """Test dispatcher functionality (formerly engine module)."""
 
     def setUp(self):
         self.model_cls = TriggerModel
         self.records = [Mock(), Mock()]
-        self.ctx = TriggerContext(self.model_cls)
+        self.dispatcher = get_dispatcher()
 
     def test_run_with_empty_records(self):
         """Test run function with empty records."""
@@ -30,23 +66,21 @@ class TestEngine(TestCase):
 
     def test_run_with_no_triggers(self):
         """Test run function when no triggers are registered."""
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = []
 
             result = run(self.model_cls, 'BEFORE_CREATE', self.records)
             self.assertIsNone(result)
 
-    def test_run_with_bypass_context(self):
-        """Test run function respects bypass_triggers context."""
+    def test_run_with_bypass_triggers(self):
+        """Test run function respects bypass_triggers flag."""
         mock_trigger = (Mock(), 'handle', None, 100)
 
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
-            # Create context with bypass_triggers=True
-            bypass_ctx = TriggerContext(self.model_cls, bypass_triggers=True)
-
-            result = run(self.model_cls, 'BEFORE_CREATE', self.records, ctx=bypass_ctx)
+            # Call with bypass_triggers=True
+            result = run(self.model_cls, 'BEFORE_CREATE', self.records, bypass_triggers=True)
             self.assertIsNone(result)
 
     def test_run_with_validation_error(self):
@@ -57,7 +91,7 @@ class TestEngine(TestCase):
 
         mock_trigger = (Mock(), 'handle', None, 100)
 
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
             # NOTE: Individual clean() calls are skipped to prevent N+1 queries
@@ -79,7 +113,7 @@ class TestEngine(TestCase):
 
         mock_trigger = (Mock(), 'handle', mock_condition, 100)
 
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
             # Mock the handler
@@ -108,7 +142,7 @@ class TestEngine(TestCase):
 
         mock_trigger = (Mock(), 'handle', mock_condition, 100)
 
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
             # Mock the handler
@@ -127,7 +161,7 @@ class TestEngine(TestCase):
         """Test run function handles handler execution errors."""
         mock_trigger = (Mock(), 'handle', None, 100)
 
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
             # Mock the handler to raise an exception
@@ -151,7 +185,7 @@ class TestEngine(TestCase):
 
         mock_trigger = (Mock(), 'handle', mock_condition, 100)
 
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
             # Mock the handler
@@ -169,7 +203,7 @@ class TestEngine(TestCase):
 
         mock_trigger = (Mock(), 'handle', None, 100)
 
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
             # Mock the handler
@@ -191,7 +225,7 @@ class TestEngine(TestCase):
 
         mock_trigger = (Mock(), 'handle', None, 100)
 
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
             # Mock the handler
@@ -208,7 +242,7 @@ class TestEngine(TestCase):
         """Test run function handles None old_records."""
         mock_trigger = (Mock(), 'handle', None, 100)
 
-        with patch('django_bulk_triggers.engine.get_triggers') as mock_get_triggers:
+        with patch('django_bulk_triggers.registry.get_triggers') as mock_get_triggers:
             mock_get_triggers.return_value = [mock_trigger]
 
             # Mock the handler

@@ -1,15 +1,12 @@
-import threading
-from collections import deque
+"""
+Thread-local context management for bulk operations.
 
-from django_bulk_triggers.handler import trigger_vars
+This module provides thread-safe storage for operation state like
+bypass_triggers flags and bulk update metadata.
+"""
+import threading
 
 _trigger_context = threading.local()
-
-
-def get_trigger_queue():
-    if not hasattr(_trigger_context, "queue"):
-        _trigger_context.queue = deque()
-    return _trigger_context.queue
 
 
 def set_bypass_triggers(bypass_triggers):
@@ -58,32 +55,3 @@ def get_bulk_update_batch_size():
     return getattr(_trigger_context, "bulk_update_batch_size", None)
 
 
-class TriggerContext:
-    def __init__(self, model, bypass_triggers=False):
-        self.model = model
-        self.bypass_triggers = bypass_triggers
-        # Don't automatically set thread-local state - let each operation decide
-        # set_bypass_triggers(bypass_triggers)
-
-    @property
-    def is_executing(self):
-        """
-        Check if we're currently in a trigger execution context.
-        Similar to Salesforce's Trigger.isExecuting.
-        Use this to prevent infinite recursion in triggers.
-        """
-        return hasattr(trigger_vars, "event") and trigger_vars.event is not None
-
-    @property
-    def current_event(self):
-        """
-        Get the current trigger event being executed.
-        """
-        return getattr(trigger_vars, "event", None)
-
-    @property
-    def execution_depth(self):
-        """
-        Get the current execution depth to detect deep recursion.
-        """
-        return getattr(trigger_vars, "depth", 0)

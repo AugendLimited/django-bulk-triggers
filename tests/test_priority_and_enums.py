@@ -13,7 +13,7 @@ from django_bulk_triggers.constants import (
     BEFORE_DELETE,
     BEFORE_UPDATE,
 )
-from django_bulk_triggers.priority import Priority
+from django_bulk_triggers.enums import Priority
 
 
 class TestPriority(TestCase):
