@@ -6,12 +6,12 @@ logger = logging.getLogger(__name__)
 def resolve_dotted_attr(instance, dotted_path):
     """
     Recursively resolve a dotted attribute path, e.g., "type.category".
-    
+
     CRITICAL: For foreign key fields, uses attname to access the ID directly
     to avoid triggering Django's descriptor protocol which causes N+1 queries.
     """
     # For simple field access (no dots), use optimized field access
-    if '.' not in dotted_path:
+    if "." not in dotted_path:
         try:
             # Get the field from the model's meta to check if it's a foreign key
             field = instance._meta.get_field(dotted_path)
@@ -25,31 +25,33 @@ def resolve_dotted_attr(instance, dotted_path):
         except Exception:
             # If field lookup fails, fall back to normal getattr
             return getattr(instance, dotted_path, None)
-    
+
     # For dotted paths, traverse the relationship chain with FK optimization
     current_instance = instance
     for i, attr in enumerate(dotted_path.split(".")):
         if current_instance is None:
             return None
-        
+
         try:
             # Check if this is the last attribute and if it's a FK field
-            is_last_attr = (i == len(dotted_path.split(".")) - 1)
-            if is_last_attr and hasattr(current_instance, '_meta'):
+            is_last_attr = i == len(dotted_path.split(".")) - 1
+            if is_last_attr and hasattr(current_instance, "_meta"):
                 try:
                     field = current_instance._meta.get_field(attr)
                     if field.is_relation and not field.many_to_many:
                         # Use attname for the final FK field access
-                        current_instance = getattr(current_instance, field.attname, None)
+                        current_instance = getattr(
+                            current_instance, field.attname, None
+                        )
                         continue
                 except:
                     pass  # Fall through to normal getattr
-            
+
             # Normal getattr for non-FK fields or when FK optimization fails
             current_instance = getattr(current_instance, attr, None)
         except Exception:
             current_instance = None
-    
+
     return current_instance
 
 
@@ -95,7 +97,7 @@ class IsEqual(TriggerCondition):
 
     def check(self, instance, original_instance=None):
         current = resolve_dotted_attr(instance, self.field)
-        
+
         if self.only_on_change:
             if original_instance is None:
                 return False

@@ -6,15 +6,15 @@ from django_bulk_triggers.queryset import TriggerQuerySet
 class BulkTriggerManager(models.Manager):
     """
     Manager that provides trigger-aware bulk operations.
-    
+
     This is a simple facade that returns TriggerQuerySet,
     delegating all bulk operations to it.
     """
-    
+
     def get_queryset(self):
         """
         Return a TriggerQuerySet for this manager.
-        
+
         This ensures all bulk operations go through the coordinator.
         """
         base_queryset = super().get_queryset()
@@ -60,7 +60,12 @@ class BulkTriggerManager(models.Manager):
         )
 
     def bulk_update(
-        self, objs, fields=None, bypass_triggers=False, bypass_validation=False, **kwargs
+        self,
+        objs,
+        fields=None,
+        bypass_triggers=False,
+        bypass_validation=False,
+        **kwargs,
     ):
         """
         Delegate to QuerySet's bulk_update implementation.
@@ -71,7 +76,7 @@ class BulkTriggerManager(models.Manager):
         These parameters are only available in bulk_create for UPSERT operations.
         """
         if fields is not None:
-            kwargs['fields'] = fields
+            kwargs["fields"] = fields
         return self.get_queryset().bulk_update(
             objs,
             bypass_triggers=bypass_triggers,

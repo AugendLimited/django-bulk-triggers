@@ -4,6 +4,7 @@ Thread-local context management for bulk operations.
 This module provides thread-safe storage for operation state like
 bypass_triggers flags and bulk update metadata.
 """
+
 import threading
 
 _trigger_context = threading.local()
@@ -53,5 +54,3 @@ def set_bulk_update_batch_size(batch_size):
 def get_bulk_update_batch_size():
     """Get the batch_size for the current bulk_update operation."""
     return getattr(_trigger_context, "bulk_update_batch_size", None)
-
-

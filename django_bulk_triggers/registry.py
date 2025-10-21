@@ -4,6 +4,7 @@ Central registry for trigger handlers.
 Provides thread-safe registration and lookup of triggers with
 deterministic priority ordering.
 """
+
 import logging
 import threading
 from collections.abc import Callable
@@ -20,18 +21,18 @@ TriggerInfo = Tuple[Type, str, Optional[Callable], int]
 class TriggerRegistry:
     """
     Central registry for all trigger handlers.
-    
+
     Manages registration, lookup, and lifecycle of triggers with
     thread-safe operations and deterministic ordering by priority.
-    
+
     This is a singleton - use get_registry() to access the instance.
     """
-    
+
     def __init__(self):
         """Initialize an empty registry with thread-safe storage."""
         self._triggers: Dict[Tuple[Type, str], List[TriggerInfo]] = {}
         self._lock = threading.RLock()
-    
+
     def register(
         self,
         model: Type,
@@ -39,11 +40,11 @@ class TriggerRegistry:
         handler_cls: Type,
         method_name: str,
         condition: Optional[Callable],
-        priority: Union[int, Priority]
+        priority: Union[int, Priority],
     ) -> None:
         """
         Register a trigger handler for a model and event.
-        
+
         Args:
             model: Django model class
             event: Event name (e.g., 'after_update', 'before_create')
@@ -55,7 +56,7 @@ class TriggerRegistry:
         with self._lock:
             key = (model, event)
             triggers = self._triggers.setdefault(key, [])
-            
+
             # Check for duplicates before adding
             trigger_info = (handler_cls, method_name, condition, priority)
             if trigger_info not in triggers:
@@ -71,15 +72,15 @@ class TriggerRegistry:
                     f"Trigger {handler_cls.__name__}.{method_name} "
                     f"already registered for {model.__name__}.{event}"
                 )
-    
+
     def get_triggers(self, model: Type, event: str) -> List[TriggerInfo]:
         """
         Get all triggers for a model and event.
-        
+
         Args:
             model: Django model class
             event: Event name
-            
+
         Returns:
             List of trigger info tuples (handler_cls, method_name, condition, priority)
             sorted by priority (lower values first)
@@ -87,27 +88,28 @@ class TriggerRegistry:
         with self._lock:
             key = (model, event)
             triggers = self._triggers.get(key, [])
-            
+
             # Only log when triggers are found or for specific events to reduce noise
-            if triggers or event in ['after_update', 'before_update', 'after_create', 'before_create']:
+            if triggers or event in [
+                "after_update",
+                "before_update",
+                "after_create",
+                "before_create",
+            ]:
                 logger.debug(
                     f"get_triggers {model.__name__}.{event} found {len(triggers)} triggers"
                 )
-            
+
             return triggers
-    
+
     def unregister(
-        self,
-        model: Type,
-        event: str,
-        handler_cls: Type,
-        method_name: str
+        self, model: Type, event: str, handler_cls: Type, method_name: str
     ) -> None:
         """
         Unregister a specific trigger handler.
-        
+
         Used when child classes override parent trigger methods.
-        
+
         Args:
             model: Django model class
             event: Event name
@@ -118,7 +120,7 @@ class TriggerRegistry:
             key = (model, event)
             if key not in self._triggers:
                 return
-            
+
             triggers = self._triggers[key]
             # Filter out the specific trigger
             self._triggers[key] = [
@@ -126,50 +128,53 @@ class TriggerRegistry:
                 for h_cls, m_name, cond, pri in triggers
                 if not (h_cls == handler_cls and m_name == method_name)
             ]
-            
+
             # Clean up empty trigger lists
             if not self._triggers[key]:
                 del self._triggers[key]
-            
+
             logger.debug(
                 f"Unregistered {handler_cls.__name__}.{method_name} "
                 f"for {model.__name__}.{event}"
             )
-    
+
     def clear(self) -> None:
         """
         Clear all registered triggers.
-        
+
         Useful for testing to ensure clean state between tests.
         """
         with self._lock:
             self._triggers.clear()
-            
+
             # Also clear TriggerMeta state to ensure complete reset
             from django_bulk_triggers.handler import TriggerMeta
+
             TriggerMeta._registered.clear()
             TriggerMeta._class_trigger_map.clear()
-            
+
             logger.debug("Cleared all registered triggers")
-    
+
     def list_all(self) -> Dict[Tuple[Type, str], List[TriggerInfo]]:
         """
         Get all registered triggers for debugging.
-        
+
         Returns:
             Dictionary mapping (model, event) tuples to lists of trigger info
         """
         with self._lock:
             return dict(self._triggers)
-    
-    def count_triggers(self, model: Optional[Type] = None, event: Optional[str] = None) -> int:
+
+    def count_triggers(
+        self, model: Optional[Type] = None, event: Optional[str] = None
+    ) -> int:
         """
         Count registered triggers, optionally filtered by model and/or event.
-        
+
         Args:
             model: Optional model class to filter by
             event: Optional event name to filter by
-            
+
         Returns:
             Number of matching triggers
         """
@@ -204,21 +209,21 @@ _registry_lock = threading.Lock()
 def get_registry() -> TriggerRegistry:
     """
     Get the global trigger registry instance.
-    
+
     Creates the registry on first access (singleton pattern).
     Thread-safe initialization.
-    
+
     Returns:
         TriggerRegistry singleton instance
     """
     global _registry
-    
+
     if _registry is None:
         with _registry_lock:
             # Double-checked locking
             if _registry is None:
                 _registry = TriggerRegistry()
-    
+
     return _registry
 
 
@@ -229,11 +234,11 @@ def register_trigger(
     handler_cls: Type,
     method_name: str,
     condition: Optional[Callable],
-    priority: Union[int, Priority]
+    priority: Union[int, Priority],
 ) -> None:
     """
     Register a trigger handler (backward-compatible function).
-    
+
     Delegates to the global registry instance.
     """
     registry = get_registry()
@@ -243,7 +248,7 @@ def register_trigger(
 def get_triggers(model: Type, event: str) -> List[TriggerInfo]:
     """
     Get triggers for a model and event (backward-compatible function).
-    
+
     Delegates to the global registry instance.
     """
     registry = get_registry()
@@ -251,14 +256,11 @@ def get_triggers(model: Type, event: str) -> List[TriggerInfo]:
 
 
 def unregister_trigger(
-    model: Type,
-    event: str,
-    handler_cls: Type,
-    method_name: str
+    model: Type, event: str, handler_cls: Type, method_name: str
 ) -> None:
     """
     Unregister a trigger handler (backward-compatible function).
-    
+
     Delegates to the global registry instance.
     """
     registry = get_registry()
@@ -268,7 +270,7 @@ def unregister_trigger(
 def clear_triggers() -> None:
     """
     Clear all registered triggers (backward-compatible function).
-    
+
     Delegates to the global registry instance.
     Useful for testing.
     """
@@ -279,7 +281,7 @@ def clear_triggers() -> None:
 def list_all_triggers() -> Dict[Tuple[Type, str], List[TriggerInfo]]:
     """
     List all registered triggers (backward-compatible function).
-    
+
     Delegates to the global registry instance.
     """
     registry = get_registry()
